@@ -149,6 +149,18 @@ class TradingBot:
             if chat_id in self.user_trading_styles:
                 self.update_config_trading_style(self.user_trading_styles[chat_id])
             
+            # Tunggu sebentar untuk memastikan file config.py sudah ter-write
+            time.sleep(0.5)
+            
+            # Verifikasi bahwa config sudah ter-update dengan benar
+            try:
+                import importlib
+                # Force reload config module jika sudah di-import sebelumnya
+                if 'config' in sys.modules:
+                    importlib.reload(sys.modules['config'])
+            except:
+                pass
+            
             # Jalankan analisis_quant.py
             result = subprocess.run(
                 [sys.executable, "analisis_quant.py"],

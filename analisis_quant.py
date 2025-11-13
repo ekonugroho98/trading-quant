@@ -36,7 +36,12 @@ except ImportError:
     HAS_SCIPY = False
 
 # Import konfigurasi terpusat
+# Force reload config untuk memastikan menggunakan nilai terbaru
 try:
+    import importlib
+    import config
+    # Reload config module untuk memastikan menggunakan nilai terbaru dari file
+    importlib.reload(config)
     from config import (
         TRADING_STYLE, USE_CSV_DATA, CSV_FILE, FILTER_YEAR,
         TRADING_SYMBOL, SETUP_RISK_PERCENT, SETUP_TP_MULTIPLIERS,
@@ -66,6 +71,27 @@ except ImportError:
     RUN_PREDICTION = True
     SYMBOL = "BTC-USD"
     DATA_SOURCE = "yfinance"
+except Exception as e:
+    # Jika reload gagal, coba import normal
+    print(f"⚠️  Warning: Gagal reload config, menggunakan import normal: {e}")
+    try:
+        from config import (
+            TRADING_STYLE, USE_CSV_DATA, CSV_FILE, FILTER_YEAR,
+            TRADING_SYMBOL, SETUP_RISK_PERCENT, SETUP_TP_MULTIPLIERS,
+            RUN_PREDICTION, SYMBOL, DATA_SOURCE
+        )
+    except ImportError:
+        print("⚠️  config.py tidak ditemukan, menggunakan konfigurasi default")
+        TRADING_STYLE = "DAY_TRADING"
+        USE_CSV_DATA = True
+        CSV_FILE = None
+        FILTER_YEAR = 2025
+        TRADING_SYMBOL = "BTCUSDT"
+        SETUP_RISK_PERCENT = None
+        SETUP_TP_MULTIPLIERS = None
+        RUN_PREDICTION = True
+        SYMBOL = "BTC-USD"
+        DATA_SOURCE = "yfinance"
 
 def load_data_from_csv(csv_file=None):
     """Load data dari CSV yang dihasilkan get_data.py atau get_historical_data.py"""
