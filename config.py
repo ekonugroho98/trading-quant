@@ -136,3 +136,10 @@ ENABLE_DEEPSEEK_AI = True  # Aktifkan integrasi DeepSeek AI
 DEEPSEEK_API_KEY = "sk-e35bb3b3d15b4d899895fb927917d0d3"  # API key DeepSeek
 DEEPSEEK_MODEL = "deepseek-chat"  # Model yang digunakan
 
+# ============================================
+# KONFIGURASI TELEGRAM BOT INTEGRATION
+# ============================================
+ENABLE_TELEGRAM_BOT = True  # Aktifkan integrasi Telegram Bot
+TELEGRAM_BOT_TOKEN = ""  # Bot Token dari @BotFather (contoh: "123456789:ABCdefGHIjklMNOpqrsTUVwxyz")
+TELEGRAM_CHAT_ID = ""  # Chat ID untuk mengirim pesan (contoh: "123456789" atau "-1001234567890" untuk group)
+

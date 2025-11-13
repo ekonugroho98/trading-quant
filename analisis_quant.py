@@ -1181,11 +1181,67 @@ if RUN_PREDICTION:
                 
                 # Get current price from analysis data
                 current_price = None
+                support = None
+                resistance = None
+                timeframe = None
+                symbol = None
+                
                 if 'current_position' in analysis_data:
                     current_price = analysis_data['current_position'].get('current_price')
+                    support = analysis_data['current_position'].get('support')
+                    resistance = analysis_data['current_position'].get('resistance')
+                
+                if 'basic_info' in analysis_data:
+                    timeframe = analysis_data['basic_info'].get('interval')
+                    symbol = analysis_data['basic_info'].get('symbol')
                 
                 if recommendation:
-                    print(format_recommendation_output(recommendation, current_price))
+                    print(format_recommendation_output(
+                        recommendation, 
+                        current_price,
+                        support,
+                        resistance,
+                        timeframe,
+                        symbol
+                    ))
+                    
+                    # ============================================
+                    # TELEGRAM BOT INTEGRATION
+                    # ============================================
+                    try:
+                        from config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+                        from telegram_bot import TelegramBot
+                        
+                        if ENABLE_TELEGRAM_BOT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+                            print("\n" + "=" * 70)
+                            print("📱 MENGIRIM KE TELEGRAM...")
+                            print("=" * 70)
+                            
+                            bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+                            success = bot.send_trading_recommendation(
+                                recommendation=recommendation,
+                                current_price=current_price,
+                                support=support,
+                                resistance=resistance,
+                                timeframe=timeframe,
+                                symbol=symbol
+                            )
+                            
+                            if success:
+                                print("✅ Rekomendasi berhasil dikirim ke Telegram")
+                            else:
+                                print("⚠️  Gagal mengirim ke Telegram")
+                        else:
+                            if not ENABLE_TELEGRAM_BOT:
+                                print("ℹ️  Telegram Bot integration dinonaktifkan di config.py")
+                            elif not TELEGRAM_BOT_TOKEN:
+                                print("ℹ️  Telegram Bot Token tidak ditemukan di config.py")
+                            elif not TELEGRAM_CHAT_ID:
+                                print("ℹ️  Telegram Chat ID tidak ditemukan di config.py")
+                    except ImportError as e:
+                        print(f"ℹ️  Telegram Bot integration tidak tersedia: {e}")
+                    except Exception as e:
+                        print(f"⚠️  Error dalam Telegram Bot integration: {e}")
                 else:
                     print("⚠️  Tidak dapat mendapatkan rekomendasi dari DeepSeek AI")
             else:

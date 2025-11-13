@@ -343,6 +343,8 @@ def format_recommendation_output(recommendation: Dict, current_price: Optional[f
     output.append(f"\n📊 Action: {recommendation.get('action', 'N/A')}")
     output.append(f"📍 Position: {recommendation.get('position', 'N/A')}")
     output.append(f"🎯 Confidence: {recommendation.get('confidence', 0)}%")
+    
+    # Support & Resistance (akan ditambahkan dari analisis_quant.py)
     output.append(f"\n💰 Entry Price: {recommendation.get('entry_price', 'N/A')}")
     output.append(f"🛑 Stop Loss: {recommendation.get('stop_loss', 'N/A')}")
     
