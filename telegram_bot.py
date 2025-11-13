@@ -123,17 +123,29 @@ class TelegramBot:
         stop_loss = recommendation.get('stop_loss', 'N/A')
         
         lines.append("💰 <b>Trading Setup:</b>")
-        lines.append(f"   Entry: {entry_price:,.2f}" if isinstance(entry_price, (int, float)) else f"   Entry: {entry_price}")
-        lines.append(f"   Stop Loss: {stop_loss:,.2f}" if isinstance(stop_loss, (int, float)) else f"   Stop Loss: {stop_loss}")
+        if isinstance(entry_price, (int, float)):
+            lines.append(f"   Entry: {entry_price:,.2f}")
+        else:
+            lines.append(f"   Entry: {entry_price}")
+        
+        # Stop Loss dengan persentase
+        if isinstance(stop_loss, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
+            stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
+            sign = "+" if stop_loss_pct > 0 else ""
+            lines.append(f"   Stop Loss: {stop_loss:,.2f} ({sign}{stop_loss_pct:.2f}%)")
+        else:
+            lines.append(f"   Stop Loss: {stop_loss}")
         lines.append("")
         
-        # Targets
+        # Targets dengan persentase
         targets = recommendation.get('targets', [])
         if targets:
             lines.append("🎯 <b>Targets:</b>")
             for i, target in enumerate(targets, 1):
-                if isinstance(target, (int, float)):
-                    lines.append(f"   TP{i}: {target:,.2f}")
+                if isinstance(target, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
+                    target_pct = ((target - entry_price) / entry_price) * 100
+                    sign = "+" if target_pct > 0 else ""
+                    lines.append(f"   TP{i}: {target:,.2f} ({sign}{target_pct:.2f}%)")
                 else:
                     lines.append(f"   TP{i}: {target}")
             lines.append("")

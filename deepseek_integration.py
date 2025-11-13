@@ -366,14 +366,34 @@ def format_recommendation_output(recommendation: Dict,
     output.append(f"\n📊 Action: {recommendation.get('action', 'N/A')}")
     output.append(f"📍 Position: {recommendation.get('position', 'N/A')}")
     output.append(f"🎯 Confidence: {recommendation.get('confidence', 0)}%")
-    output.append(f"\n💰 Entry Price: {recommendation.get('entry_price', 'N/A')}")
-    output.append(f"🛑 Stop Loss: {recommendation.get('stop_loss', 'N/A')}")
     
+    # Entry Price
+    entry_price = recommendation.get('entry_price')
+    if isinstance(entry_price, (int, float)):
+        output.append(f"\n💰 Entry Price: {entry_price:,.2f}")
+    else:
+        output.append(f"\n💰 Entry Price: {entry_price}")
+    
+    # Stop Loss dengan persentase
+    stop_loss = recommendation.get('stop_loss')
+    if isinstance(stop_loss, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
+        stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
+        sign = "+" if stop_loss_pct > 0 else ""
+        output.append(f"🛑 Stop Loss: {stop_loss:,.2f} ({sign}{stop_loss_pct:.2f}%)")
+    else:
+        output.append(f"🛑 Stop Loss: {stop_loss}")
+    
+    # Targets dengan persentase
     targets = recommendation.get('targets', [])
     if targets:
         output.append(f"\n🎯 Targets:")
         for i, target in enumerate(targets, 1):
-            output.append(f"   TP{i}: {target}")
+            if isinstance(target, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
+                target_pct = ((target - entry_price) / entry_price) * 100
+                sign = "+" if target_pct > 0 else ""
+                output.append(f"   TP{i}: {target:,.2f} ({sign}{target_pct:.2f}%)")
+            else:
+                output.append(f"   TP{i}: {target}")
     
     reason = recommendation.get('reason', '')
     if reason:
