@@ -223,6 +223,41 @@ if USE_CSV_DATA:
         if len(data) == 0:
             raise ValueError("Data CSV kosong setelah processing")
             
+    except FileNotFoundError as e:
+        # Jika file CSV tidak ditemukan, coba ambil data otomatis
+        print(f"\n⚠️  File CSV tidak ditemukan: {e}")
+        print("🔄 Mencoba mengambil data historical otomatis...")
+        
+        try:
+            # Jalankan get_historical_data.py untuk mengambil data
+            import subprocess
+            result = subprocess.run(
+                [sys.executable, "get_historical_data.py"],
+                capture_output=True,
+                text=True,
+                timeout=120  # 2 menit timeout
+            )
+            
+            if result.returncode == 0:
+                print("✅ Data historical berhasil diambil")
+                # Coba load lagi
+                try:
+                    data = load_data_from_csv(CSV_FILE)
+                    print(f"\n✅ Data CSV dimuat: {len(data)} records")
+                    print(f"   Periode: {data.index.min()} sampai {data.index.max()}")
+                except Exception as e2:
+                    print(f"⚠️  Masih gagal memuat CSV setelah pengambilan data: {e2}")
+                    print("⚠️  Fallback ke yfinance...")
+                    data = load_data_from_yfinance()
+            else:
+                print(f"⚠️  Gagal mengambil data historical: {result.stderr[:200] if result.stderr else 'Unknown error'}")
+                print("⚠️  Fallback ke yfinance...")
+                data = load_data_from_yfinance()
+        except Exception as e2:
+            print(f"⚠️  Error menjalankan get_historical_data.py: {e2}")
+            print("⚠️  Fallback ke yfinance...")
+            data = load_data_from_yfinance()
+            
     except Exception as e:
         print(f"\n❌ Error memuat data CSV: {e}")
         print("⚠️  Fallback ke yfinance...")

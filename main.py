@@ -161,6 +161,40 @@ class TradingBot:
             except:
                 pass
             
+            # Cek apakah perlu mengambil data historical terlebih dahulu
+            # (analisis_quant.py akan otomatis mengambil jika tidak ada CSV, tapi lebih baik kita ambil dulu)
+            try:
+                # Cek apakah ada file CSV
+                import glob
+                csv_files = glob.glob("*_historical_*.csv")
+                if not csv_files:
+                    # Tidak ada file CSV, ambil data historical terlebih dahulu
+                    self.send_message(
+                        chat_id,
+                        "📥 <b>Mengambil data historical...</b>\n"
+                        "⏳ Ini mungkin memakan waktu beberapa detik..."
+                    )
+                    
+                    result_data = subprocess.run(
+                        [sys.executable, "get_historical_data.py"],
+                        capture_output=True,
+                        text=True,
+                        timeout=120  # 2 menit timeout
+                    )
+                    
+                    if result_data.returncode == 0:
+                        self.send_message(
+                            chat_id,
+                            "✅ <b>Data historical berhasil diambil</b>\n"
+                            "🔄 Melanjutkan ke analisis..."
+                        )
+                    else:
+                        # Data tidak berhasil diambil, tapi lanjutkan saja (analisis_quant.py akan fallback ke yfinance)
+                        print(f"⚠️  Warning: Gagal mengambil data historical, analisis akan menggunakan yfinance")
+            except Exception as e:
+                # Error mengambil data, tapi lanjutkan saja
+                print(f"⚠️  Warning: Error saat mengambil data historical: {e}")
+            
             # Jalankan analisis_quant.py
             result = subprocess.run(
                 [sys.executable, "analisis_quant.py"],
