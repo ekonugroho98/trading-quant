@@ -28,17 +28,42 @@ def calculate_maximum_drawdown(equity_curve: pd.Series) -> Dict:
     max_dd = drawdown.min()
     max_dd_idx = drawdown.idxmin()
     
+    # Get numeric position of max_dd_idx
+    try:
+        max_dd_pos = equity_curve.index.get_loc(max_dd_idx)
+    except (KeyError, TypeError):
+        # Fallback: find position manually
+        max_dd_pos = list(equity_curve.index).index(max_dd_idx) if max_dd_idx in equity_curve.index else len(equity_curve) - 1
+    
     # Find peak before drawdown
     peak_idx = equity_curve[:max_dd_idx].idxmax()
     peak_value = equity_curve.loc[peak_idx]
     
     # Find recovery point (if any)
     recovery_idx = None
-    if max_dd_idx < len(equity_curve) - 1:
+    if max_dd_pos < len(equity_curve) - 1:
         recovery_data = equity_curve[max_dd_idx:]
         recovery_values = recovery_data[recovery_data >= peak_value]
         if len(recovery_values) > 0:
             recovery_idx = recovery_values.index[0]
+    
+    # Calculate drawdown duration
+    drawdown_duration = None
+    try:
+        if isinstance(max_dd_idx, pd.Timestamp) and isinstance(peak_idx, pd.Timestamp):
+            duration = max_dd_idx - peak_idx
+            if hasattr(duration, 'days'):
+                drawdown_duration = duration.days
+            elif hasattr(duration, 'total_seconds'):
+                # For intraday data, convert to days
+                drawdown_duration = duration.total_seconds() / 86400
+    except (TypeError, AttributeError):
+        # If not Timestamp, calculate as number of periods
+        try:
+            peak_pos = equity_curve.index.get_loc(peak_idx)
+            drawdown_duration = max_dd_pos - peak_pos
+        except (KeyError, TypeError):
+            pass
     
     return {
         'max_drawdown': max_dd,
@@ -46,7 +71,7 @@ def calculate_maximum_drawdown(equity_curve: pd.Series) -> Dict:
         'drawdown_start': peak_idx,
         'drawdown_end': max_dd_idx,
         'recovery_date': recovery_idx,
-        'drawdown_duration': (max_dd_idx - peak_idx).days if hasattr(max_dd_idx - peak_idx, 'days') else None
+        'drawdown_duration': drawdown_duration
     }
 
 
