@@ -186,19 +186,28 @@ class TradingBot:
         """
         try:
             config_file = "config.py"
-            with open(config_file, 'r') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # Replace SYMBOL line
+            # Replace SYMBOL line (handle berbagai format)
             import re
-            pattern = r'^SYMBOL\s*=\s*["\'].*["\']'
+            # Pattern untuk match SYMBOL = "..." atau SYMBOL = '...'
+            pattern = r'^SYMBOL\s*=\s*["\'].*?["\']'
             replacement = f'SYMBOL = "{symbol}"'
             new_content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
             
             if new_content != content:
-                with open(config_file, 'w') as f:
+                with open(config_file, 'w', encoding='utf-8') as f:
                     f.write(new_content)
                 print(f"✅ Config updated: SYMBOL = {symbol}")
+            else:
+                # Coba pattern alternatif jika tidak match
+                pattern2 = r'SYMBOL\s*=\s*["\'].*?["\']'
+                new_content2 = re.sub(pattern2, replacement, content)
+                if new_content2 != content:
+                    with open(config_file, 'w', encoding='utf-8') as f:
+                        f.write(new_content2)
+                    print(f"✅ Config updated: SYMBOL = {symbol}")
         except Exception as e:
             print(f"⚠️  Error updating config: {e}")
     
