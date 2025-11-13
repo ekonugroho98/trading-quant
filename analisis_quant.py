@@ -165,7 +165,10 @@ def load_data_from_yfinance():
     end_str = end_date.strftime("%Y-%m-%d")
     
     print(f"Periode: {start_str} sampai {end_str} (Target tahun: {target_year})")
-    data = yf.download("BTC-USD", start=start_str, end=end_str, progress=False)
+    # Gunakan SYMBOL dari config, fallback ke BTC-USD jika tidak ada
+    symbol_to_download = SYMBOL if SYMBOL else "BTC-USD"
+    print(f"Mengunduh data untuk: {symbol_to_download}")
+    data = yf.download(symbol_to_download, start=start_str, end=end_str, progress=False)
     
     # Filter tambahan: pastikan hanya data tahun target
     if not data.empty and FILTER_YEAR is not None:
