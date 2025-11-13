@@ -1217,6 +1217,10 @@ if RUN_PREDICTION:
             stderr=None   # Tampilkan error langsung
         )
         
+        # Tunggu sebentar untuk memastikan file ml_prediction_result.json sudah ter-write
+        import time
+        time.sleep(0.5)
+        
         if result.returncode != 0:
             print("\n⚠️  Prediksi mengalami error, tapi analisis strategi sudah selesai")
         else:
@@ -1329,6 +1333,10 @@ if RUN_PREDICTION:
                                 # Kirim ML prediction results ke Telegram jika ada
                                 try:
                                     from ml_prediction_helper import get_ml_prediction_from_file
+                                    # Tunggu sebentar untuk memastikan file JSON sudah ter-write
+                                    import time
+                                    time.sleep(0.5)
+                                    
                                     ml_result = get_ml_prediction_from_file()
                                     if ml_result:
                                         print("🤖 Mengirim ML prediction results ke Telegram...")
@@ -1342,6 +1350,10 @@ if RUN_PREDICTION:
                                                 pass
                                         else:
                                             print("⚠️  Gagal mengirim ML prediction results ke Telegram")
+                                    else:
+                                        print("ℹ️  ML prediction results tidak ditemukan di file JSON")
+                                except ImportError as e:
+                                    print(f"ℹ️  ml_prediction_helper tidak tersedia: {e}")
                                 except Exception as e:
                                     print(f"ℹ️  ML prediction results tidak tersedia: {e}")
                                 
