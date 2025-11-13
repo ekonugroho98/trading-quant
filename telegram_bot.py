@@ -118,37 +118,38 @@ class TelegramBot:
         lines.append(f"🎯 <b>Confidence:</b> {confidence}%")
         lines.append("")
         
-        # Entry & Stop Loss
-        entry_price = recommendation.get('entry_price', 'N/A')
-        stop_loss = recommendation.get('stop_loss', 'N/A')
-        
-        lines.append("💰 <b>Trading Setup:</b>")
-        if isinstance(entry_price, (int, float)):
-            lines.append(f"   Entry: {entry_price:,.2f}")
-        else:
-            lines.append(f"   Entry: {entry_price}")
-        
-        # Stop Loss dengan persentase
-        if isinstance(stop_loss, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
-            stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
-            sign = "+" if stop_loss_pct > 0 else ""
-            lines.append(f"   Stop Loss: {stop_loss:,.2f} ({sign}{stop_loss_pct:.2f}%)")
-        else:
-            lines.append(f"   Stop Loss: {stop_loss}")
-        lines.append("")
-        
-        # Targets dengan persentase
-        targets = recommendation.get('targets', [])
-        if targets:
-            lines.append("🎯 <b>Targets:</b>")
-            for i, target in enumerate(targets, 1):
-                if isinstance(target, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
-                    target_pct = ((target - entry_price) / entry_price) * 100
-                    sign = "+" if target_pct > 0 else ""
-                    lines.append(f"   TP{i}: {target:,.2f} ({sign}{target_pct:.2f}%)")
-                else:
-                    lines.append(f"   TP{i}: {target}")
+        # Trading Setup (hanya untuk BUY/SELL, tidak untuk HOLD)
+        if action != 'HOLD':
+            entry_price = recommendation.get('entry_price', 'N/A')
+            stop_loss = recommendation.get('stop_loss', 'N/A')
+            
+            lines.append("💰 <b>Trading Setup:</b>")
+            if isinstance(entry_price, (int, float)):
+                lines.append(f"   Entry: {entry_price:,.2f}")
+            else:
+                lines.append(f"   Entry: {entry_price}")
+            
+            # Stop Loss dengan persentase
+            if isinstance(stop_loss, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
+                stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
+                sign = "+" if stop_loss_pct > 0 else ""
+                lines.append(f"   Stop Loss: {stop_loss:,.2f} ({sign}{stop_loss_pct:.2f}%)")
+            elif stop_loss is not None:
+                lines.append(f"   Stop Loss: {stop_loss}")
             lines.append("")
+            
+            # Targets dengan persentase
+            targets = recommendation.get('targets', [])
+            if targets:
+                lines.append("🎯 <b>Targets:</b>")
+                for i, target in enumerate(targets, 1):
+                    if isinstance(target, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
+                        target_pct = ((target - entry_price) / entry_price) * 100
+                        sign = "+" if target_pct > 0 else ""
+                        lines.append(f"   TP{i}: {target:,.2f} ({sign}{target_pct:.2f}%)")
+                    else:
+                        lines.append(f"   TP{i}: {target}")
+                lines.append("")
         
         # Reason
         reason = recommendation.get('reason', '')

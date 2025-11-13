@@ -180,10 +180,11 @@ Berdasarkan semua data di atas, berikan rekomendasi trading dalam format JSON be
 }}
 
 PENTING:
-- Jika action adalah HOLD, tetap berikan entry_price, targets, dan stop_loss berdasarkan current price dan support/resistance levels untuk referensi jika nanti ingin masuk
-- entry_price harus selalu berupa number (bukan null), gunakan current price jika HOLD
-- targets harus selalu array dengan minimal 3 angka (bukan empty array), gunakan support/resistance levels jika HOLD
-- stop_loss harus selalu berupa number (bukan null), gunakan support/resistance sebagai referensi jika HOLD
+- Jika action adalah HOLD, set entry_price, targets, dan stop_loss ke null (tidak perlu karena tidak ada posisi trading)
+- Jika action adalah BUY atau SELL, entry_price, targets, dan stop_loss harus berupa number/array yang valid
+- entry_price: number atau null (null jika HOLD)
+- targets: array of numbers atau [] (empty array jika HOLD)
+- stop_loss: number atau null (null jika HOLD)
 
 Pertimbangkan:
 1. Current position dan signal dari strategi
@@ -389,33 +390,36 @@ def format_recommendation_output(recommendation: Dict,
     output.append(f"📍 Position: {recommendation.get('position', 'N/A')}")
     output.append(f"🎯 Confidence: {recommendation.get('confidence', 0)}%")
     
-    # Entry Price
-    entry_price = recommendation.get('entry_price')
-    if isinstance(entry_price, (int, float)):
-        output.append(f"\n💰 Entry Price: {entry_price:,.2f}")
-    else:
-        output.append(f"\n💰 Entry Price: {entry_price}")
-    
-    # Stop Loss dengan persentase
-    stop_loss = recommendation.get('stop_loss')
-    if isinstance(stop_loss, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
-        stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
-        sign = "+" if stop_loss_pct > 0 else ""
-        output.append(f"🛑 Stop Loss: {stop_loss:,.2f} ({sign}{stop_loss_pct:.2f}%)")
-    else:
-        output.append(f"🛑 Stop Loss: {stop_loss}")
-    
-    # Targets dengan persentase
-    targets = recommendation.get('targets', [])
-    if targets:
-        output.append(f"\n🎯 Targets:")
-        for i, target in enumerate(targets, 1):
-            if isinstance(target, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
-                target_pct = ((target - entry_price) / entry_price) * 100
-                sign = "+" if target_pct > 0 else ""
-                output.append(f"   TP{i}: {target:,.2f} ({sign}{target_pct:.2f}%)")
-            else:
-                output.append(f"   TP{i}: {target}")
+    # Trading Setup (hanya untuk BUY/SELL, tidak untuk HOLD)
+    action = recommendation.get('action', '').upper()
+    if action != 'HOLD':
+        # Entry Price
+        entry_price = recommendation.get('entry_price')
+        if isinstance(entry_price, (int, float)):
+            output.append(f"\n💰 Entry Price: {entry_price:,.2f}")
+        else:
+            output.append(f"\n💰 Entry Price: {entry_price}")
+        
+        # Stop Loss dengan persentase
+        stop_loss = recommendation.get('stop_loss')
+        if isinstance(stop_loss, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
+            stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
+            sign = "+" if stop_loss_pct > 0 else ""
+            output.append(f"🛑 Stop Loss: {stop_loss:,.2f} ({sign}{stop_loss_pct:.2f}%)")
+        elif stop_loss is not None:
+            output.append(f"🛑 Stop Loss: {stop_loss}")
+        
+        # Targets dengan persentase
+        targets = recommendation.get('targets', [])
+        if targets:
+            output.append(f"\n🎯 Targets:")
+            for i, target in enumerate(targets, 1):
+                if isinstance(target, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
+                    target_pct = ((target - entry_price) / entry_price) * 100
+                    sign = "+" if target_pct > 0 else ""
+                    output.append(f"   TP{i}: {target:,.2f} ({sign}{target_pct:.2f}%)")
+                else:
+                    output.append(f"   TP{i}: {target}")
     
     reason = recommendation.get('reason', '')
     if reason:
