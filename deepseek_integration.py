@@ -173,18 +173,11 @@ Berdasarkan semua data di atas, berikan rekomendasi trading dalam format JSON be
     "action": "BUY|SELL|HOLD",
     "position": "LONG|SHORT|CASH",
     "confidence": 0-100,
-    "entry_price": number atau null (jika HOLD, gunakan current price sebagai referensi),
-    "targets": [number] atau [] (jika HOLD, berikan 3 target potensial berdasarkan support/resistance),
-    "stop_loss": number atau null (jika HOLD, gunakan support/resistance sebagai referensi),
+    "entry_price": number,
+    "targets": [number],
+    "stop_loss": number,
     "reason": "string singkat menjelaskan alasan rekomendasi"
 }}
-
-PENTING:
-- Jika action adalah HOLD, set entry_price, targets, dan stop_loss ke null (tidak perlu karena tidak ada posisi trading)
-- Jika action adalah BUY atau SELL, entry_price, targets, dan stop_loss harus berupa number/array yang valid
-- entry_price: number atau null (null jika HOLD)
-- targets: array of numbers atau [] (empty array jika HOLD)
-- stop_loss: number atau null (null jika HOLD)
 
 Pertimbangkan:
 1. Current position dan signal dari strategi
@@ -195,7 +188,7 @@ Pertimbangkan:
 6. ML prediction dan confidence level
 7. Risk/reward ratio dari trading setup
 
-Berikan rekomendasi yang konservatif dan berdasarkan data. Jika confidence rendah atau sinyal bertentangan, pilih HOLD dengan position CASH, tapi tetap berikan entry_price, targets, dan stop_loss untuk referensi.
+Berikan rekomendasi yang konservatif dan berdasarkan data. Jika confidence rendah atau sinyal bertentangan, pilih HOLD dengan position CASH.
 
 Hanya kembalikan JSON, tanpa penjelasan tambahan."""
         
@@ -287,28 +280,12 @@ Hanya kembalikan JSON, tanpa penjelasan tambahan."""
             
             # Validate structure
             required_fields = ['action', 'position', 'confidence', 'entry_price', 'targets', 'stop_loss', 'reason']
-            
-            # Check if all fields exist
-            if not all(field in result for field in required_fields):
+            if all(field in result for field in required_fields):
+                return result
+            else:
                 print("⚠️  Response tidak lengkap, field yang hilang:", 
                       [f for f in required_fields if f not in result])
                 return None
-            
-            # Handle null values - replace with defaults based on current price if available
-            # Try to get current price from analysis data if available
-            # For now, we'll just ensure entry_price and stop_loss are numbers
-            if result.get('entry_price') is None:
-                # If entry_price is null, we'll handle it in the calling function
-                print("⚠️  entry_price is null in AI response")
-            
-            if result.get('stop_loss') is None:
-                # If stop_loss is null, we'll handle it in the calling function
-                print("⚠️  stop_loss is null in AI response")
-            
-            if not isinstance(result.get('targets'), list):
-                result['targets'] = []
-            
-            return result
                 
         except json.JSONDecodeError as e:
             print(f"❌ Error parsing JSON: {e}")
@@ -390,9 +367,16 @@ def format_recommendation_output(recommendation: Dict,
     output.append(f"📍 Position: {recommendation.get('position', 'N/A')}")
     output.append(f"🎯 Confidence: {recommendation.get('confidence', 0)}%")
     
-    # Trading Setup (hanya untuk BUY/SELL, tidak untuk HOLD)
+    # Check if HOLD
     action = recommendation.get('action', '').upper()
-    if action != 'HOLD':
+    
+    if action == 'HOLD':
+        # Untuk HOLD, tampilkan None
+        output.append(f"\n💰 Entry Price: None")
+        output.append(f"🛑 Stop Loss: None")
+        output.append(f"\n🎯 Targets: None")
+        output.append(f"\n⚠️  No Entry - Tidak ada posisi trading saat ini")
+    else:
         # Entry Price
         entry_price = recommendation.get('entry_price')
         if isinstance(entry_price, (int, float)):
@@ -406,7 +390,7 @@ def format_recommendation_output(recommendation: Dict,
             stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
             sign = "+" if stop_loss_pct > 0 else ""
             output.append(f"🛑 Stop Loss: {stop_loss:,.2f} ({sign}{stop_loss_pct:.2f}%)")
-        elif stop_loss is not None:
+        else:
             output.append(f"🛑 Stop Loss: {stop_loss}")
         
         # Targets dengan persentase
@@ -420,6 +404,8 @@ def format_recommendation_output(recommendation: Dict,
                     output.append(f"   TP{i}: {target:,.2f} ({sign}{target_pct:.2f}%)")
                 else:
                     output.append(f"   TP{i}: {target}")
+        else:
+            output.append(f"\n🎯 Targets: None")
     
     reason = recommendation.get('reason', '')
     if reason:

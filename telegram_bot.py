@@ -118,8 +118,19 @@ class TelegramBot:
         lines.append(f"🎯 <b>Confidence:</b> {confidence}%")
         lines.append("")
         
-        # Trading Setup (hanya untuk BUY/SELL, tidak untuk HOLD)
-        if action != 'HOLD':
+        # Trading Setup
+        if action == 'HOLD':
+            # Untuk HOLD, tampilkan None
+            lines.append("💰 <b>Trading Setup:</b>")
+            lines.append("   Entry Price: None")
+            lines.append("   Stop Loss: None")
+            lines.append("")
+            lines.append("🎯 <b>Targets:</b> None")
+            lines.append("")
+            lines.append("⚠️ <b>No Entry</b> - Tidak ada posisi trading saat ini")
+            lines.append("")
+        else:
+            # Entry & Stop Loss
             entry_price = recommendation.get('entry_price', 'N/A')
             stop_loss = recommendation.get('stop_loss', 'N/A')
             
@@ -134,7 +145,7 @@ class TelegramBot:
                 stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
                 sign = "+" if stop_loss_pct > 0 else ""
                 lines.append(f"   Stop Loss: {stop_loss:,.2f} ({sign}{stop_loss_pct:.2f}%)")
-            elif stop_loss is not None:
+            else:
                 lines.append(f"   Stop Loss: {stop_loss}")
             lines.append("")
             
@@ -149,6 +160,9 @@ class TelegramBot:
                         lines.append(f"   TP{i}: {target:,.2f} ({sign}{target_pct:.2f}%)")
                     else:
                         lines.append(f"   TP{i}: {target}")
+                lines.append("")
+            else:
+                lines.append("🎯 <b>Targets:</b> None")
                 lines.append("")
         
         # Reason
