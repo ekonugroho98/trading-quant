@@ -1179,8 +1179,13 @@ if RUN_PREDICTION:
                 # Get recommendation
                 recommendation = advisor.get_trading_recommendation(analysis_data)
                 
+                # Get current price from analysis data
+                current_price = None
+                if 'current_position' in analysis_data:
+                    current_price = analysis_data['current_position'].get('current_price')
+                
                 if recommendation:
-                    print(format_recommendation_output(recommendation))
+                    print(format_recommendation_output(recommendation, current_price))
                 else:
                     print("⚠️  Tidak dapat mendapatkan rekomendasi dari DeepSeek AI")
             else:

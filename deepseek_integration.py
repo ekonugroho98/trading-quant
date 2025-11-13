@@ -21,8 +21,8 @@ class DeepSeekTradingAdvisor:
             base_url: Base URL untuk DeepSeek API
         """
         self.api_key = api_key
-        self.base_url = base_url
-        self.endpoint = f"{base_url}/v1/chat/completions"
+        self.base_url = base_url.rstrip('/')
+        self.endpoint = f"{self.base_url}/v1/chat/completions"
     
     def prepare_analysis_data(self, analysis_results: Dict) -> str:
         """
@@ -317,12 +317,13 @@ Hanya kembalikan JSON, tanpa penjelasan tambahan."""
         return recommendation
 
 
-def format_recommendation_output(recommendation: Dict) -> str:
+def format_recommendation_output(recommendation: Dict, current_price: Optional[float] = None) -> str:
     """
     Format recommendation untuk ditampilkan
     
     Args:
         recommendation: Dictionary dengan rekomendasi
+        current_price: Harga saat ini (optional)
     
     Returns:
         Formatted string
@@ -334,6 +335,11 @@ def format_recommendation_output(recommendation: Dict) -> str:
     output.append("\n" + "=" * 70)
     output.append("🤖 DEEPSEEK AI TRADING RECOMMENDATION")
     output.append("=" * 70)
+    
+    # Tampilkan current price jika tersedia
+    if current_price is not None:
+        output.append(f"\n💵 Current Price: {current_price:,.2f}")
+    
     output.append(f"\n📊 Action: {recommendation.get('action', 'N/A')}")
     output.append(f"📍 Position: {recommendation.get('position', 'N/A')}")
     output.append(f"🎯 Confidence: {recommendation.get('confidence', 0)}%")
