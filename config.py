@@ -140,6 +140,6 @@ DEEPSEEK_MODEL = "deepseek-chat"  # Model yang digunakan
 # KONFIGURASI TELEGRAM BOT INTEGRATION
 # ============================================
 ENABLE_TELEGRAM_BOT = True  # Aktifkan integrasi Telegram Bot
-TELEGRAM_BOT_TOKEN = ""  # Bot Token dari @BotFather (contoh: "123456789:ABCdefGHIjklMNOpqrsTUVwxyz")
-TELEGRAM_CHAT_ID = ""  # Chat ID untuk mengirim pesan (contoh: "123456789" atau "-1001234567890" untuk group)
+TELEGRAM_BOT_TOKEN = "8510299481:AAGN6iEEqPyu6GrrBT_7eGn903eMWgLXe6k"  # Bot Token dari @BotFather
+TELEGRAM_CHAT_ID = "788501152"  # Chat ID untuk mengirim pesan
 

@@ -317,13 +317,22 @@ Hanya kembalikan JSON, tanpa penjelasan tambahan."""
         return recommendation
 
 
-def format_recommendation_output(recommendation: Dict, current_price: Optional[float] = None) -> str:
+def format_recommendation_output(recommendation: Dict, 
+                                 current_price: Optional[float] = None,
+                                 support: Optional[float] = None,
+                                 resistance: Optional[float] = None,
+                                 timeframe: Optional[str] = None,
+                                 symbol: Optional[str] = None) -> str:
     """
     Format recommendation untuk ditampilkan
     
     Args:
         recommendation: Dictionary dengan rekomendasi
         current_price: Harga saat ini (optional)
+        support: Support level (optional)
+        resistance: Resistance level (optional)
+        timeframe: Timeframe trading (optional)
+        symbol: Trading symbol (optional)
     
     Returns:
         Formatted string
@@ -336,15 +345,27 @@ def format_recommendation_output(recommendation: Dict, current_price: Optional[f
     output.append("🤖 DEEPSEEK AI TRADING RECOMMENDATION")
     output.append("=" * 70)
     
+    # Symbol dan Timeframe
+    if symbol:
+        output.append(f"\n📊 Symbol: {symbol}")
+    if timeframe:
+        output.append(f"⏰ Timeframe: {timeframe}")
+    
     # Tampilkan current price jika tersedia
     if current_price is not None:
         output.append(f"\n💵 Current Price: {current_price:,.2f}")
     
+    # Support & Resistance
+    if support is not None or resistance is not None:
+        output.append(f"\n📈 Key Levels:")
+        if support is not None:
+            output.append(f"   🟢 Support: {support:,.2f}")
+        if resistance is not None:
+            output.append(f"   🔴 Resistance: {resistance:,.2f}")
+    
     output.append(f"\n📊 Action: {recommendation.get('action', 'N/A')}")
     output.append(f"📍 Position: {recommendation.get('position', 'N/A')}")
     output.append(f"🎯 Confidence: {recommendation.get('confidence', 0)}%")
-    
-    # Support & Resistance (akan ditambahkan dari analisis_quant.py)
     output.append(f"\n💰 Entry Price: {recommendation.get('entry_price', 'N/A')}")
     output.append(f"🛑 Stop Loss: {recommendation.get('stop_loss', 'N/A')}")
     
