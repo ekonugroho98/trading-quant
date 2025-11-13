@@ -1314,10 +1314,5 @@ if RUN_PREDICTION:
         print(f"\n⚠️  Error menjalankan prediksi: {e}")
         print("   Analisis strategi sudah selesai, jalankan prediksi secara manual jika perlu")
     
-    print("\n" + "=" * 60)
-    print("📊 Chart akan ditampilkan setelah ini...")
-    print("=" * 60)
-    print()
-
-# Tampilkan chart (blocking - script akan berhenti sampai chart ditutup)
-plt.show()
+       # Chart sudah dikirim ke Telegram, tidak perlu ditampilkan di terminal
+       # plt.show()  # Disabled - chart hanya dikirim ke Telegram
