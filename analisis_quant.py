@@ -1325,5 +1325,13 @@ if RUN_PREDICTION:
         print(f"\n⚠️  Error menjalankan prediksi: {e}")
         print("   Analisis strategi sudah selesai, jalankan prediksi secara manual jika perlu")
     
-       # Chart sudah dikirim ke Telegram, tidak perlu ditampilkan di terminal
-       # plt.show()  # Disabled - chart hanya dikirim ke Telegram
+    # Chart sudah dikirim ke Telegram, tidak perlu ditampilkan di terminal
+    # plt.show()  # Disabled - chart hanya dikirim ke Telegram
+    
+    # Hapus file CSV setelah digunakan
+    if 'used_csv_file' in globals() and used_csv_file and os.path.exists(used_csv_file):
+        try:
+            os.remove(used_csv_file)
+            print(f"\n🗑️  File CSV dihapus: {used_csv_file}")
+        except Exception as e:
+            print(f"\n⚠️  Gagal menghapus file CSV {used_csv_file}: {e}")
