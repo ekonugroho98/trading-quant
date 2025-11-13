@@ -28,6 +28,7 @@ class TradingBot:
         self.api_url = f"https://api.telegram.org/bot{bot_token}"
         self.offset = 0
         self.running = False
+        self.active_users = set()  # Set untuk menyimpan chat_id user yang sudah /start
     
     def get_updates(self) -> Optional[dict]:
         """
@@ -259,6 +260,20 @@ class TradingBot:
         if not text:
             return
         
+        # Handle /start command
+        if text.startswith('/start'):
+            self.handle_start_command(chat_id)
+            return
+        
+        # Check if user has started the bot
+        if chat_id not in self.active_users:
+            self.send_message(
+                chat_id,
+                "⚠️ <b>Bot belum diaktifkan!</b>\n\n"
+                "Silakan kirim command <code>/start</code> terlebih dahulu untuk memulai."
+            )
+            return
+        
         # Parse symbol
         symbol = self.parse_symbol(text)
         
@@ -286,6 +301,40 @@ class TradingBot:
                 "• Trading Chart"
             )
             self.send_message(chat_id, help_text)
+    
+    def handle_start_command(self, chat_id: str):
+        """
+        Handle /start command
+        
+        Args:
+            chat_id: Chat ID dari user
+        """
+        # Tambahkan user ke active users
+        self.active_users.add(chat_id)
+        
+        welcome_text = (
+            "🤖 <b>Selamat Datang di Trading Quant Bot!</b>\n\n"
+            "✅ Bot telah diaktifkan untuk Anda.\n\n"
+            "📊 <b>Cara menggunakan:</b>\n"
+            "Kirim symbol coin untuk mendapatkan analisis trading lengkap.\n\n"
+            "<b>Format yang didukung:</b>\n"
+            "• BTC-USD\n"
+            "• BTC/USD\n"
+            "• BTCUSD\n"
+            "• BTC\n\n"
+            "<b>Contoh:</b>\n"
+            "• <code>BTC-USD</code>\n"
+            "• <code>ETH</code>\n"
+            "• <code>SOL-USD</code>\n\n"
+            "📈 Bot akan mengirim analisis lengkap termasuk:\n"
+            "• DeepSeek AI Recommendation\n"
+            "• ML Prediction Results\n"
+            "• Trading Chart\n\n"
+            "🚀 <b>Mulai dengan mengirim symbol coin!</b>"
+        )
+        
+        self.send_message(chat_id, welcome_text)
+        print(f"✅ User {chat_id} started the bot")
     
     def start_polling(self):
         """Mulai polling untuk menerima pesan dari Telegram"""
