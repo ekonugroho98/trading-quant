@@ -117,3 +117,15 @@ SETUP_TP_MULTIPLIERS = None  # None = auto berdasarkan TRADING_STYLE, atau set m
 # ============================================
 RUN_PREDICTION = True  # True = jalankan prediksi_next_day.py setelah analisis selesai
 
+# ============================================
+# KONFIGURASI ENHANCED FEATURES
+# ============================================
+# Aktifkan fitur-fitur advanced untuk validasi lebih akurat
+ENABLE_VOLUME_ANALYSIS = True  # Volume analysis (VWAP, volume patterns, spikes)
+ENABLE_MARKET_CONTEXT = True  # Market context (regime, volatility, higher TF)
+ENABLE_ADVANCED_FEATURES = True  # Advanced features (mean-reversion, cycles, patterns)
+ENABLE_ENHANCED_METRICS = True  # Enhanced validation metrics (drawdown, win rate, etc.)
+
+# Konfigurasi untuk correlation analysis
+CORRELATION_SYMBOLS = ["ETH-USD", "BNB-USD"]  # Symbols untuk korelasi (opsional)
+

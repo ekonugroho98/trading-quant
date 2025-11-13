@@ -242,6 +242,38 @@ print(f"   Total records: {len(data)}")
 # Hitung return
 data['Return'] = data['Close'].pct_change()
 
+# ============================================
+# ENHANCED FEATURES - Volume, Market Context, Advanced Features
+# ============================================
+try:
+    from enhanced_analysis import (
+        enhance_data_with_volume_analysis,
+        enhance_data_with_market_context,
+        enhance_data_with_advanced_features,
+        calculate_enhanced_validation_metrics,
+        print_enhanced_metrics,
+        print_market_context,
+        print_volume_analysis_summary,
+        print_advanced_features_summary
+    )
+    USE_ENHANCED_FEATURES = True
+except ImportError:
+    USE_ENHANCED_FEATURES = False
+    print("ℹ️  Enhanced features tidak tersedia, menggunakan analisis dasar")
+
+# Tambahkan volume analysis
+if USE_ENHANCED_FEATURES:
+    data = enhance_data_with_volume_analysis(data)
+
+# Tambahkan market context
+market_context = {}
+if USE_ENHANCED_FEATURES:
+    data, market_context = enhance_data_with_market_context(data, SYMBOL, detected_interval)
+
+# Tambahkan advanced features
+if USE_ENHANCED_FEATURES:
+    data = enhance_data_with_advanced_features(data)
+
 # 2️⃣ Buat indikator sederhana (Moving Average)
 # Sesuaikan window berdasarkan trading style dan frekuensi data
 
@@ -1051,6 +1083,25 @@ axes[2].legend(loc='best')
 axes[2].grid(True, alpha=0.3)
 
 plt.tight_layout()
+
+# ============================================
+# ENHANCED FEATURES OUTPUT
+# ============================================
+if USE_ENHANCED_FEATURES:
+    # Print volume analysis summary
+    print_volume_analysis_summary(data)
+    
+    # Print market context
+    if market_context:
+        print_market_context(market_context)
+    
+    # Print advanced features summary
+    print_advanced_features_summary(data)
+    
+    # Calculate and print enhanced validation metrics
+    enhanced_metrics = calculate_enhanced_validation_metrics(data)
+    if enhanced_metrics:
+        print_enhanced_metrics(enhanced_metrics)
 
 # ============================================
 # OPSI: Jalankan prediksi SEBELUM menampilkan chart
