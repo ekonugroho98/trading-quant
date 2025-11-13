@@ -6,6 +6,7 @@ Mengirim notifikasi trading recommendation ke Telegram
 import requests
 from typing import Dict, Optional
 from datetime import datetime
+import os
 
 
 class TelegramBot:
@@ -22,6 +23,7 @@ class TelegramBot:
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        self.photo_url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
     
     def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
         """
@@ -54,6 +56,51 @@ class TelegramBot:
                 return False
         except Exception as e:
             print(f"❌ Error menghubungi Telegram API: {e}")
+            return False
+    
+    def send_photo(self, photo_path: str, caption: Optional[str] = None) -> bool:
+        """
+        Kirim foto ke Telegram
+        
+        Args:
+            photo_path: Path ke file foto yang akan dikirim
+            caption: Caption untuk foto (optional)
+        
+        Returns:
+            True jika berhasil, False jika gagal
+        """
+        if not self.bot_token or not self.chat_id:
+            print("⚠️  Telegram Bot Token atau Chat ID tidak ditemukan")
+            return False
+        
+        if not os.path.exists(photo_path):
+            print(f"⚠️  File foto tidak ditemukan: {photo_path}")
+            return False
+        
+        try:
+            with open(photo_path, 'rb') as photo:
+                files = {'photo': photo}
+                data = {
+                    'chat_id': self.chat_id
+                }
+                if caption:
+                    data['caption'] = caption
+                
+                response = requests.post(
+                    self.photo_url,
+                    files=files,
+                    data=data,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    return True
+                else:
+                    print(f"❌ Error mengirim foto ke Telegram: {response.status_code}")
+                    print(f"   Response: {response.text}")
+                    return False
+        except Exception as e:
+            print(f"❌ Error mengirim foto ke Telegram: {e}")
             return False
     
     def format_trading_recommendation(self, 

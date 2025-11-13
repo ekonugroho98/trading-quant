@@ -1084,6 +1084,17 @@ axes[2].grid(True, alpha=0.3)
 
 plt.tight_layout()
 
+# Simpan chart sebagai file PNG untuk dikirim ke Telegram
+chart_filename = None
+try:
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    chart_filename = f"trading_chart_{timestamp}.png"
+    plt.savefig(chart_filename, dpi=150, bbox_inches='tight')
+    print(f"📊 Chart disimpan: {chart_filename}")
+except Exception as e:
+    print(f"⚠️  Error menyimpan chart: {e}")
+
 # ============================================
 # ENHANCED FEATURES OUTPUT
 # ============================================
@@ -1196,61 +1207,6 @@ if RUN_PREDICTION:
                     symbol = analysis_data['basic_info'].get('symbol')
                 
                 if recommendation:
-                    action = recommendation.get('action', '').upper()
-                    
-                    # Jika HOLD, tidak perlu entry_price, stop_loss, dan targets
-                    if action == 'HOLD':
-                        # Clear trading setup fields untuk HOLD
-                        recommendation['entry_price'] = None
-                        recommendation['stop_loss'] = None
-                        recommendation['targets'] = []
-                    else:
-                        # Handle null values from AI - use current price and support/resistance as fallback
-                        if recommendation.get('entry_price') is None and current_price is not None:
-                            recommendation['entry_price'] = current_price
-                        
-                        if recommendation.get('stop_loss') is None:
-                            # Set stop loss based on action and support/resistance
-                            if action == 'BUY' and support is not None:
-                                recommendation['stop_loss'] = support * 0.995  # 0.5% below support
-                            elif action == 'SELL' and resistance is not None:
-                                recommendation['stop_loss'] = resistance * 1.005  # 0.5% above resistance
-                            elif current_price is not None:
-                                # Default: 2% stop loss
-                                if action == 'BUY':
-                                    recommendation['stop_loss'] = current_price * 0.98
-                                elif action == 'SELL':
-                                    recommendation['stop_loss'] = current_price * 1.02
-                        
-                        if not recommendation.get('targets') or len(recommendation.get('targets', [])) == 0:
-                            # Generate targets based on entry price and support/resistance
-                            entry = recommendation.get('entry_price', current_price)
-                            if entry and entry > 0:
-                                targets = []
-                                if action == 'BUY' and resistance is not None:
-                                    # TP1: 50% to resistance, TP2: 75% to resistance, TP3: resistance
-                                    diff = resistance - entry
-                                    targets = [
-                                        entry + diff * 0.5,
-                                        entry + diff * 0.75,
-                                        resistance
-                                    ]
-                                elif action == 'SELL' and support is not None:
-                                    # TP1: 50% to support, TP2: 75% to support, TP3: support
-                                    diff = entry - support
-                                    targets = [
-                                        entry - diff * 0.5,
-                                        entry - diff * 0.75,
-                                        support
-                                    ]
-                                else:
-                                    # Default targets: 1%, 2%, 3% from entry
-                                    if action == 'BUY':
-                                        targets = [entry * 1.01, entry * 1.02, entry * 1.03]
-                                    elif action == 'SELL':
-                                        targets = [entry * 0.99, entry * 0.98, entry * 0.97]
-                                recommendation['targets'] = targets
-                    
                     print(format_recommendation_output(
                         recommendation, 
                         current_price,
@@ -1284,6 +1240,24 @@ if RUN_PREDICTION:
                             
                             if success:
                                 print("✅ Rekomendasi berhasil dikirim ke Telegram")
+                                
+                                # Kirim chart ke Telegram jika ada
+                                if chart_filename and os.path.exists(chart_filename):
+                                    print("📊 Mengirim chart ke Telegram...")
+                                    chart_success = bot.send_photo(
+                                        chart_filename,
+                                        caption=f"📊 Trading Chart - {symbol} ({timeframe})"
+                                    )
+                                    if chart_success:
+                                        print("✅ Chart berhasil dikirim ke Telegram")
+                                        # Hapus file temporary
+                                        try:
+                                            os.remove(chart_filename)
+                                            print(f"🗑️  File temporary dihapus: {chart_filename}")
+                                        except:
+                                            pass
+                                    else:
+                                        print("⚠️  Gagal mengirim chart ke Telegram")
                             else:
                                 print("⚠️  Gagal mengirim ke Telegram")
                         else:
