@@ -30,7 +30,7 @@ DATA_SOURCE = "yfinance"  # Pilihan: "yfinance", "coingecko", "indodax", "freecr
 SYMBOL = "BTC-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
 # Daftar coin populer: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, BNB-USD, ADA-USD, SOL-USD, DOT-USD, LINK-USD
 # Lihat YFINANCE_COINS.md untuk daftar lengkap coin yang didukung
-DAYS_BACK = 30  # Berapa hari ke belakang (akan auto-adjust berdasarkan interval)
+DAYS_BACK = 7  # Berapa hari ke belakang (akan auto-adjust berdasarkan interval)
 # Catatan: yfinance memiliki limit berdasarkan interval:
 # - Interval 1m: maksimal 7 hari (auto-adjust jika lebih)
 # - Interval 5m, 15m, 30m: maksimal 60 hari (auto-adjust jika lebih)
@@ -81,7 +81,7 @@ INTERVAL = None  # None = auto berdasarkan TRADING_STYLE, atau set manual (e.g.,
 # Mapping interval berdasarkan TRADING_STYLE
 TRADING_STYLE_INTERVALS = {
     "SCALPING": "1m",        # 1 menit untuk scalping
-    "DAY_TRADING": "1h",    # 15 menit untuk day trading
+    "DAY_TRADING": "15m",    # 15 menit untuk day trading
     "SWING_TRADING": "4h",   # 1 jam untuk swing trading (atau bisa "4h" untuk swing lebih pendek)
     "POSITION_TRADING": "1d" # 1 hari untuk position trading
 }
