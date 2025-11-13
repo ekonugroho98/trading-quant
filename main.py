@@ -138,8 +138,9 @@ class TradingBot:
                 f"⏳ Mohon tunggu, ini mungkin memakan waktu beberapa detik..."
             )
             
-            # Update config.py dengan symbol baru
+            # Update config.py dengan symbol baru dan chat_id
             self.update_config_symbol(symbol)
+            self.update_config_chat_id(chat_id)
             
             # Jalankan analisis_quant.py
             result = subprocess.run(
@@ -210,6 +211,39 @@ class TradingBot:
                     print(f"✅ Config updated: SYMBOL = {symbol}")
         except Exception as e:
             print(f"⚠️  Error updating config: {e}")
+    
+    def update_config_chat_id(self, chat_id: str):
+        """
+        Update TELEGRAM_CHAT_ID di config.py
+        
+        Args:
+            chat_id: Chat ID baru
+        """
+        try:
+            config_file = "config.py"
+            with open(config_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Replace TELEGRAM_CHAT_ID line
+            import re
+            pattern = r'^TELEGRAM_CHAT_ID\s*=\s*["\'].*?["\']'
+            replacement = f'TELEGRAM_CHAT_ID = "{chat_id}"'
+            new_content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+            
+            if new_content != content:
+                with open(config_file, 'w', encoding='utf-8') as f:
+                    f.write(new_content)
+                print(f"✅ Config updated: TELEGRAM_CHAT_ID = {chat_id}")
+            else:
+                # Coba pattern alternatif
+                pattern2 = r'TELEGRAM_CHAT_ID\s*=\s*["\'].*?["\']'
+                new_content2 = re.sub(pattern2, replacement, content)
+                if new_content2 != content:
+                    with open(config_file, 'w', encoding='utf-8') as f:
+                        f.write(new_content2)
+                    print(f"✅ Config updated: TELEGRAM_CHAT_ID = {chat_id}")
+        except Exception as e:
+            print(f"⚠️  Error updating chat_id in config: {e}")
     
     def handle_message(self, message: dict):
         """
