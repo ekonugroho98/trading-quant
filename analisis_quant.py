@@ -1087,6 +1087,7 @@ plt.tight_layout()
 # ============================================
 # ENHANCED FEATURES OUTPUT
 # ============================================
+enhanced_metrics = {}
 if USE_ENHANCED_FEATURES:
     # Print volume analysis summary
     print_volume_analysis_summary(data)
@@ -1102,6 +1103,9 @@ if USE_ENHANCED_FEATURES:
     enhanced_metrics = calculate_enhanced_validation_metrics(data)
     if enhanced_metrics:
         print_enhanced_metrics(enhanced_metrics)
+
+# Store analysis data for DeepSeek (will be used after ML prediction)
+analysis_data_for_deepseek = None
 
 # ============================================
 # OPSI: Jalankan prediksi SEBELUM menampilkan chart
@@ -1132,6 +1136,62 @@ if RUN_PREDICTION:
             print("\n" + "=" * 60)
             print("✅ PREDIKSI SELESAI - Lihat output di atas untuk signal BELI/JUAL masa depan")
             print("=" * 60)
+        
+        # ============================================
+        # DEEPSEEK AI INTEGRATION (After ML Prediction)
+        # ============================================
+        try:
+            from config import ENABLE_DEEPSEEK_AI, DEEPSEEK_API_KEY, DEEPSEEK_MODEL
+            from deepseek_integration import DeepSeekTradingAdvisor, format_recommendation_output
+            from collect_analysis_data import collect_analysis_data, add_trading_setup_to_analysis
+            
+            if ENABLE_DEEPSEEK_AI and DEEPSEEK_API_KEY:
+                print("\n" + "=" * 70)
+                print("🤖 MENGIRIM DATA KE DEEPSEEK AI...")
+                print("=" * 70)
+                
+                # Collect all analysis data
+                analysis_data = collect_analysis_data(data, market_context, enhanced_metrics)
+                
+                # Add trading setup if available
+                if 'setup' in locals():
+                    add_trading_setup_to_analysis(analysis_data, {
+                        'direction': setup.get('direction', 'N/A'),
+                        'action': setup.get('action', 'N/A'),
+                        'limit_entry': setup.get('entry', 'N/A'),
+                        'stop_loss': setup.get('stop_loss', 'N/A'),
+                        'stop_loss_pct': f"{setup.get('risk_pct', 0):.2f}%",
+                        'targets': [
+                            {'price': setup.get('tp1', 0), 'pct': 'N/A'},
+                            {'price': setup.get('tp2', 0), 'pct': 'N/A'},
+                            {'price': setup.get('tp3', 0), 'pct': 'N/A'}
+                        ],
+                        'risk_reward_ratios': []
+                    })
+                
+                # Note: ML prediction results are already printed above
+                # We can add them to analysis_data if needed, but for now
+                # the AI will see them in the prompt context
+                
+                # Initialize DeepSeek advisor
+                advisor = DeepSeekTradingAdvisor(api_key=DEEPSEEK_API_KEY)
+                
+                # Get recommendation
+                recommendation = advisor.get_trading_recommendation(analysis_data)
+                
+                if recommendation:
+                    print(format_recommendation_output(recommendation))
+                else:
+                    print("⚠️  Tidak dapat mendapatkan rekomendasi dari DeepSeek AI")
+            else:
+                if not ENABLE_DEEPSEEK_AI:
+                    print("ℹ️  DeepSeek AI integration dinonaktifkan di config.py")
+                elif not DEEPSEEK_API_KEY:
+                    print("ℹ️  DeepSeek API key tidak ditemukan di config.py")
+        except ImportError as e:
+            print(f"ℹ️  DeepSeek integration tidak tersedia: {e}")
+        except Exception as e:
+            print(f"⚠️  Error dalam DeepSeek integration: {e}")
     except Exception as e:
         print(f"\n⚠️  Error menjalankan prediksi: {e}")
         print("   Analisis strategi sudah selesai, jalankan prediksi secara manual jika perlu")

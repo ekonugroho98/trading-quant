@@ -129,3 +129,10 @@ ENABLE_ENHANCED_METRICS = True  # Enhanced validation metrics (drawdown, win rat
 # Konfigurasi untuk correlation analysis
 CORRELATION_SYMBOLS = ["ETH-USD", "BNB-USD"]  # Symbols untuk korelasi (opsional)
 
+# ============================================
+# KONFIGURASI DEEPSEEK AI INTEGRATION
+# ============================================
+ENABLE_DEEPSEEK_AI = True  # Aktifkan integrasi DeepSeek AI
+DEEPSEEK_API_KEY = "sk-e35bb3b3d15b4d899895fb927917d0d3"  # API key DeepSeek
+DEEPSEEK_MODEL = "deepseek-chat"  # Model yang digunakan
+
