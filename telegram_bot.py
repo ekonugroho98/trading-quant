@@ -401,7 +401,7 @@ class TelegramBot:
     
     def format_ml_prediction(self, ml_result: Dict) -> str:
         """
-        Format ML prediction results untuk Telegram
+        Format ML prediction results untuk Telegram (sesuai dengan RINGKASAN QUANT MODEL)
         
         Args:
             ml_result: Dictionary dengan hasil ML prediction
@@ -411,52 +411,47 @@ class TelegramBot:
         """
         lines = []
         
-        # Header
-        lines.append("🤖 <b>ML PREDICTION RESULTS</b>")
+        # Header (sesuai dengan terminal output)
+        lines.append("📊 <b>RINGKASAN QUANT MODEL</b>")
         lines.append("=" * 40)
         lines.append("")
         
-        # Model Info
-        model = ml_result.get('model', ml_result.get('model_type', 'N/A'))
-        lines.append(f"🔧 <b>Model:</b> {model}")
-        lines.append("")
-        
-        # Data Info
+        # Data Historis
         if 'data_records' in ml_result:
             lines.append(f"📊 <b>Data Historis:</b> {ml_result['data_records']} records")
+        
+        # Feature Engineering
         if 'features_count' in ml_result:
             lines.append(f"🔧 <b>Feature Engineering:</b> {ml_result['features_count']} fitur")
-        lines.append("")
         
-        # Signal & Probabilities
+        # Model
+        model = ml_result.get('model', ml_result.get('model_type', 'N/A'))
+        lines.append(f"🤖 <b>Model:</b> {model}")
+        
+        # Signal dengan Probabilitas (sesuai format terminal)
         signal = ml_result.get('signal', 'N/A')
         buy_prob = ml_result.get('buy_probability', ml_result.get('buy_prob', 0))
-        sell_prob = ml_result.get('sell_probability', ml_result.get('sell_prob', 0))
         
         signal_emoji = "🟢" if signal == "BELI" else "🔴" if signal == "JUAL" else "🟡"
-        lines.append(f"{signal_emoji} <b>Signal:</b> {signal}")
-        lines.append(f"📈 <b>Probabilitas BELI:</b> {buy_prob:.2f}%")
-        lines.append(f"📉 <b>Probabilitas JUAL:</b> {sell_prob:.2f}%")
+        lines.append(f"📡 <b>Signal:</b> {signal} (Prob: {buy_prob:.1f}%)")
         lines.append("")
         
-        # Backtesting Results
+        # Backtesting Results (sesuai format terminal)
         if 'accuracy' in ml_result or 'expected_value' in ml_result or 'sharpe_ratio' in ml_result:
-            lines.append("📊 <b>Backtesting Results:</b>")
-            
             if 'accuracy' in ml_result:
                 accuracy = ml_result['accuracy']
                 if isinstance(accuracy, float) and accuracy < 1:
                     accuracy = accuracy * 100  # Convert dari decimal ke persen
-                lines.append(f"   ✅ Accuracy: {accuracy:.2f}%")
+                lines.append(f"📈 <b>Accuracy:</b> {accuracy:.2f}%")
             
             if 'expected_value' in ml_result:
                 expected = ml_result['expected_value']
-                lines.append(f"   📈 Expected Value: {expected:.2f}%")
+                lines.append(f"📈 <b>Expected Value:</b> {expected:.2f}%")
             
             if 'sharpe_ratio' in ml_result:
                 sharpe = ml_result['sharpe_ratio']
                 sharpe_status = "Sangat Bagus" if sharpe > 2 else "Bagus" if sharpe > 1 else "Kurang"
-                lines.append(f"   📊 Sharpe Ratio: {sharpe:.2f} ({sharpe_status})")
+                lines.append(f"📊 <b>Sharpe Ratio:</b> {sharpe:.2f} ({sharpe_status})")
             
             lines.append("")
         
