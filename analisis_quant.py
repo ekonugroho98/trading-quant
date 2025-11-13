@@ -1241,6 +1241,15 @@ if RUN_PREDICTION:
                             if success:
                                 print("✅ Rekomendasi berhasil dikirim ke Telegram")
                                 
+                                # Kirim trading setup ke Telegram jika ada
+                                if 'setup' in locals() and setup:
+                                    print("📋 Mengirim trading setup ke Telegram...")
+                                    setup_success = bot.send_trading_setup(setup, symbol)
+                                    if setup_success:
+                                        print("✅ Trading setup berhasil dikirim ke Telegram")
+                                    else:
+                                        print("⚠️  Gagal mengirim trading setup ke Telegram")
+                                
                                 # Kirim chart ke Telegram jika ada
                                 if chart_filename and os.path.exists(chart_filename):
                                     print("📊 Mengirim chart ke Telegram...")

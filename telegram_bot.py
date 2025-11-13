@@ -225,6 +225,121 @@ class TelegramBot:
         
         return "\n".join(lines)
     
+    def format_trading_setup(self, setup: Dict, symbol: Optional[str] = None) -> str:
+        """
+        Format trading setup untuk Telegram
+        
+        Args:
+            setup: Dictionary dengan trading setup dari generate_trading_setup
+            symbol: Trading symbol (optional)
+        
+        Returns:
+            Formatted HTML message
+        """
+        lines = []
+        
+        # Header
+        lines.append("📋 <b>TRADING SETUP</b>")
+        lines.append("=" * 40)
+        lines.append("")
+        
+        if symbol:
+            lines.append(f"📊 <b>Symbol:</b> {symbol}")
+            lines.append("")
+        
+        # Direction dan Action
+        direction = setup.get('direction', 'N/A')
+        action = setup.get('action', 'N/A')
+        lines.append(f"📈 <b>Direction:</b> {direction} ({action})")
+        lines.append("")
+        
+        # Entry Price
+        entry = setup.get('entry', 'N/A')
+        if isinstance(entry, (int, float)):
+            lines.append(f"💰 <b>LIMIT ENTRY:</b> {entry:,.2f}")
+        else:
+            lines.append(f"💰 <b>LIMIT ENTRY:</b> {entry}")
+        lines.append("")
+        
+        # Stop Loss
+        stop_loss = setup.get('stop_loss', 'N/A')
+        risk_pct = setup.get('risk_pct', 0)
+        if isinstance(stop_loss, (int, float)):
+            lines.append(f"🛑 <b>Stop Loss:</b> {stop_loss:,.2f} (-{risk_pct:.2f}%)")
+        else:
+            lines.append(f"🛑 <b>Stop Loss:</b> {stop_loss}")
+        lines.append("")
+        
+        # Targets
+        tp1 = setup.get('tp1', 'N/A')
+        tp2 = setup.get('tp2', 'N/A')
+        tp3 = setup.get('tp3', 'N/A')
+        
+        lines.append("🎯 <b>Targets:</b>")
+        
+        # Calculate percentages
+        if isinstance(entry, (int, float)) and entry > 0:
+            if isinstance(tp1, (int, float)):
+                tp1_pct = ((tp1 - entry) / entry) * 100 if direction == "LONG" else ((entry - tp1) / entry) * 100
+                lines.append(f"   TP1: {tp1:,.2f} (+{tp1_pct:.2f}%)")
+            else:
+                lines.append(f"   TP1: {tp1}")
+            
+            if isinstance(tp2, (int, float)):
+                tp2_pct = ((tp2 - entry) / entry) * 100 if direction == "LONG" else ((entry - tp2) / entry) * 100
+                lines.append(f"   TP2: {tp2:,.2f} (+{tp2_pct:.2f}%)")
+            else:
+                lines.append(f"   TP2: {tp2}")
+            
+            if isinstance(tp3, (int, float)):
+                tp3_pct = ((tp3 - entry) / entry) * 100 if direction == "LONG" else ((entry - tp3) / entry) * 100
+                lines.append(f"   TP3: {tp3:,.2f} (+{tp3_pct:.2f}%)")
+            else:
+                lines.append(f"   TP3: {tp3}")
+        else:
+            lines.append(f"   TP1: {tp1}")
+            lines.append(f"   TP2: {tp2}")
+            lines.append(f"   TP3: {tp3}")
+        
+        lines.append("")
+        
+        # Risk/Reward Ratio
+        if isinstance(entry, (int, float)) and isinstance(stop_loss, (int, float)) and entry > 0:
+            if direction == "LONG":
+                rr1 = (tp1 - entry) / (entry - stop_loss) if isinstance(tp1, (int, float)) else 0
+                rr2 = (tp2 - entry) / (entry - stop_loss) if isinstance(tp2, (int, float)) else 0
+                rr3 = (tp3 - entry) / (entry - stop_loss) if isinstance(tp3, (int, float)) else 0
+            else:
+                rr1 = (entry - tp1) / (stop_loss - entry) if isinstance(tp1, (int, float)) else 0
+                rr2 = (entry - tp2) / (stop_loss - entry) if isinstance(tp2, (int, float)) else 0
+                rr3 = (entry - tp3) / (stop_loss - entry) if isinstance(tp3, (int, float)) else 0
+            
+            lines.append("📊 <b>Risk/Reward Ratio:</b>")
+            lines.append(f"   TP1: {rr1:.2f}:1")
+            lines.append(f"   TP2: {rr2:.2f}:1")
+            lines.append(f"   TP3: {rr3:.2f}:1")
+            lines.append("")
+        
+        # Warning
+        lines.append("⚠️ <i>Setup berdasarkan analisis teknis. Gunakan risk management!</i>")
+        lines.append("")
+        
+        return "\n".join(lines)
+    
+    def send_trading_setup(self, setup: Dict, symbol: Optional[str] = None) -> bool:
+        """
+        Kirim trading setup ke Telegram
+        
+        Args:
+            setup: Dictionary dengan trading setup
+            symbol: Trading symbol (optional)
+        
+        Returns:
+            True jika berhasil, False jika gagal
+        """
+        message = self.format_trading_setup(setup, symbol)
+        return self.send_message(message)
+    
     def send_trading_recommendation(self,
                                    recommendation: Dict,
                                    current_price: Optional[float] = None,
