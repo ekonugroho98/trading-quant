@@ -580,6 +580,29 @@ def main():
     print("⚠️  Cryptocurrency sangat volatile, prediksi bisa meleset jauh")
     print("⚠️  Selalu gunakan risk management")
     print("⚠️  Pastikan data up-to-date untuk prediksi yang lebih akurat")
+    
+    # Simpan hasil ke file JSON untuk digunakan oleh analisis_quant.py
+    try:
+        import json
+        ml_result = {
+            'model': PREDICTION_METHOD,
+            'model_type': result.get('model_type', 'Unknown'),
+            'signal': result.get('signal', 'HOLD'),
+            'buy_probability': result.get('buy_probability', 0),
+            'sell_probability': result.get('sell_probability', 0),
+            'accuracy': backtest_result.get('accuracy', 0) if backtest_result else 0,
+            'expected_value': backtest_result.get('expected_value', 0) if backtest_result else 0,
+            'sharpe_ratio': backtest_result.get('sharpe_ratio', 0) if backtest_result else 0,
+            'data_records': len(data),
+            'features_count': len(features.columns),
+            'current_price': result.get('current_price', data['Close'].iloc[-1])
+        }
+        
+        with open('ml_prediction_result.json', 'w') as f:
+            json.dump(ml_result, f, indent=2)
+    except Exception as e:
+        # Silent fail, tidak critical
+        pass
 
 if __name__ == "__main__":
     main()

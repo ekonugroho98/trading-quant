@@ -1250,6 +1250,25 @@ if RUN_PREDICTION:
                                     else:
                                         print("⚠️  Gagal mengirim trading setup ke Telegram")
                                 
+                                # Kirim ML prediction results ke Telegram jika ada
+                                try:
+                                    from ml_prediction_helper import get_ml_prediction_from_file
+                                    ml_result = get_ml_prediction_from_file()
+                                    if ml_result:
+                                        print("🤖 Mengirim ML prediction results ke Telegram...")
+                                        ml_success = bot.send_ml_prediction(ml_result)
+                                        if ml_success:
+                                            print("✅ ML prediction results berhasil dikirim ke Telegram")
+                                            # Hapus file temporary
+                                            try:
+                                                os.remove('ml_prediction_result.json')
+                                            except:
+                                                pass
+                                        else:
+                                            print("⚠️  Gagal mengirim ML prediction results ke Telegram")
+                                except Exception as e:
+                                    print(f"ℹ️  ML prediction results tidak tersedia: {e}")
+                                
                                 # Kirim chart ke Telegram jika ada
                                 if chart_filename and os.path.exists(chart_filename):
                                     print("📊 Mengirim chart ke Telegram...")

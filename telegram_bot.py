@@ -340,6 +340,86 @@ class TelegramBot:
         message = self.format_trading_setup(setup, symbol)
         return self.send_message(message)
     
+    def format_ml_prediction(self, ml_result: Dict) -> str:
+        """
+        Format ML prediction results untuk Telegram
+        
+        Args:
+            ml_result: Dictionary dengan hasil ML prediction
+        
+        Returns:
+            Formatted HTML message
+        """
+        lines = []
+        
+        # Header
+        lines.append("🤖 <b>ML PREDICTION RESULTS</b>")
+        lines.append("=" * 40)
+        lines.append("")
+        
+        # Model Info
+        model = ml_result.get('model', ml_result.get('model_type', 'N/A'))
+        lines.append(f"🔧 <b>Model:</b> {model}")
+        lines.append("")
+        
+        # Data Info
+        if 'data_records' in ml_result:
+            lines.append(f"📊 <b>Data Historis:</b> {ml_result['data_records']} records")
+        if 'features_count' in ml_result:
+            lines.append(f"🔧 <b>Feature Engineering:</b> {ml_result['features_count']} fitur")
+        lines.append("")
+        
+        # Signal & Probabilities
+        signal = ml_result.get('signal', 'N/A')
+        buy_prob = ml_result.get('buy_probability', ml_result.get('buy_prob', 0))
+        sell_prob = ml_result.get('sell_probability', ml_result.get('sell_prob', 0))
+        
+        signal_emoji = "🟢" if signal == "BELI" else "🔴" if signal == "JUAL" else "🟡"
+        lines.append(f"{signal_emoji} <b>Signal:</b> {signal}")
+        lines.append(f"📈 <b>Probabilitas BELI:</b> {buy_prob:.2f}%")
+        lines.append(f"📉 <b>Probabilitas JUAL:</b> {sell_prob:.2f}%")
+        lines.append("")
+        
+        # Backtesting Results
+        if 'accuracy' in ml_result or 'expected_value' in ml_result or 'sharpe_ratio' in ml_result:
+            lines.append("📊 <b>Backtesting Results:</b>")
+            
+            if 'accuracy' in ml_result:
+                accuracy = ml_result['accuracy']
+                if isinstance(accuracy, float) and accuracy < 1:
+                    accuracy = accuracy * 100  # Convert dari decimal ke persen
+                lines.append(f"   ✅ Accuracy: {accuracy:.2f}%")
+            
+            if 'expected_value' in ml_result:
+                expected = ml_result['expected_value']
+                lines.append(f"   📈 Expected Value: {expected:.2f}%")
+            
+            if 'sharpe_ratio' in ml_result:
+                sharpe = ml_result['sharpe_ratio']
+                sharpe_status = "Sangat Bagus" if sharpe > 2 else "Bagus" if sharpe > 1 else "Kurang"
+                lines.append(f"   📊 Sharpe Ratio: {sharpe:.2f} ({sharpe_status})")
+            
+            lines.append("")
+        
+        # Warning
+        lines.append("⚠️ <i>Prediksi untuk referensi, bukan saran trading!</i>")
+        lines.append("")
+        
+        return "\n".join(lines)
+    
+    def send_ml_prediction(self, ml_result: Dict) -> bool:
+        """
+        Kirim ML prediction results ke Telegram
+        
+        Args:
+            ml_result: Dictionary dengan hasil ML prediction
+        
+        Returns:
+            True jika berhasil, False jika gagal
+        """
+        message = self.format_ml_prediction(ml_result)
+        return self.send_message(message)
+    
     def send_trading_recommendation(self,
                                    recommendation: Dict,
                                    current_price: Optional[float] = None,
