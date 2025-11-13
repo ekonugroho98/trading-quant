@@ -253,47 +253,106 @@ class TelegramBot:
         lines.append(f"📈 <b>Direction:</b> {direction} ({action})")
         lines.append("")
         
-        # Entry Price
+        # Entry Price - Tentukan format berdasarkan skala harga (sama seperti di terminal)
         entry = setup.get('entry', 'N/A')
         if isinstance(entry, (int, float)):
-            lines.append(f"💰 <b>LIMIT ENTRY:</b> {entry:,.2f}")
+            # Tentukan format angka berdasarkan skala harga (sama seperti analisis_quant.py)
+            if entry < 1:
+                price_format = ".4f"  # 4 desimal untuk harga kecil (< 1)
+            elif entry < 100:
+                price_format = ".4f"  # 4 desimal untuk harga menengah
+            elif entry < 1000:
+                price_format = ".2f"  # 2 desimal untuk harga besar
+            else:
+                price_format = ".0f"  # 0 desimal untuk harga sangat besar
+            
+            # Format entry dengan presisi yang sesuai
+            if price_format == ".4f":
+                lines.append(f"💰 <b>LIMIT ENTRY:</b> {entry:.4f}")
+            elif price_format == ".2f":
+                lines.append(f"💰 <b>LIMIT ENTRY:</b> {entry:.2f}")
+            else:
+                lines.append(f"💰 <b>LIMIT ENTRY:</b> {entry:.0f}")
         else:
             lines.append(f"💰 <b>LIMIT ENTRY:</b> {entry}")
         lines.append("")
         
-        # Stop Loss
+        # Stop Loss - Gunakan format yang sama dengan entry
         stop_loss = setup.get('stop_loss', 'N/A')
         risk_pct = setup.get('risk_pct', 0)
         if isinstance(stop_loss, (int, float)):
-            lines.append(f"🛑 <b>Stop Loss:</b> {stop_loss:,.2f} (-{risk_pct:.2f}%)")
+            # Gunakan format yang sama dengan entry
+            if isinstance(entry, (int, float)):
+                if entry < 1:
+                    price_format = ".4f"
+                elif entry < 100:
+                    price_format = ".4f"
+                elif entry < 1000:
+                    price_format = ".2f"
+                else:
+                    price_format = ".0f"
+                
+                if price_format == ".4f":
+                    lines.append(f"🛑 <b>Stop Loss:</b> {stop_loss:.4f} (-{risk_pct:.2f}%)")
+                elif price_format == ".2f":
+                    lines.append(f"🛑 <b>Stop Loss:</b> {stop_loss:.2f} (-{risk_pct:.2f}%)")
+                else:
+                    lines.append(f"🛑 <b>Stop Loss:</b> {stop_loss:.0f} (-{risk_pct:.2f}%)")
+            else:
+                lines.append(f"🛑 <b>Stop Loss:</b> {stop_loss:.2f} (-{risk_pct:.2f}%)")
         else:
             lines.append(f"🛑 <b>Stop Loss:</b> {stop_loss}")
         lines.append("")
         
-        # Targets
+        # Targets - Gunakan format yang sama dengan entry
         tp1 = setup.get('tp1', 'N/A')
         tp2 = setup.get('tp2', 'N/A')
         tp3 = setup.get('tp3', 'N/A')
         
         lines.append("🎯 <b>Targets:</b>")
         
-        # Calculate percentages
+        # Tentukan format berdasarkan entry
         if isinstance(entry, (int, float)) and entry > 0:
+            if entry < 1:
+                price_format = ".4f"
+            elif entry < 100:
+                price_format = ".4f"
+            elif entry < 1000:
+                price_format = ".2f"
+            else:
+                price_format = ".0f"
+            
+            # Calculate percentages dan format
             if isinstance(tp1, (int, float)):
                 tp1_pct = ((tp1 - entry) / entry) * 100 if direction == "LONG" else ((entry - tp1) / entry) * 100
-                lines.append(f"   TP1: {tp1:,.2f} (+{tp1_pct:.2f}%)")
+                if price_format == ".4f":
+                    lines.append(f"   TP1: {tp1:.4f} (+{tp1_pct:.2f}%)")
+                elif price_format == ".2f":
+                    lines.append(f"   TP1: {tp1:.2f} (+{tp1_pct:.2f}%)")
+                else:
+                    lines.append(f"   TP1: {tp1:.0f} (+{tp1_pct:.2f}%)")
             else:
                 lines.append(f"   TP1: {tp1}")
             
             if isinstance(tp2, (int, float)):
                 tp2_pct = ((tp2 - entry) / entry) * 100 if direction == "LONG" else ((entry - tp2) / entry) * 100
-                lines.append(f"   TP2: {tp2:,.2f} (+{tp2_pct:.2f}%)")
+                if price_format == ".4f":
+                    lines.append(f"   TP2: {tp2:.4f} (+{tp2_pct:.2f}%)")
+                elif price_format == ".2f":
+                    lines.append(f"   TP2: {tp2:.2f} (+{tp2_pct:.2f}%)")
+                else:
+                    lines.append(f"   TP2: {tp2:.0f} (+{tp2_pct:.2f}%)")
             else:
                 lines.append(f"   TP2: {tp2}")
             
             if isinstance(tp3, (int, float)):
                 tp3_pct = ((tp3 - entry) / entry) * 100 if direction == "LONG" else ((entry - tp3) / entry) * 100
-                lines.append(f"   TP3: {tp3:,.2f} (+{tp3_pct:.2f}%)")
+                if price_format == ".4f":
+                    lines.append(f"   TP3: {tp3:.4f} (+{tp3_pct:.2f}%)")
+                elif price_format == ".2f":
+                    lines.append(f"   TP3: {tp3:.2f} (+{tp3_pct:.2f}%)")
+                else:
+                    lines.append(f"   TP3: {tp3:.0f} (+{tp3_pct:.2f}%)")
             else:
                 lines.append(f"   TP3: {tp3}")
         else:
