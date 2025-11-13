@@ -25,8 +25,13 @@ CSV_FILE = None
 PREDICTION_METHOD = "ensemble"  # "linear", "random_forest", "moving_avg", "ensemble"
 USE_CLASSIFICATION = True  # True = prediksi Beli/Jual, False = prediksi harga
 
+# Global variable untuk menyimpan nama file CSV yang digunakan
+used_csv_file_prediction = None
+
 def load_data(csv_file=None):
     """Load data untuk prediksi"""
+    global used_csv_file_prediction
+    
     if csv_file is None:
         # Cari file CSV terbaru (prioritas: historical, lalu data real-time)
         # Pattern lebih fleksibel: btc_*.csv, btcusd_*.csv, atau *_historical_*.csv
@@ -43,6 +48,9 @@ def load_data(csv_file=None):
             raise FileNotFoundError("Tidak ada file CSV ditemukan. Jalankan get_data.py atau get_historical_data.py terlebih dahulu.")
         csv_file = max(csv_files, key=os.path.getctime)
         print(f"Menggunakan file: {csv_file}")
+    
+    # Simpan nama file untuk dihapus nanti
+    used_csv_file_prediction = csv_file
     
     df = pd.read_csv(csv_file)
     
@@ -603,6 +611,14 @@ def main():
     except Exception as e:
         # Silent fail, tidak critical
         pass
+    
+    # Hapus file CSV setelah digunakan
+    if 'used_csv_file_prediction' in globals() and used_csv_file_prediction and os.path.exists(used_csv_file_prediction):
+        try:
+            os.remove(used_csv_file_prediction)
+            print(f"\n🗑️  File CSV dihapus: {used_csv_file_prediction}")
+        except Exception as e:
+            print(f"\n⚠️  Gagal menghapus file CSV {used_csv_file_prediction}: {e}")
 
 if __name__ == "__main__":
     main()

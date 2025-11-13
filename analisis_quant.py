@@ -7,6 +7,9 @@ import os
 import sys
 from datetime import datetime, timedelta
 
+# Global variable untuk menyimpan nama file CSV yang digunakan
+used_csv_file = None
+
 # Fungsi helper untuk format harga (menangani harga kecil dan besar)
 def format_price(price):
     """Format harga dengan presisi yang sesuai"""
@@ -66,6 +69,8 @@ except ImportError:
 
 def load_data_from_csv(csv_file=None):
     """Load data dari CSV yang dihasilkan get_data.py atau get_historical_data.py"""
+    global used_csv_file  # Global variable untuk menyimpan nama file yang digunakan
+    
     if csv_file is None:
         # Cari file CSV terbaru (prioritas: historical, lalu data real-time)
         # Pattern lebih fleksibel: btc_*.csv, btcusd_*.csv, atau *_historical_*.csv
@@ -82,6 +87,9 @@ def load_data_from_csv(csv_file=None):
             raise FileNotFoundError("Tidak ada file CSV ditemukan. Jalankan get_data.py atau get_historical_data.py terlebih dahulu.")
         csv_file = max(csv_files, key=os.path.getctime)
         print(f"Menggunakan file: {csv_file}")
+    
+    # Simpan nama file untuk dihapus nanti
+    used_csv_file = csv_file
     
     # Baca CSV
     df = pd.read_csv(csv_file)
