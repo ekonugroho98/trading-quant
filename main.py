@@ -29,6 +29,8 @@ class TradingBot:
         self.offset = 0
         self.running = False
         self.active_users = set()  # Set untuk menyimpan chat_id user yang sudah /start
+        self.user_trading_styles = {}  # Dictionary untuk menyimpan TRADING_STYLE per user
+        self.valid_trading_styles = ["SCALPING", "DAY_TRADING", "SWING_TRADING", "POSITION_TRADING"]
     
     def get_updates(self) -> Optional[dict]:
         """
@@ -139,9 +141,13 @@ class TradingBot:
                 f"⏳ Mohon tunggu, ini mungkin memakan waktu beberapa detik..."
             )
             
-            # Update config.py dengan symbol baru dan chat_id
+            # Update config.py dengan symbol baru, chat_id, dan trading style
             self.update_config_symbol(symbol)
             self.update_config_chat_id(chat_id)
+            
+            # Update TRADING_STYLE jika user sudah set
+            if chat_id in self.user_trading_styles:
+                self.update_config_trading_style(self.user_trading_styles[chat_id])
             
             # Jalankan analisis_quant.py
             result = subprocess.run(
@@ -246,6 +252,39 @@ class TradingBot:
         except Exception as e:
             print(f"⚠️  Error updating chat_id in config: {e}")
     
+    def update_config_trading_style(self, trading_style: str):
+        """
+        Update TRADING_STYLE di config.py
+        
+        Args:
+            trading_style: Trading style baru (SCALPING, DAY_TRADING, SWING_TRADING, POSITION_TRADING)
+        """
+        try:
+            config_file = "config.py"
+            with open(config_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Replace TRADING_STYLE line
+            import re
+            pattern = r'^TRADING_STYLE\s*=\s*["\'].*?["\']'
+            replacement = f'TRADING_STYLE = "{trading_style}"'
+            new_content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+            
+            if new_content != content:
+                with open(config_file, 'w', encoding='utf-8') as f:
+                    f.write(new_content)
+                print(f"✅ Config updated: TRADING_STYLE = {trading_style}")
+            else:
+                # Coba pattern alternatif
+                pattern2 = r'TRADING_STYLE\s*=\s*["\'].*?["\']'
+                new_content2 = re.sub(pattern2, replacement, content)
+                if new_content2 != content:
+                    with open(config_file, 'w', encoding='utf-8') as f:
+                        f.write(new_content2)
+                    print(f"✅ Config updated: TRADING_STYLE = {trading_style}")
+        except Exception as e:
+            print(f"⚠️  Error updating trading_style in config: {e}")
+    
     def handle_message(self, message: dict):
         """
         Handle incoming message
@@ -263,6 +302,16 @@ class TradingBot:
         # Handle /start command
         if text.startswith('/start'):
             self.handle_start_command(chat_id)
+            return
+        
+        # Handle /style command untuk mengatur TRADING_STYLE
+        if text.startswith('/style') or text.startswith('/trading_style'):
+            self.handle_trading_style_command(chat_id, text)
+            return
+        
+        # Handle /settings command untuk melihat setting saat ini
+        if text.startswith('/settings'):
+            self.handle_settings_command(chat_id)
             return
         
         # Check if user has started the bot
@@ -330,11 +379,113 @@ class TradingBot:
             "• DeepSeek AI Recommendation\n"
             "• ML Prediction Results\n"
             "• Trading Chart\n\n"
+            "<b>Command yang tersedia:</b>\n"
+            "• <code>/style STYLE</code> - Ubah TRADING_STYLE\n"
+            "• <code>/settings</code> - Lihat pengaturan\n\n"
             "🚀 <b>Mulai dengan mengirim symbol coin!</b>"
         )
         
         self.send_message(chat_id, welcome_text)
         print(f"✅ User {chat_id} started the bot")
+    
+    def handle_trading_style_command(self, chat_id: str, text: str):
+        """
+        Handle /style atau /trading_style command
+        
+        Args:
+            chat_id: Chat ID dari user
+            text: Command text (format: /style SCALPING)
+        """
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            # Tidak ada parameter, tampilkan help
+            help_text = (
+                "⚙️ <b>Pengaturan TRADING_STYLE</b>\n\n"
+                "<b>Format:</b>\n"
+                "<code>/style STYLE</code>\n\n"
+                "<b>Pilihan TRADING_STYLE:</b>\n"
+                "• <code>SCALPING</code> - Trading sangat cepat (detik-menit)\n"
+                "• <code>DAY_TRADING</code> - Trading dalam 1 hari\n"
+                "• <code>SWING_TRADING</code> - Trading beberapa hari-minggu\n"
+                "• <code>POSITION_TRADING</code> - Trading jangka panjang (minggu-bulan)\n\n"
+                "<b>Contoh:</b>\n"
+                "<code>/style DAY_TRADING</code>\n"
+                "<code>/style SCALPING</code>"
+            )
+            self.send_message(chat_id, help_text)
+            return
+        
+        style = parts[1].strip().upper()
+        
+        # Validasi style
+        if style not in self.valid_trading_styles:
+            self.send_message(
+                chat_id,
+                f"❌ <b>TRADING_STYLE tidak valid!</b>\n\n"
+                f"Pilihan yang tersedia:\n"
+                f"• SCALPING\n"
+                f"• DAY_TRADING\n"
+                f"• SWING_TRADING\n"
+                f"• POSITION_TRADING\n\n"
+                f"Contoh: <code>/style DAY_TRADING</code>"
+            )
+            return
+        
+        # Update TRADING_STYLE untuk user ini
+        self.user_trading_styles[chat_id] = style
+        
+        # Update config.py
+        self.update_config_trading_style(style)
+        
+        # Kirim konfirmasi
+        style_descriptions = {
+            "SCALPING": "Trading sangat cepat (detik-menit), banyak sinyal, profit kecil per trade",
+            "DAY_TRADING": "Trading dalam 1 hari, beberapa sinyal per hari",
+            "SWING_TRADING": "Trading beberapa hari-minggu, sinyal lebih jarang tapi lebih reliable",
+            "POSITION_TRADING": "Trading jangka panjang (minggu-bulan), sinyal sangat jarang"
+        }
+        
+        self.send_message(
+            chat_id,
+            f"✅ <b>TRADING_STYLE diubah menjadi: {style}</b>\n\n"
+            f"📝 <b>Deskripsi:</b>\n"
+            f"{style_descriptions.get(style, 'N/A')}\n\n"
+            f"🔄 Setting ini akan digunakan untuk analisis selanjutnya."
+        )
+        print(f"✅ User {chat_id} set TRADING_STYLE to {style}")
+    
+    def handle_settings_command(self, chat_id: str):
+        """
+        Handle /settings command untuk melihat setting saat ini
+        
+        Args:
+            chat_id: Chat ID dari user
+        """
+        current_style = self.user_trading_styles.get(chat_id, "DAY_TRADING")
+        
+        # Baca config untuk mendapatkan setting lainnya
+        try:
+            from config import TRADING_STYLE, SYMBOL
+            config_style = TRADING_STYLE
+            config_symbol = SYMBOL
+        except:
+            config_style = "DAY_TRADING"
+            config_symbol = "BTC-USD"
+        
+        # Gunakan user style jika ada, kalau tidak gunakan config
+        active_style = self.user_trading_styles.get(chat_id, config_style)
+        
+        settings_text = (
+            "⚙️ <b>Pengaturan Saat Ini</b>\n\n"
+            f"📊 <b>TRADING_STYLE:</b> <code>{active_style}</code>\n"
+            f"💰 <b>SYMBOL:</b> <code>{config_symbol}</code>\n\n"
+            "<b>Command yang tersedia:</b>\n"
+            "• <code>/style STYLE</code> - Ubah TRADING_STYLE\n"
+            "• <code>/settings</code> - Lihat pengaturan\n"
+            "• Kirim symbol coin untuk analisis"
+        )
+        
+        self.send_message(chat_id, settings_text)
     
     def start_polling(self):
         """Mulai polling untuk menerima pesan dari Telegram"""
