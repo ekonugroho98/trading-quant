@@ -173,11 +173,17 @@ Berdasarkan semua data di atas, berikan rekomendasi trading dalam format JSON be
     "action": "BUY|SELL|HOLD",
     "position": "LONG|SHORT|CASH",
     "confidence": 0-100,
-    "entry_price": number,
-    "targets": [number],
-    "stop_loss": number,
+    "entry_price": number atau null (jika HOLD, gunakan current price sebagai referensi),
+    "targets": [number] atau [] (jika HOLD, berikan 3 target potensial berdasarkan support/resistance),
+    "stop_loss": number atau null (jika HOLD, gunakan support/resistance sebagai referensi),
     "reason": "string singkat menjelaskan alasan rekomendasi"
 }}
+
+PENTING:
+- Jika action adalah HOLD, tetap berikan entry_price, targets, dan stop_loss berdasarkan current price dan support/resistance levels untuk referensi jika nanti ingin masuk
+- entry_price harus selalu berupa number (bukan null), gunakan current price jika HOLD
+- targets harus selalu array dengan minimal 3 angka (bukan empty array), gunakan support/resistance levels jika HOLD
+- stop_loss harus selalu berupa number (bukan null), gunakan support/resistance sebagai referensi jika HOLD
 
 Pertimbangkan:
 1. Current position dan signal dari strategi
@@ -188,7 +194,7 @@ Pertimbangkan:
 6. ML prediction dan confidence level
 7. Risk/reward ratio dari trading setup
 
-Berikan rekomendasi yang konservatif dan berdasarkan data. Jika confidence rendah atau sinyal bertentangan, pilih HOLD dengan position CASH.
+Berikan rekomendasi yang konservatif dan berdasarkan data. Jika confidence rendah atau sinyal bertentangan, pilih HOLD dengan position CASH, tapi tetap berikan entry_price, targets, dan stop_loss untuk referensi.
 
 Hanya kembalikan JSON, tanpa penjelasan tambahan."""
         
@@ -280,12 +286,28 @@ Hanya kembalikan JSON, tanpa penjelasan tambahan."""
             
             # Validate structure
             required_fields = ['action', 'position', 'confidence', 'entry_price', 'targets', 'stop_loss', 'reason']
-            if all(field in result for field in required_fields):
-                return result
-            else:
+            
+            # Check if all fields exist
+            if not all(field in result for field in required_fields):
                 print("⚠️  Response tidak lengkap, field yang hilang:", 
                       [f for f in required_fields if f not in result])
                 return None
+            
+            # Handle null values - replace with defaults based on current price if available
+            # Try to get current price from analysis data if available
+            # For now, we'll just ensure entry_price and stop_loss are numbers
+            if result.get('entry_price') is None:
+                # If entry_price is null, we'll handle it in the calling function
+                print("⚠️  entry_price is null in AI response")
+            
+            if result.get('stop_loss') is None:
+                # If stop_loss is null, we'll handle it in the calling function
+                print("⚠️  stop_loss is null in AI response")
+            
+            if not isinstance(result.get('targets'), list):
+                result['targets'] = []
+            
+            return result
                 
         except json.JSONDecodeError as e:
             print(f"❌ Error parsing JSON: {e}")

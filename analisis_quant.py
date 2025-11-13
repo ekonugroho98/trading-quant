@@ -1196,6 +1196,54 @@ if RUN_PREDICTION:
                     symbol = analysis_data['basic_info'].get('symbol')
                 
                 if recommendation:
+                    # Handle null values from AI - use current price and support/resistance as fallback
+                    if recommendation.get('entry_price') is None and current_price is not None:
+                        recommendation['entry_price'] = current_price
+                    
+                    if recommendation.get('stop_loss') is None:
+                        # Set stop loss based on action and support/resistance
+                        if recommendation.get('action') == 'BUY' and support is not None:
+                            recommendation['stop_loss'] = support * 0.995  # 0.5% below support
+                        elif recommendation.get('action') == 'SELL' and resistance is not None:
+                            recommendation['stop_loss'] = resistance * 1.005  # 0.5% above resistance
+                        elif current_price is not None:
+                            # Default: 2% stop loss
+                            if recommendation.get('action') == 'BUY':
+                                recommendation['stop_loss'] = current_price * 0.98
+                            elif recommendation.get('action') == 'SELL':
+                                recommendation['stop_loss'] = current_price * 1.02
+                    
+                    if not recommendation.get('targets') or len(recommendation.get('targets', [])) == 0:
+                        # Generate targets based on entry price and support/resistance
+                        entry = recommendation.get('entry_price', current_price)
+                        if entry and entry > 0:
+                            targets = []
+                            if recommendation.get('action') == 'BUY' and resistance is not None:
+                                # TP1: 50% to resistance, TP2: 75% to resistance, TP3: resistance
+                                diff = resistance - entry
+                                targets = [
+                                    entry + diff * 0.5,
+                                    entry + diff * 0.75,
+                                    resistance
+                                ]
+                            elif recommendation.get('action') == 'SELL' and support is not None:
+                                # TP1: 50% to support, TP2: 75% to support, TP3: support
+                                diff = entry - support
+                                targets = [
+                                    entry - diff * 0.5,
+                                    entry - diff * 0.75,
+                                    support
+                                ]
+                            else:
+                                # Default targets: 1%, 2%, 3% from entry
+                                if recommendation.get('action') == 'BUY':
+                                    targets = [entry * 1.01, entry * 1.02, entry * 1.03]
+                                elif recommendation.get('action') == 'SELL':
+                                    targets = [entry * 0.99, entry * 0.98, entry * 0.97]
+                                else:
+                                    targets = [entry * 1.01, entry * 1.02, entry * 1.03]
+                            recommendation['targets'] = targets
+                    
                     print(format_recommendation_output(
                         recommendation, 
                         current_price,
