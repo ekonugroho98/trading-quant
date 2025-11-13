@@ -1205,6 +1205,10 @@ if RUN_PREDICTION:
         import subprocess
         import sys
         
+        # Simpan nama CSV file sebelum menjalankan prediksi
+        # (prediksi_next_day.py juga akan menggunakan file CSV yang sama)
+        csv_file_for_prediction = used_csv_file if 'used_csv_file' in globals() and used_csv_file else None
+        
         # Jalankan dengan output real-time
         result = subprocess.run(
             [sys.executable, "prediksi_next_day.py"],
@@ -1389,7 +1393,11 @@ if RUN_PREDICTION:
     # Chart sudah dikirim ke Telegram, tidak perlu ditampilkan di terminal
     # plt.show()  # Disabled - chart hanya dikirim ke Telegram
     
-    # Hapus file CSV setelah digunakan
+    # Hapus file CSV setelah SEMUA proses selesai (termasuk prediksi dan DeepSeek)
+    # Tunggu sebentar untuk memastikan semua subprocess sudah selesai menggunakan file
+    import time
+    time.sleep(1)  # Tunggu 1 detik untuk memastikan prediksi_next_day.py sudah selesai
+    
     if 'used_csv_file' in globals() and used_csv_file and os.path.exists(used_csv_file):
         try:
             os.remove(used_csv_file)

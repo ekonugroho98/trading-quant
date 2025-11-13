@@ -612,13 +612,9 @@ def main():
         # Silent fail, tidak critical
         pass
     
-    # Hapus file CSV setelah digunakan
-    if 'used_csv_file_prediction' in globals() and used_csv_file_prediction and os.path.exists(used_csv_file_prediction):
-        try:
-            os.remove(used_csv_file_prediction)
-            print(f"\n🗑️  File CSV dihapus: {used_csv_file_prediction}")
-        except Exception as e:
-            print(f"\n⚠️  Gagal menghapus file CSV {used_csv_file_prediction}: {e}")
+    # JANGAN hapus file CSV di sini - biarkan analisis_quant.py yang menghapusnya
+    # setelah semua proses selesai (termasuk prediksi dan DeepSeek)
+    # Ini memastikan file CSV tetap tersedia untuk semua proses yang membutuhkannya
 
 if __name__ == "__main__":
     main()
