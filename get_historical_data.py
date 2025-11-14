@@ -13,7 +13,8 @@ import time
 try:
     from config import (
         DATA_SOURCE, SYMBOL, TRADING_STYLE, get_interval, get_days_back,
-        COINGECKO_API_KEY, COIN_ID, FREECRYPTOAPI_KEY, FREECRYPTOAPI_SYMBOL
+        COINGECKO_API_KEY, COIN_ID, FREECRYPTOAPI_KEY, FREECRYPTOAPI_SYMBOL,
+        BINANCE_API_KEY, BINANCE_API_SECRET
     )
     INTERVAL = get_interval()  # Otomatis berdasarkan TRADING_STYLE
     DAYS_BACK = get_days_back()  # Otomatis berdasarkan TRADING_STYLE
@@ -511,6 +512,8 @@ def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # Tentukan nama coin untuk filename
     if DATA_SOURCE == "yfinance":
+        coin_name = SYMBOL.replace("-", "").lower()  # BTC-USD -> btcusd
+    elif DATA_SOURCE == "binance":
         coin_name = SYMBOL.replace("-", "").lower()  # BTC-USD -> btcusd
     elif DATA_SOURCE == "coingecko":
         coin_name = COIN_ID.replace("-", "_")  # bitcoin -> bitcoin, hype-token -> hype_token
