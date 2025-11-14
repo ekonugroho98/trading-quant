@@ -374,13 +374,25 @@ def download_multiple_symbols(symbols: List[str], period: str = "90d",
             if df is not None and not df.empty:
                 # Convert ke format MultiIndex seperti yfinance
                 binance_symbol = convert_symbol_to_binance(symbol)
+                
+                # Pastikan 'date' adalah index, bukan column
+                if 'date' in df.columns:
+                    df_indexed = df.set_index('date')
+                elif df.index.name == 'date' or isinstance(df.index, pd.DatetimeIndex):
+                    df_indexed = df
+                else:
+                    # Jika tidak ada date, gunakan index yang ada
+                    df_indexed = df
+                
+                # Buat MultiIndex DataFrame
                 df_multi = pd.DataFrame({
-                    (binance_symbol, 'Open'): df['Open'],
-                    (binance_symbol, 'High'): df['High'],
-                    (binance_symbol, 'Low'): df['Low'],
-                    (binance_symbol, 'Close'): df['Close'],
-                    (binance_symbol, 'Volume'): df['Volume']
-                }, index=df['date'])
+                    (binance_symbol, 'Open'): df_indexed['Open'],
+                    (binance_symbol, 'High'): df_indexed['High'],
+                    (binance_symbol, 'Low'): df_indexed['Low'],
+                    (binance_symbol, 'Close'): df_indexed['Close'],
+                    (binance_symbol, 'Volume'): df_indexed['Volume']
+                }, index=df_indexed.index)
+                
                 all_data[binance_symbol] = df_multi
         except Exception as e:
             print(f"⚠️  Error downloading {symbol}: {e}")

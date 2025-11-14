@@ -204,29 +204,65 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
         if isinstance(data.columns, pd.MultiIndex):
             col_names = data.columns.names
             
-            # yf.download dengan group_by='ticker' menghasilkan struktur (Ticker, Price)
-            if len(col_names) == 2 and col_names[0] == 'Ticker':
-                # Struktur (Ticker, Price)
-                close_col = (symbol, 'Close')
-                volume_col = (symbol, 'Volume')
-                
-                if close_col not in data.columns:
-                    return None
-                
-                close_data = data[close_col].dropna()
-                volume_data = data[volume_col].dropna() if volume_col in data.columns else None
-            elif len(col_names) == 2 and col_names[0] == 'Price':
-                # Struktur (Price, Ticker) - format tanpa group_by
-                close_col = ('Close', symbol)
-                volume_col = ('Volume', symbol)
-                
-                if close_col not in data.columns:
-                    return None
-                
-                close_data = data[close_col].dropna()
-                volume_data = data[volume_col].dropna() if volume_col in data.columns else None
-            else:
-                # Single level atau format lain
+            # Cek apakah ini format Binance (BTCUSDT) atau yfinance (BTC-USD)
+            # Coba convert symbol ke Binance format
+            try:
+                from binance_data import convert_symbol_to_binance
+                binance_symbol = convert_symbol_to_binance(symbol)
+            except:
+                binance_symbol = symbol.replace("-", "").upper()  # Fallback: BTC-USD -> BTCUSD
+            
+            # Cek semua kemungkinan format column
+            possible_close_cols = [
+                (symbol, 'Close'),           # yfinance format: (BTC-USD, Close)
+                (binance_symbol, 'Close'),   # Binance format: (BTCUSDT, Close)
+                ('Close', symbol),           # Alternative format: (Close, BTC-USD)
+                ('Close', binance_symbol),   # Alternative format: (Close, BTCUSDT)
+            ]
+            
+            possible_volume_cols = [
+                (symbol, 'Volume'),
+                (binance_symbol, 'Volume'),
+                ('Volume', symbol),
+                ('Volume', binance_symbol),
+            ]
+            
+            # Cari column yang ada di data
+            close_col = None
+            volume_col = None
+            
+            for col in possible_close_cols:
+                if col in data.columns:
+                    close_col = col
+                    break
+            
+            for col in possible_volume_cols:
+                if col in data.columns:
+                    volume_col = col
+                    break
+            
+            if close_col is None:
+                # Debug: print available columns untuk troubleshooting (hanya untuk beberapa coin pertama)
+                # Jangan print terlalu banyak untuk menghindari spam
+                if symbol in ['BTC-USD', 'ETH-USD', 'BNB-USD'] or len(data.columns) < 20:
+                    available_symbols = set()
+                    for col in data.columns:
+                        if isinstance(col, tuple) and len(col) == 2:
+                            available_symbols.add(col[0])
+                    print(f"⚠️  Column tidak ditemukan untuk {symbol} (binance: {binance_symbol})")
+                    print(f"   Mencari: {possible_close_cols[:2]}")
+                    print(f"   Available symbols: {list(available_symbols)[:10]}")
+                return None
+            
+            close_data = data[close_col].dropna()
+            volume_data = data[volume_col].dropna() if volume_col and volume_col in data.columns else None
+            
+            # Debug: cek apakah data kosong setelah dropna
+            if len(close_data) == 0:
+                if symbol in ['BTC-USD', 'ETH-USD', 'BNB-USD']:
+                    print(f"⚠️  Data kosong setelah dropna untuk {symbol} (column: {close_col})")
+                    print(f"   Data shape sebelum dropna: {data[close_col].shape}")
+                    print(f"   Data sample: {data[close_col].head()}")
                 return None
         else:
             # Single column DataFrame
@@ -236,6 +272,8 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
             volume_data = data['Volume'].dropna() if 'Volume' in data.columns else None
         
         if len(close_data) < 2:
+            if symbol in ['BTC-USD', 'ETH-USD', 'BNB-USD']:
+                print(f"⚠️  Data terlalu sedikit untuk {symbol}: {len(close_data)} records (min: 2)")
             return None
         
         # Current price
