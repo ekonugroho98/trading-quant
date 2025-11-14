@@ -2,6 +2,7 @@
 Coin Screening Module
 Screening multiple coins untuk menemukan peluang trading terbaik
 Menggunakan quick metrics tanpa ML atau DeepSeek AI (untuk efisiensi)
+Support yfinance dan Binance API
 """
 
 import yfinance as yf
@@ -9,6 +10,14 @@ import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
+
+# Import config untuk data source
+try:
+    from config import DATA_SOURCE, BINANCE_API_KEY, BINANCE_API_SECRET
+except ImportError:
+    DATA_SOURCE = "yfinance"
+    BINANCE_API_KEY = None
+    BINANCE_API_SECRET = None
 
 
 # Daftar 150 coin populer untuk screening (terutama dari Binance)
@@ -75,19 +84,38 @@ DEFAULT_COINS = [
 ]
 
 
-def get_coins_snapshot(coins: List[str], days: int = 90) -> pd.DataFrame:
+def get_coins_snapshot(coins: List[str], days: int = 90, 
+                       data_source: Optional[str] = None,
+                       api_key: Optional[str] = None,
+                       api_secret: Optional[str] = None) -> pd.DataFrame:
     """
     Ambil data snapshot untuk multiple coins sekaligus
     
     Args:
         coins: List of coin symbols (format: BTC-USD)
         days: Jumlah hari data yang diambil (default: 90)
+        data_source: "yfinance" atau "binance" (default: dari config.py)
+        api_key: Binance API key (optional, default: dari config.py)
+        api_secret: Binance API secret (optional, default: dari config.py)
     
     Returns:
-        DataFrame dengan MultiIndex (Price Type, Ticker)
+        DataFrame dengan MultiIndex (Ticker, Price) untuk kompatibilitas
+    """
+    # Gunakan data_source dari parameter atau config
+    source = data_source or DATA_SOURCE
+    
+    if source == "binance":
+        return get_coins_snapshot_binance(coins, days, api_key, api_secret)
+    else:
+        return get_coins_snapshot_yfinance(coins, days)
+
+
+def get_coins_snapshot_yfinance(coins: List[str], days: int = 90) -> pd.DataFrame:
+    """
+    Ambil data snapshot dari yfinance
     """
     try:
-        print(f"📊 Mengambil data snapshot untuk {len(coins)} coins...")
+        print(f"📊 Mengambil data snapshot dari yfinance untuk {len(coins)} coins...")
         # group_by='ticker' akan membuat struktur (Ticker, Price) bukan (Price, Ticker)
         data = yf.download(
             coins,
@@ -106,8 +134,58 @@ def get_coins_snapshot(coins: List[str], days: int = 90) -> pd.DataFrame:
         return data
         
     except Exception as e:
-        print(f"❌ Error mengambil data snapshot: {e}")
+        print(f"❌ Error mengambil data snapshot dari yfinance: {e}")
         return pd.DataFrame()
+
+
+def get_coins_snapshot_binance(coins: List[str], days: int = 90,
+                               api_key: Optional[str] = None,
+                               api_secret: Optional[str] = None) -> pd.DataFrame:
+    """
+    Ambil data snapshot dari Binance API untuk multiple coins
+    Menggunakan binance_data.download_multiple_symbols untuk batch processing
+    """
+    try:
+        from binance_data import download_multiple_symbols
+        
+        # Gunakan API key dari parameter atau config
+        api_key = api_key or BINANCE_API_KEY
+        api_secret = api_secret or BINANCE_API_SECRET
+        
+        print(f"📊 Mengambil data snapshot dari Binance API untuk {len(coins)} coins...")
+        print(f"   Periode: {days} hari")
+        
+        # Convert days ke period string
+        period_map = {
+            1: "1d", 7: "7d", 30: "30d", 90: "90d",
+            180: "6mo", 365: "1y"
+        }
+        period = period_map.get(days, "90d")
+        
+        # Download multiple symbols sekaligus
+        data = download_multiple_symbols(
+            symbols=coins,
+            period=period,
+            interval="1d",
+            api_key=api_key,
+            api_secret=api_secret
+        )
+        
+        if data.empty:
+            print("⚠️  Data kosong dari Binance")
+            return pd.DataFrame()
+        
+        print(f"✅ Data berhasil diambil dari Binance: {len(data)} records")
+        return data
+        
+    except ImportError as e:
+        print(f"❌ Binance data module tidak tersedia: {e}")
+        print("   Fallback ke yfinance...")
+        return get_coins_snapshot_yfinance(coins, days)
+    except Exception as e:
+        print(f"❌ Error mengambil data snapshot dari Binance: {e}")
+        print("   Fallback ke yfinance...")
+        return get_coins_snapshot_yfinance(coins, days)
 
 
 def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
@@ -265,7 +343,10 @@ def screen_coins(
     min_price_change: float = -50.0,
     max_price_change: float = 100.0,
     rsi_range: Optional[Tuple[float, float]] = None,
-    top_n: int = 10
+    top_n: int = 10,
+    data_source: Optional[str] = None,
+    api_key: Optional[str] = None,
+    api_secret: Optional[str] = None
 ) -> List[Dict]:
     """
     Screen multiple coins berdasarkan criteria
@@ -293,7 +374,7 @@ def screen_coins(
     print()
     
     # Ambil data snapshot untuk semua coins
-    data = get_coins_snapshot(coins, days)
+    data = get_coins_snapshot(coins, days, data_source, api_key, api_secret)
     
     if data.empty:
         print("❌ Tidak ada data untuk screening")

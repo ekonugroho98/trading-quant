@@ -727,7 +727,8 @@ class TradingBot:
         try:
             from coin_screening import screen_coins, DEFAULT_COINS
             from telegram_bot import TelegramBot
-            from config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+            from config import (ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
+                              DATA_SOURCE, BINANCE_API_KEY, BINANCE_API_SECRET)
             
             parts = text.split()
             
@@ -777,7 +778,10 @@ class TradingBot:
                 min_price_change=-50.0,
                 max_price_change=100.0,
                 rsi_range=None,
-                top_n=top_n
+                top_n=top_n,
+                data_source=DATA_SOURCE,  # Gunakan DATA_SOURCE dari config
+                api_key=BINANCE_API_KEY,
+                api_secret=BINANCE_API_SECRET
             )
             
             if not results:
