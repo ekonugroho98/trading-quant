@@ -20,7 +20,37 @@ except ImportError:
     BINANCE_API_SECRET = None
 
 
-# Daftar 150 coin populer untuk screening (terutama dari Binance)
+# Load coins dari Binance (top 200) jika file tersedia
+def load_binance_coins(filename: str = "binance_top_coins.json") -> List[str]:
+    """
+    Load list coins dari file JSON yang dihasilkan get_binance_coins.py
+    
+    Args:
+        filename: Nama file JSON
+    
+    Returns:
+        List of symbols dalam format yfinance (e.g., ["BTC-USD", "ETH-USD"])
+    """
+    try:
+        import json
+        with open(filename, 'r') as f:
+            data = json.load(f)
+        symbols = data.get('symbols', [])
+        if symbols:
+            print(f"✅ Loaded {len(symbols)} coins dari {filename}")
+            print(f"   Last updated: {data.get('last_updated', 'Unknown')}")
+        return symbols
+    except FileNotFoundError:
+        print(f"⚠️  File {filename} tidak ditemukan, menggunakan DEFAULT_COINS")
+        return []
+    except Exception as e:
+        print(f"⚠️  Error loading {filename}: {e}, menggunakan DEFAULT_COINS")
+        return []
+
+# Coba load coins dari Binance, fallback ke DEFAULT_COINS
+BINANCE_COINS = load_binance_coins()
+
+# Daftar 150 coin populer untuk screening (fallback jika Binance coins tidak tersedia)
 # Semua coin ini telah diverifikasi tersedia di yfinance
 DEFAULT_COINS = [
     # Top 20 Major Cryptocurrencies
@@ -456,7 +486,12 @@ def screen_coins(
         List of dictionaries dengan coin metrics, sorted by combined_score
     """
     if coins is None:
-        coins = DEFAULT_COINS
+        # Gunakan Binance coins jika tersedia, fallback ke DEFAULT_COINS
+        coins = BINANCE_COINS if BINANCE_COINS else DEFAULT_COINS
+        if BINANCE_COINS:
+            print(f"📋 Menggunakan {len(coins)} coins dari Binance (top by volume)")
+        else:
+            print(f"📋 Menggunakan {len(coins)} coins dari DEFAULT_COINS")
     
     print(f"\n🔍 Screening {len(coins)} coins...")
     print(f"📅 Periode: {days} hari")
