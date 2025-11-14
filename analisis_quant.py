@@ -710,10 +710,40 @@ print()
 # ============================================
 # TRADING SETUP (Entry, Stop Loss, Take Profit)
 # ============================================
+def calculate_fibonacci_levels(support, resistance, current_price):
+    """
+    Hitung Fibonacci retracement levels berdasarkan support dan resistance
+    
+    Args:
+        support: Support level
+        resistance: Resistance level
+        current_price: Current market price
+    
+    Returns:
+        Dictionary dengan Fibonacci levels (0.236, 0.382, 0.5, 0.618, 0.786)
+    """
+    if support is None or resistance is None:
+        return None
+    
+    # Range dari support ke resistance
+    price_range = resistance - support
+    
+    # Fibonacci retracement levels (dari support ke resistance)
+    fib_levels = {
+        'fib_236': support + (price_range * 0.236),  # 23.6%
+        'fib_382': support + (price_range * 0.382),  # 38.2%
+        'fib_500': support + (price_range * 0.500),  # 50.0%
+        'fib_618': support + (price_range * 0.618),  # 61.8%
+        'fib_786': support + (price_range * 0.786),  # 78.6%
+    }
+    
+    return fib_levels
+
+
 def generate_trading_setup(symbol, current_price, support, resistance, signal, 
                            use_limit_entry=True, risk_percent=2.5, tp_multipliers=None):
     """
-    Generate trading setup dengan Entry, Stop Loss, dan Take Profit levels
+    Generate trading setup dengan Multiple Entry Levels, Stop Loss, dan Take Profit levels
     
     Parameters:
     - symbol: Trading symbol (e.g., "BTCUSDT", "ENAUSDT")
@@ -724,20 +754,57 @@ def generate_trading_setup(symbol, current_price, support, resistance, signal,
     - use_limit_entry: True = gunakan limit entry (di support untuk LONG), False = market entry
     - risk_percent: Risk percentage untuk stop loss (default 2.5%)
     - tp_multipliers: List of TP multipliers [tp1, tp2, tp3] (default [1.5, 2.5, 3.5])
+    
+    Returns:
+    - Dictionary dengan entry1, entry2, entry3, stop_loss, tp1, tp2, tp3
     """
     # Default TP multipliers jika tidak diberikan
     if tp_multipliers is None:
         tp_multipliers = [1.5, 2.5, 3.5]
+    
+    # Hitung Fibonacci levels jika support dan resistance tersedia
+    fib_levels = calculate_fibonacci_levels(support, resistance, current_price) if support and resistance else None
+    
     if signal == 1:  # LONG/BUY
         direction = "LONG"
         action = "BUY"
         
-        # Entry Price
-        if use_limit_entry and support is not None:
-            # Limit entry sedikit di atas support untuk LONG
-            entry_price = support * 1.001  # 0.1% di atas support
+        # ============================================
+        # MULTIPLE ENTRY LEVELS untuk LONG
+        # ============================================
+        if support is not None and resistance is not None:
+            # Entry 1: Paling agresif - dekat current price atau sedikit di atas support
+            # Gunakan jika harga sudah di atas support dan momentum kuat
+            if current_price >= support * 1.002:  # Harga sudah di atas support
+                entry1 = current_price * 1.001  # 0.1% di atas current (agresif)
+            else:
+                entry1 = support * 1.002  # 0.2% di atas support (agresif)
+            
+            # Entry 2: Konservatif - di support atau Fibonacci 0.618
+            if fib_levels:
+                # Gunakan Fibonacci 0.618 jika lebih dekat ke support
+                entry2_option1 = support * 1.001  # 0.1% di atas support
+                entry2_option2 = fib_levels['fib_618']  # Fibonacci 0.618
+                entry2 = max(entry2_option1, entry2_option2)  # Ambil yang lebih tinggi (lebih konservatif)
+            else:
+                entry2 = support * 1.001  # 0.1% di atas support
+            
+            # Entry 3: Sangat konservatif - di bawah support atau Fibonacci 0.786 (wait for pullback)
+            if fib_levels:
+                # Gunakan Fibonacci 0.786 atau sedikit di bawah support
+                entry3_option1 = support * 0.998  # 0.2% di bawah support (sangat konservatif)
+                entry3_option2 = fib_levels['fib_786']  # Fibonacci 0.786
+                entry3 = min(entry3_option1, entry3_option2)  # Ambil yang lebih rendah (sangat konservatif)
+            else:
+                entry3 = support * 0.998  # 0.2% di bawah support (sangat konservatif)
         else:
-            entry_price = current_price
+            # Fallback jika tidak ada support/resistance
+            entry1 = current_price * 1.001  # 0.1% di atas current
+            entry2 = current_price * 0.998  # 0.2% di bawah current
+            entry3 = current_price * 0.995  # 0.5% di bawah current
+        
+        # Gunakan entry2 sebagai entry utama (konservatif)
+        entry_price = entry2
         
         # Stop Loss (di bawah support atau berdasarkan risk %)
         if support is not None:
@@ -747,41 +814,102 @@ def generate_trading_setup(symbol, current_price, support, resistance, signal,
         else:
             stop_loss = entry_price * (1 - risk_percent / 100)
         
-        # Calculate risk (distance from entry to stop loss)
+        # Calculate risk (distance from entry to stop loss) - gunakan entry2 sebagai referensi
         risk = entry_price - stop_loss
         risk_pct = (risk / entry_price) * 100
+        
+        # Untuk LONG: TP harus lebih tinggi dari SEMUA entry levels
+        # Gunakan entry tertinggi (entry1) sebagai referensi untuk memastikan TP > semua entry
+        entry_max = max(entry1, entry2, entry3)
         
         # Take Profit levels (berdasarkan resistance atau R:R ratio)
         if resistance is not None:
             # TP1: Target pertama (berdasarkan multiplier atau 50% ke resistance)
+            # Hitung TP berdasarkan entry_price (entry2) untuk konsistensi
             tp1_option1 = entry_price + (risk * tp_multipliers[0])
             tp1_option2 = entry_price + ((resistance - entry_price) * 0.5)
             tp1 = min(tp1_option1, tp1_option2)
+            # Validasi: TP1 harus > entry tertinggi (entry1) untuk memastikan semua entry profit
+            if tp1 <= entry_max:
+                # Jika TP1 <= entry_max, gunakan entry_max + margin kecil
+                tp1 = entry_max * 1.002  # 0.2% di atas entry tertinggi
             
             # TP2: Target kedua (berdasarkan multiplier atau 75% ke resistance)
             tp2_option1 = entry_price + (risk * tp_multipliers[1])
             tp2_option2 = entry_price + ((resistance - entry_price) * 0.75)
             tp2 = min(tp2_option1, tp2_option2)
+            # Validasi: TP2 harus > TP1 dan > entry tertinggi
+            if tp2 <= tp1 or tp2 <= entry_max:
+                tp2 = max(tp1 * 1.002, entry_max * 1.005)  # Lebih tinggi dari TP1
             
             # TP3: Target ketiga (berdasarkan multiplier atau resistance)
             tp3_option1 = entry_price + (risk * tp_multipliers[2])
             tp3 = min(tp3_option1, resistance)
+            # Validasi: TP3 harus > TP2 dan > entry tertinggi
+            if tp3 <= tp2 or tp3 <= entry_max:
+                tp3 = max(tp2 * 1.002, entry_max * 1.008)  # Lebih tinggi dari TP2
         else:
             # Jika tidak ada resistance, gunakan R:R ratio saja
             tp1 = entry_price + (risk * tp_multipliers[0])
+            # Validasi: TP1 harus > entry tertinggi
+            if tp1 <= entry_max:
+                tp1 = entry_max * 1.002
+            
             tp2 = entry_price + (risk * tp_multipliers[1])
+            # Validasi: TP2 harus > TP1 dan > entry tertinggi
+            if tp2 <= tp1 or tp2 <= entry_max:
+                tp2 = max(tp1 * 1.002, entry_max * 1.005)
+            
             tp3 = entry_price + (risk * tp_multipliers[2])
+            # Validasi: TP3 harus > TP2 dan > entry tertinggi
+            if tp3 <= tp2 or tp3 <= entry_max:
+                tp3 = max(tp2 * 1.002, entry_max * 1.008)
         
     else:  # SHORT/SELL
         direction = "SHORT"
         action = "SELL"
         
-        # Entry Price
-        if use_limit_entry and resistance is not None:
-            # Limit entry sedikit di bawah resistance untuk SHORT
-            entry_price = resistance * 0.999  # 0.1% di bawah resistance
+        # ============================================
+        # MULTIPLE ENTRY LEVELS untuk SHORT
+        # ============================================
+        if support is not None and resistance is not None:
+            # Entry 1: Paling agresif - dekat current price atau sedikit di bawah resistance
+            # Gunakan jika harga sudah di bawah resistance dan momentum kuat
+            if current_price <= resistance * 0.998:  # Harga sudah di bawah resistance
+                entry1 = current_price * 0.999  # 0.1% di bawah current (agresif)
+            else:
+                entry1 = resistance * 0.998  # 0.2% di bawah resistance (agresif)
+            
+            # Entry 2: Konservatif - di resistance atau Fibonacci 0.382 (dari atas)
+            if fib_levels:
+                # Untuk SHORT, Fibonacci dihitung dari atas (resistance)
+                # Fibonacci 0.382 dari atas = resistance - (range * 0.382)
+                price_range = resistance - support
+                fib_382_from_top = resistance - (price_range * 0.382)
+                entry2_option1 = resistance * 0.999  # 0.1% di bawah resistance
+                entry2_option2 = fib_382_from_top
+                entry2 = min(entry2_option1, entry2_option2)  # Ambil yang lebih rendah (lebih konservatif)
+            else:
+                entry2 = resistance * 0.999  # 0.1% di bawah resistance
+            
+            # Entry 3: Sangat konservatif - di atas resistance atau Fibonacci 0.236 dari atas (wait for pullback)
+            if fib_levels:
+                # Fibonacci 0.236 dari atas = resistance - (range * 0.236)
+                price_range = resistance - support
+                fib_236_from_top = resistance - (price_range * 0.236)
+                entry3_option1 = resistance * 1.002  # 0.2% di atas resistance (sangat konservatif)
+                entry3_option2 = fib_236_from_top
+                entry3 = max(entry3_option1, entry3_option2)  # Ambil yang lebih tinggi (sangat konservatif)
+            else:
+                entry3 = resistance * 1.002  # 0.2% di atas resistance (sangat konservatif)
         else:
-            entry_price = current_price
+            # Fallback jika tidak ada support/resistance
+            entry1 = current_price * 0.999  # 0.1% di bawah current
+            entry2 = current_price * 1.002  # 0.2% di atas current
+            entry3 = current_price * 1.005  # 0.5% di atas current
+        
+        # Gunakan entry2 sebagai entry utama (konservatif)
+        entry_price = entry2
         
         # Stop Loss (di atas resistance atau berdasarkan risk %)
         if resistance is not None:
@@ -791,36 +919,65 @@ def generate_trading_setup(symbol, current_price, support, resistance, signal,
         else:
             stop_loss = entry_price * (1 + risk_percent / 100)
         
-        # Calculate risk (distance from entry to stop loss)
+        # Calculate risk (distance from entry to stop loss) - gunakan entry2 sebagai referensi
         risk = stop_loss - entry_price
         risk_pct = (risk / entry_price) * 100
+        
+        # Untuk SHORT: TP harus lebih rendah dari SEMUA entry levels
+        # Gunakan entry terendah (entry1) sebagai referensi untuk memastikan TP < semua entry
+        entry_min = min(entry1, entry2, entry3)
         
         # Take Profit levels (berdasarkan support atau R:R ratio)
         if support is not None:
             # TP1: Target pertama (berdasarkan multiplier atau 50% ke support)
+            # Hitung TP berdasarkan entry_price (entry2) untuk konsistensi
             tp1_option1 = entry_price - (risk * tp_multipliers[0])
             tp1_option2 = entry_price - ((entry_price - support) * 0.5)
             tp1 = max(tp1_option1, tp1_option2)
+            # Validasi: TP1 harus < entry terendah (entry1) untuk memastikan semua entry profit
+            if tp1 >= entry_min:
+                # Jika TP1 >= entry_min, gunakan entry_min - margin kecil
+                tp1 = entry_min * 0.998  # 0.2% di bawah entry terendah
             
             # TP2: Target kedua (berdasarkan multiplier atau 75% ke support)
             tp2_option1 = entry_price - (risk * tp_multipliers[1])
             tp2_option2 = entry_price - ((entry_price - support) * 0.75)
             tp2 = max(tp2_option1, tp2_option2)
+            # Validasi: TP2 harus < TP1 dan < entry terendah
+            if tp2 >= tp1 or tp2 >= entry_min:
+                tp2 = min(tp1 * 0.998, entry_min * 0.995)  # Lebih rendah dari TP1
             
             # TP3: Target ketiga (berdasarkan multiplier atau support)
             tp3_option1 = entry_price - (risk * tp_multipliers[2])
             tp3 = max(tp3_option1, support)
+            # Validasi: TP3 harus < TP2 dan < entry terendah
+            if tp3 >= tp2 or tp3 >= entry_min:
+                tp3 = min(tp2 * 0.998, entry_min * 0.992)  # Lebih rendah dari TP2
         else:
             # Jika tidak ada support, gunakan R:R ratio saja
             tp1 = entry_price - (risk * tp_multipliers[0])
+            # Validasi: TP1 harus < entry terendah
+            if tp1 >= entry_min:
+                tp1 = entry_min * 0.998
+            
             tp2 = entry_price - (risk * tp_multipliers[1])
+            # Validasi: TP2 harus < TP1 dan < entry terendah
+            if tp2 >= tp1 or tp2 >= entry_min:
+                tp2 = min(tp1 * 0.998, entry_min * 0.995)
+            
             tp3 = entry_price - (risk * tp_multipliers[2])
+            # Validasi: TP3 harus < TP2 dan < entry terendah
+            if tp3 >= tp2 or tp3 >= entry_min:
+                tp3 = min(tp2 * 0.998, entry_min * 0.992)
     
     return {
         'symbol': symbol,
         'direction': direction,
         'action': action,
-        'entry': entry_price,
+        'entry': entry_price,  # Entry utama (entry2)
+        'entry1': entry1,      # Entry agresif
+        'entry2': entry2,      # Entry konservatif (utama)
+        'entry3': entry3,      # Entry sangat konservatif
         'stop_loss': stop_loss,
         'risk_pct': risk_pct,
         'tp1': tp1,
@@ -901,31 +1058,64 @@ if last_support is not None and last_resistance is not None:
     else:
         price_format = ".0f"  # 0 desimal untuk harga sangat besar
     
-    # Hitung persentase kenaikan/penurunan dari entry untuk setiap TP
+    # Hitung persentase kenaikan/penurunan dari setiap entry level untuk setiap TP
+    entry1 = setup['entry1']
+    entry2 = setup['entry2']
+    entry3 = setup['entry3']
+    
     if setup['direction'] == "LONG":
-        tp1_pct = ((setup['tp1'] - setup['entry']) / setup['entry']) * 100
-        tp2_pct = ((setup['tp2'] - setup['entry']) / setup['entry']) * 100
-        tp3_pct = ((setup['tp3'] - setup['entry']) / setup['entry']) * 100
+        # TP1
+        tp1_pct_e1 = ((setup['tp1'] - entry1) / entry1) * 100
+        tp1_pct_e2 = ((setup['tp1'] - entry2) / entry2) * 100
+        tp1_pct_e3 = ((setup['tp1'] - entry3) / entry3) * 100
+        # TP2
+        tp2_pct_e1 = ((setup['tp2'] - entry1) / entry1) * 100
+        tp2_pct_e2 = ((setup['tp2'] - entry2) / entry2) * 100
+        tp2_pct_e3 = ((setup['tp2'] - entry3) / entry3) * 100
+        # TP3
+        tp3_pct_e1 = ((setup['tp3'] - entry1) / entry1) * 100
+        tp3_pct_e2 = ((setup['tp3'] - entry2) / entry2) * 100
+        tp3_pct_e3 = ((setup['tp3'] - entry3) / entry3) * 100
     else:  # SHORT
-        tp1_pct = ((setup['entry'] - setup['tp1']) / setup['entry']) * 100
-        tp2_pct = ((setup['entry'] - setup['tp2']) / setup['entry']) * 100
-        tp3_pct = ((setup['entry'] - setup['tp3']) / setup['entry']) * 100
+        # TP1
+        tp1_pct_e1 = ((entry1 - setup['tp1']) / entry1) * 100
+        tp1_pct_e2 = ((entry2 - setup['tp1']) / entry2) * 100
+        tp1_pct_e3 = ((entry3 - setup['tp1']) / entry3) * 100
+        # TP2
+        tp2_pct_e1 = ((entry1 - setup['tp2']) / entry1) * 100
+        tp2_pct_e2 = ((entry2 - setup['tp2']) / entry2) * 100
+        tp2_pct_e3 = ((entry3 - setup['tp2']) / entry3) * 100
+        # TP3
+        tp3_pct_e1 = ((entry1 - setup['tp3']) / entry1) * 100
+        tp3_pct_e2 = ((entry2 - setup['tp3']) / entry2) * 100
+        tp3_pct_e3 = ((entry3 - setup['tp3']) / entry3) * 100
     
     print("\n" + "=" * 60)
     print(f"{setup['symbol']} LIMIT {setup['action']} SETUP - {setup['direction']}")
     print("=" * 60)
     print()
-    print(f"LIMIT ENTRY: {setup['entry']:{price_format}}")
+    print("💰 MULTIPLE ENTRY LEVELS:")
+    print(f"   Entry 1 (Agresif): {setup['entry1']:{price_format}}")
+    print(f"   Entry 2 (Konservatif - Recommended): {setup['entry2']:{price_format}}")
+    print(f"   Entry 3 (Sangat Konservatif): {setup['entry3']:{price_format}}")
     print()
-    print(f"Stop Loss: {setup['stop_loss']:{price_format}} (-{setup['risk_pct']:.2f}%)")
+    print(f"🛑 Stop Loss: {setup['stop_loss']:{price_format}} (-{setup['risk_pct']:.2f}%)")
     print()
-    # Tampilkan persentase dengan tanda yang sesuai (LONG = +, SHORT = + karena profit)
-    sign = "+" if setup['direction'] == "LONG" else "+"
-    print(f"TP1: {setup['tp1']:{price_format}} ({sign}{tp1_pct:.2f}%)")
+    print("🎯 TARGETS (dengan persentase untuk setiap Entry Level):")
+    print(f"   TP1: {setup['tp1']:{price_format}}")
+    print(f"      • Entry 1: {tp1_pct_e1:+.2f}%")
+    print(f"      • Entry 2: {tp1_pct_e2:+.2f}%")
+    print(f"      • Entry 3: {tp1_pct_e3:+.2f}%")
     print()
-    print(f"TP 2: {setup['tp2']:{price_format}} ({sign}{tp2_pct:.2f}%)")
+    print(f"   TP2: {setup['tp2']:{price_format}}")
+    print(f"      • Entry 1: {tp2_pct_e1:+.2f}%")
+    print(f"      • Entry 2: {tp2_pct_e2:+.2f}%")
+    print(f"      • Entry 3: {tp2_pct_e3:+.2f}%")
     print()
-    print(f"TP 3: {setup['tp3']:{price_format}} ({sign}{tp3_pct:.2f}%)")
+    print(f"   TP3: {setup['tp3']:{price_format}}")
+    print(f"      • Entry 1: {tp3_pct_e1:+.2f}%")
+    print(f"      • Entry 2: {tp3_pct_e2:+.2f}%")
+    print(f"      • Entry 3: {tp3_pct_e3:+.2f}%")
     print()
     print("=" * 60)
     print()
@@ -1398,6 +1588,9 @@ if RUN_PREDICTION:
             print(f"ℹ️  DeepSeek integration tidak tersedia: {e}")
         except Exception as e:
             print(f"⚠️  Error dalam DeepSeek integration: {e}")
+            import traceback
+            print(f"📋 Traceback:")
+            traceback.print_exc()
     except Exception as e:
         print(f"\n⚠️  Error menjalankan prediksi: {e}")
         print("   Analisis strategi sudah selesai, jalankan prediksi secara manual jika perlu")

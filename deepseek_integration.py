@@ -9,17 +9,29 @@ from typing import Dict, Optional, Any
 from datetime import datetime
 
 
-def format_price_no_rounding(price: float) -> str:
+def format_price_no_rounding(price) -> str:
     """
     Format harga tanpa pembulatan, menampilkan semua digit signifikan
     
     Args:
-        price: Harga yang akan diformat
+        price: Harga yang akan diformat (bisa float, int, atau None)
     
     Returns:
         String dengan harga yang diformat tanpa pembulatan
     """
+    # Handle None dan non-numeric values
     if price is None:
+        return "None"
+    
+    # Convert to float if possible
+    try:
+        price = float(price)
+    except (TypeError, ValueError):
+        return str(price) if price is not None else "None"
+    
+    # Check for NaN or inf
+    import math
+    if math.isnan(price) or math.isinf(price):
         return "None"
     
     # Konversi ke string dengan format yang menghilangkan trailing zeros
@@ -137,10 +149,22 @@ class DeepSeekTradingAdvisor:
         if 'advanced_features' in analysis_results:
             adv = analysis_results['advanced_features']
             prompt_parts.append("=== ADVANCED FEATURES ===")
-            if 'z_score' in adv:
-                prompt_parts.append(f"Z-Score: {adv['z_score']} {'(Overbought)' if adv['z_score'] > 2 else '(Oversold)' if adv['z_score'] < -2 else ''}")
-            if 'rsi' in adv:
-                prompt_parts.append(f"RSI: {adv['rsi']} {'(Overbought)' if adv['rsi'] > 70 else '(Oversold)' if adv['rsi'] < 30 else ''}")
+            if 'z_score' in adv and adv['z_score'] is not None:
+                z_score = adv['z_score']
+                try:
+                    z_score_val = float(z_score)
+                    z_score_label = '(Overbought)' if z_score_val > 2 else '(Oversold)' if z_score_val < -2 else ''
+                    prompt_parts.append(f"Z-Score: {z_score} {z_score_label}")
+                except (TypeError, ValueError):
+                    prompt_parts.append(f"Z-Score: {z_score}")
+            if 'rsi' in adv and adv['rsi'] is not None:
+                rsi = adv['rsi']
+                try:
+                    rsi_val = float(rsi)
+                    rsi_label = '(Overbought)' if rsi_val > 70 else '(Oversold)' if rsi_val < 30 else ''
+                    prompt_parts.append(f"RSI: {rsi} {rsi_label}")
+                except (TypeError, ValueError):
+                    prompt_parts.append(f"RSI: {rsi}")
             if 'cycle_period' in adv:
                 prompt_parts.append(f"Cycle Period: {adv['cycle_period']}")
             if 'patterns' in adv:
@@ -483,29 +507,43 @@ def format_recommendation_output(recommendation: Dict,
         
         # Stop Loss dengan persentase
         stop_loss = recommendation.get('stop_loss')
-        if isinstance(stop_loss, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
-            stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
-            sign = "+" if stop_loss_pct > 0 else ""
-            # Format persentase dengan lebih banyak desimal untuk akurasi
-            stop_loss_str = format_price_no_rounding(stop_loss)
-            output.append(f"🛑 Stop Loss: {stop_loss_str} ({sign}{stop_loss_pct:.6f}%)".rstrip('0').rstrip('.'))
+        if (isinstance(stop_loss, (int, float)) and 
+            isinstance(entry_price, (int, float)) and 
+            entry_price is not None and 
+            entry_price > 0 and
+            stop_loss is not None):
+            try:
+                stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
+                sign = "+" if stop_loss_pct > 0 else ""
+                # Format persentase dengan lebih banyak desimal untuk akurasi
+                stop_loss_str = format_price_no_rounding(stop_loss)
+                output.append(f"🛑 Stop Loss: {stop_loss_str} ({sign}{stop_loss_pct:.6f}%)".rstrip('0').rstrip('.'))
+            except (TypeError, ValueError, ZeroDivisionError):
+                output.append(f"🛑 Stop Loss: {format_price_no_rounding(stop_loss)}")
         else:
-            output.append(f"🛑 Stop Loss: {stop_loss}")
+            output.append(f"🛑 Stop Loss: {format_price_no_rounding(stop_loss) if stop_loss is not None else 'None'}")
         
         # Targets dengan persentase
         targets = recommendation.get('targets', [])
         if targets:
             output.append(f"\n🎯 Targets:")
             for i, target in enumerate(targets, 1):
-                if isinstance(target, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
-                    target_pct = ((target - entry_price) / entry_price) * 100
-                    sign = "+" if target_pct > 0 else ""
-                    # Format target dengan lebih banyak desimal untuk akurasi
-                    target_str = format_price_no_rounding(target)
-                    pct_str = f"{sign}{target_pct:.6f}%".rstrip('0').rstrip('.')
-                    output.append(f"   TP{i}: {target_str} ({pct_str})")
+                if (isinstance(target, (int, float)) and 
+                    isinstance(entry_price, (int, float)) and 
+                    entry_price is not None and 
+                    entry_price > 0 and
+                    target is not None):
+                    try:
+                        target_pct = ((target - entry_price) / entry_price) * 100
+                        sign = "+" if target_pct > 0 else ""
+                        # Format target dengan lebih banyak desimal untuk akurasi
+                        target_str = format_price_no_rounding(target)
+                        pct_str = f"{sign}{target_pct:.6f}%".rstrip('0').rstrip('.')
+                        output.append(f"   TP{i}: {target_str} ({pct_str})")
+                    except (TypeError, ValueError, ZeroDivisionError):
+                        output.append(f"   TP{i}: {format_price_no_rounding(target)}")
                 else:
-                    output.append(f"   TP{i}: {target}")
+                    output.append(f"   TP{i}: {format_price_no_rounding(target) if target is not None else 'None'}")
         else:
             output.append(f"\n🎯 Targets: None")
     

@@ -34,31 +34,57 @@ class TradingBot:
     
     def get_updates(self) -> Optional[dict]:
         """
-        Ambil update terbaru dari Telegram
+        Ambil update terbaru dari Telegram dengan retry mechanism
         
         Returns:
             Dictionary dengan updates atau None jika error
         """
-        try:
-            url = f"{self.api_url}/getUpdates"
-            params = {
-                "offset": self.offset,
-                "timeout": 10
-            }
-            response = requests.get(url, params=params, timeout=15)
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                print(f"❌ Error mendapatkan updates: {response.status_code}")
+        max_retries = 3
+        retry_delay = 2  # detik
+        
+        for attempt in range(max_retries):
+            try:
+                url = f"{self.api_url}/getUpdates"
+                params = {
+                    "offset": self.offset,
+                    "timeout": 10
+                }
+                # Increase timeout untuk koneksi yang lambat
+                response = requests.get(url, params=params, timeout=30)
+                
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    print(f"❌ Error mendapatkan updates: {response.status_code}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                        continue
+                    return None
+            except requests.exceptions.ConnectTimeout as e:
+                if attempt < max_retries - 1:
+                    print(f"⚠️  Connection timeout (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay * (attempt + 1)}s...")
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                    continue
+                else:
+                    print(f"⚠️  Connection timeout setelah {max_retries} attempts. Kemungkinan masalah koneksi internet atau Telegram API.")
+                    return None
+            except requests.exceptions.RequestException as e:
+                if attempt < max_retries - 1:
+                    print(f"⚠️  Network error (attempt {attempt + 1}/{max_retries}): {type(e).__name__}, retrying...")
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                else:
+                    print(f"⚠️  Error menghubungi Telegram API setelah {max_retries} attempts: {type(e).__name__}")
+                    return None
+            except Exception as e:
+                print(f"⚠️  Unexpected error menghubungi Telegram API: {e}")
                 return None
-        except Exception as e:
-            print(f"⚠️  Error menghubungi Telegram API: {e}")
-            return None
+        
+        return None
     
     def send_message(self, chat_id: str, text: str, parse_mode: str = "HTML") -> bool:
         """
-        Kirim pesan ke Telegram
+        Kirim pesan ke Telegram dengan retry mechanism
         
         Args:
             chat_id: Chat ID tujuan
@@ -68,18 +94,44 @@ class TradingBot:
         Returns:
             True jika berhasil, False jika gagal
         """
-        try:
-            url = f"{self.api_url}/sendMessage"
-            payload = {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": parse_mode
-            }
-            response = requests.post(url, json=payload, timeout=10)
-            return response.status_code == 200
-        except Exception as e:
-            print(f"❌ Error mengirim pesan: {e}")
-            return False
+        max_retries = 3
+        retry_delay = 1  # detik
+        
+        for attempt in range(max_retries):
+            try:
+                url = f"{self.api_url}/sendMessage"
+                payload = {
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": parse_mode
+                }
+                # Increase timeout untuk koneksi yang lambat
+                response = requests.post(url, json=payload, timeout=30)
+                success = response.status_code == 200
+                if not success:
+                    print(f"⚠️  [send_message] HTTP {response.status_code}: {response.text[:200]}")
+                return success
+            except requests.exceptions.ConnectTimeout as e:
+                if attempt < max_retries - 1:
+                    print(f"⚠️  Connection timeout saat mengirim pesan (attempt {attempt + 1}/{max_retries}), retrying...")
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                else:
+                    print(f"❌ Connection timeout setelah {max_retries} attempts saat mengirim pesan")
+                    return False
+            except requests.exceptions.RequestException as e:
+                if attempt < max_retries - 1:
+                    print(f"⚠️  Network error saat mengirim pesan (attempt {attempt + 1}/{max_retries}): {type(e).__name__}, retrying...")
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                else:
+                    print(f"❌ Error mengirim pesan setelah {max_retries} attempts: {type(e).__name__}")
+                    return False
+            except Exception as e:
+                print(f"❌ Unexpected error mengirim pesan: {e}")
+                return False
+        
+        return False
     
     def parse_symbol(self, text: str) -> Optional[str]:
         """
@@ -134,23 +186,34 @@ class TradingBot:
             True jika berhasil, False jika gagal
         """
         try:
+            print(f"📊 [run_analysis] Starting analysis for {symbol}, chat_id={chat_id}")
+            
             # Kirim notifikasi sedang memproses
-            self.send_message(
+            print(f"📤 [run_analysis] Sending processing notification...")
+            success = self.send_message(
                 chat_id,
                 f"🔄 <b>Memproses analisis untuk {symbol}...</b>\n"
                 f"⏳ Mohon tunggu, ini mungkin memakan waktu beberapa detik..."
             )
+            print(f"{'✅' if success else '❌'} [run_analysis] Processing notification sent: {success}")
             
             # Update config.py dengan symbol baru, chat_id, dan trading style
+            print(f"⚙️  [run_analysis] Updating config: SYMBOL={symbol}, CHAT_ID={chat_id}")
             self.update_config_symbol(symbol)
             self.update_config_chat_id(chat_id)
             
             # Update TRADING_STYLE jika user sudah set
             if chat_id in self.user_trading_styles:
-                self.update_config_trading_style(self.user_trading_styles[chat_id])
+                trading_style = self.user_trading_styles[chat_id]
+                print(f"⚙️  [run_analysis] Updating TRADING_STYLE={trading_style}")
+                self.update_config_trading_style(trading_style)
+            else:
+                print(f"ℹ️  [run_analysis] No custom TRADING_STYLE for user, using default")
             
             # Tunggu sebentar untuk memastikan file config.py sudah ter-write
+            print(f"⏳ [run_analysis] Waiting 0.5s for config file to be written...")
             time.sleep(0.5)
+            print(f"✅ [run_analysis] Config update completed")
             
             # Verifikasi bahwa config sudah ter-update dengan benar
             try:
@@ -167,27 +230,34 @@ class TradingBot:
                 # Cek apakah ada file CSV
                 import glob
                 csv_files = glob.glob("*_historical_*.csv")
+                print(f"📁 [run_analysis] Checking for CSV files: found {len(csv_files)} files")
                 if not csv_files:
                     # Tidak ada file CSV, ambil data historical terlebih dahulu
-                    self.send_message(
+                    print(f"📥 [run_analysis] No CSV files found, fetching historical data...")
+                    success = self.send_message(
                         chat_id,
                         "📥 <b>Mengambil data historical...</b>\n"
                         "⏳ Ini mungkin memakan waktu beberapa detik..."
                     )
+                    print(f"{'✅' if success else '❌'} [run_analysis] Historical data notification sent: {success}")
                     
+                    print(f"🔄 [run_analysis] Running get_historical_data.py...")
                     result_data = subprocess.run(
                         [sys.executable, "get_historical_data.py"],
                         capture_output=True,
                         text=True,
                         timeout=120  # 2 menit timeout
                     )
+                    print(f"📊 [run_analysis] get_historical_data.py completed: returncode={result_data.returncode}")
                     
                     if result_data.returncode == 0:
-                        self.send_message(
+                        print(f"✅ [run_analysis] Historical data fetched successfully")
+                        success = self.send_message(
                             chat_id,
                             "✅ <b>Data historical berhasil diambil</b>\n"
                             "🔄 Melanjutkan ke analisis..."
                         )
+                        print(f"{'✅' if success else '❌'} [run_analysis] Success notification sent: {success}")
                     else:
                         # Data tidak berhasil diambil, tampilkan error detail
                         error_output = result_data.stderr[:500] if result_data.stderr else result_data.stdout[-500:] if result_data.stdout else "Unknown error"
@@ -220,39 +290,53 @@ class TradingBot:
                 print(f"⚠️  Warning: Error saat mengambil data historical: {e}")
             
             # Jalankan analisis_quant.py
+            print(f"🚀 [run_analysis] Running analisis_quant.py...")
             result = subprocess.run(
                 [sys.executable, "analisis_quant.py"],
                 capture_output=True,
                 text=True,
                 timeout=300  # 5 menit timeout
             )
+            print(f"📊 [run_analysis] analisis_quant.py completed: returncode={result.returncode}")
             
             if result.returncode == 0:
                 # Analisis berhasil, hasil sudah dikirim otomatis oleh analisis_quant.py
+                print(f"✅ [run_analysis] Analysis completed successfully for {symbol}")
+                if result.stdout:
+                    print(f"📝 [run_analysis] stdout (last 200 chars): {result.stdout[-200:]}")
                 return True
             else:
                 # Ada error
-                error_msg = result.stderr[:500] if result.stderr else "Unknown error"
-                self.send_message(
+                error_msg = result.stderr[:500] if result.stderr else (result.stdout[-500:] if result.stdout else "Unknown error")
+                print(f"❌ [run_analysis] Analysis failed for {symbol}")
+                print(f"❌ [run_analysis] Error output: {error_msg}")
+                success = self.send_message(
                     chat_id,
                     f"❌ <b>Error menjalankan analisis untuk {symbol}</b>\n\n"
                     f"<code>{error_msg}</code>"
                 )
+                print(f"{'✅' if success else '❌'} [run_analysis] Error message sent: {success}")
                 return False
                 
         except subprocess.TimeoutExpired:
-            self.send_message(
+            print(f"⏱️  [run_analysis] Timeout expired for {symbol}")
+            success = self.send_message(
                 chat_id,
                 f"⏱️ <b>Timeout!</b>\n\n"
                 f"Analisis untuk {symbol} memakan waktu terlalu lama (>5 menit).\n"
                 f"Silakan coba lagi nanti."
             )
+            print(f"{'✅' if success else '❌'} [run_analysis] Timeout message sent: {success}")
             return False
         except Exception as e:
-            self.send_message(
+            print(f"❌ [run_analysis] Exception occurred: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            success = self.send_message(
                 chat_id,
                 f"❌ <b>Error:</b> {str(e)}"
             )
+            print(f"{'✅' if success else '❌'} [run_analysis] Exception message sent: {success}")
             return False
     
     def update_config_symbol(self, symbol: str):
@@ -404,7 +488,10 @@ class TradingBot:
         chat_id = str(chat.get('id'))
         text = message.get('text', '').strip()
         
+        print(f"📥 [handle_message] Received message from chat_id={chat_id}, text='{text}'")
+        
         if not text:
+            print(f"⚠️  [handle_message] Empty text, ignoring message")
             return
         
         # Handle /start command
@@ -422,22 +509,32 @@ class TradingBot:
             self.handle_settings_command(chat_id)
             return
         
+        # Handle /screen command untuk coin screening
+        if text.startswith('/screen') or text.startswith('/screening'):
+            self.handle_screening_command(chat_id, text)
+            return
+        
         # Check if user has started the bot
         if chat_id not in self.active_users:
-            self.send_message(
+            print(f"⚠️  [handle_message] User {chat_id} belum aktif, meminta /start")
+            success = self.send_message(
                 chat_id,
                 "⚠️ <b>Bot belum diaktifkan!</b>\n\n"
                 "Silakan kirim command <code>/start</code> terlebih dahulu untuk memulai."
             )
+            print(f"{'✅' if success else '❌'} [handle_message] Send message result: {success}")
             return
         
         # Parse symbol
         symbol = self.parse_symbol(text)
+        print(f"🔍 [handle_message] Parsed symbol: '{text}' -> '{symbol}'")
         
         if symbol:
             # Valid symbol, jalankan analisis
-            print(f"📨 Received command: {text} -> {symbol} from chat {chat_id}")
-            self.run_analysis(symbol, chat_id)
+            print(f"📨 [handle_message] Valid symbol detected: {text} -> {symbol} from chat {chat_id}")
+            print(f"🚀 [handle_message] Starting analysis for {symbol}...")
+            result = self.run_analysis(symbol, chat_id)
+            print(f"{'✅' if result else '❌'} [handle_message] Analysis completed for {symbol}, result: {result}")
         else:
             # Invalid format, kirim help message
             help_text = (
@@ -489,8 +586,12 @@ class TradingBot:
             "• Trading Chart\n\n"
             "<b>Command yang tersedia:</b>\n"
             "• <code>/style STYLE</code> - Ubah TRADING_STYLE\n"
+            "• <code>/screen [days] [top_n]</code> - Screen coins\n"
+            "  Contoh: <code>/screen</code> (90 hari, top 10)\n"
+            "          <code>/screen 7</code> (7 hari, top 10)\n"
+            "          <code>/screen 7 15</code> (7 hari, top 15)\n"
             "• <code>/settings</code> - Lihat pengaturan\n\n"
-            "🚀 <b>Mulai dengan mengirim symbol coin!</b>"
+            "🚀 <b>Mulai dengan mengirim symbol coin atau gunakan /screen untuk mencari peluang!</b>"
         )
         
         self.send_message(chat_id, welcome_text)
@@ -601,12 +702,159 @@ class TradingBot:
             f"💰 <b>SYMBOL:</b> <code>{config_symbol}</code>\n\n"
             "<b>Command yang tersedia:</b>\n"
             "• <code>/style STYLE</code> - Ubah TRADING_STYLE\n"
+            "• <code>/screen [days] [top_n]</code> - Screen coins\n"
+            "  Contoh: <code>/screen</code> (90 hari, top 10)\n"
+            "          <code>/screen 7</code> (7 hari, top 10)\n"
+            "          <code>/screen 7 15</code> (7 hari, top 15)\n"
             "• <code>/settings</code> - Lihat pengaturan\n"
             "• Kirim symbol coin untuk analisis\n\n"
             "💡 <b>Catatan:</b> DAYS_BACK otomatis disesuaikan berdasarkan TRADING_STYLE"
         )
         
         self.send_message(chat_id, settings_text)
+    
+    def handle_screening_command(self, chat_id: str, text: str):
+        """
+        Handle /screen atau /screening command untuk coin screening
+        
+        Args:
+            chat_id: Chat ID dari user
+            text: Command text (format: /screen [days] [top_n])
+                  Contoh: /screen -> days=90, top_n=10
+                          /screen 7 -> days=7, top_n=10
+                          /screen 7 15 -> days=7, top_n=15
+        """
+        try:
+            from coin_screening import screen_coins, DEFAULT_COINS
+            from telegram_bot import TelegramBot
+            from config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+            
+            parts = text.split()
+            
+            # Parse parameters
+            # Format: /screen [days] [top_n]
+            # Contoh: /screen -> days=90, top_n=10
+            #         /screen 7 -> days=7, top_n=10
+            #         /screen 7 15 -> days=7, top_n=15
+            days = 90  # Default
+            top_n = 10  # Default
+            
+            if len(parts) > 1:
+                try:
+                    param1 = int(parts[1])
+                    # Parameter pertama selalu dianggap sebagai days (1-365)
+                    if 1 <= param1 <= 365:
+                        days = param1
+                        # Cek apakah ada parameter kedua (top_n)
+                        if len(parts) > 2:
+                            try:
+                                top_n = int(parts[2])
+                                if top_n < 1 or top_n > 50:
+                                    top_n = 10
+                            except:
+                                pass
+                except:
+                    pass
+            
+            # Validasi days
+            if days < 1 or days > 365:
+                days = 90
+            
+            # Kirim notifikasi sedang screening
+            self.send_message(
+                chat_id,
+                f"🔍 <b>Memulai coin screening...</b>\n\n"
+                f"📅 Periode: {days} hari\n"
+                f"📊 Top {top_n} hasil\n\n"
+                f"⏳ Ini mungkin memakan waktu beberapa detik..."
+            )
+            
+            # Jalankan screening
+            results = screen_coins(
+                coins=None,  # Gunakan default coins
+                days=days,  # Parameter dari Telegram atau default 90
+                min_volume_ratio=0.5,
+                min_price_change=-50.0,
+                max_price_change=100.0,
+                rsi_range=None,
+                top_n=top_n
+            )
+            
+            if not results:
+                self.send_message(
+                    chat_id,
+                    "❌ <b>Tidak ada coin yang memenuhi criteria</b>\n\n"
+                    "💡 Coba ubah filter criteria atau coba lagi nanti"
+                )
+                return
+            
+            # Format dan kirim hasil
+            if ENABLE_TELEGRAM_BOT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+                bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+                bot.send_screening_results(results)
+            else:
+                # Fallback: kirim via main bot
+                formatted_results = self.format_screening_results(results)
+                self.send_message(chat_id, formatted_results)
+                
+        except ImportError as e:
+            self.send_message(
+                chat_id,
+                f"❌ <b>Error:</b> Module coin_screening tidak ditemukan\n\n"
+                f"Detail: {str(e)}"
+            )
+        except Exception as e:
+            self.send_message(
+                chat_id,
+                f"❌ <b>Error saat screening:</b> {str(e)}"
+            )
+            print(f"Error in handle_screening_command: {e}")
+    
+    def format_screening_results(self, results: list) -> str:
+        """
+        Format screening results untuk Telegram (fallback jika telegram_bot tidak tersedia)
+        
+        Args:
+            results: List of coin metrics dictionaries
+        
+        Returns:
+            Formatted HTML string
+        """
+        if not results:
+            return "❌ Tidak ada coin yang memenuhi criteria"
+        
+        lines = []
+        lines.append("🔍 <b>COIN SCREENING RESULTS</b>")
+        lines.append("=" * 40)
+        lines.append("")
+        
+        for i, coin in enumerate(results, 1):
+            symbol = coin['symbol']
+            price = coin['current_price']
+            change_1d = coin['price_change_1d']
+            change_7d = coin['price_change_7d']
+            volume_ratio = coin['volume_ratio']
+            rsi = coin['rsi']
+            rsi_signal = coin['rsi_signal']
+            ma_signal = coin['ma_signal']
+            score = coin['combined_score']
+            
+            # Emoji berdasarkan signal
+            signal_emoji = "🟢" if ma_signal == "BUY" else "🔴" if ma_signal == "SELL" else "🟡"
+            change_emoji = "📈" if change_7d > 0 else "📉"
+            
+            lines.append(f"<b>{i}. {symbol}</b>")
+            lines.append(f"💵 Price: ${price:,.4f}")
+            lines.append(f"{change_emoji} Change: 1d: {change_1d:+.2f}% | 7d: {change_7d:+.2f}%")
+            lines.append(f"📊 Volume: {volume_ratio:.2f}x")
+            lines.append(f"📈 RSI: {rsi:.2f} ({rsi_signal})")
+            lines.append(f"{signal_emoji} Signal: {ma_signal}")
+            lines.append(f"⭐ Score: {score:.4f}")
+            lines.append("")
+        
+        lines.append("💡 <i>Kirim symbol coin untuk analisis detail</i>")
+        
+        return "\n".join(lines)
     
     def start_polling(self):
         """Mulai polling untuk menerima pesan dari Telegram"""

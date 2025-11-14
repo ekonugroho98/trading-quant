@@ -283,8 +283,12 @@ class TelegramBot:
         lines.append(f"📈 <b>Direction:</b> {direction} ({action})")
         lines.append("")
         
-        # Entry Price - Tentukan format berdasarkan skala harga (sama seperti di terminal)
+        # Multiple Entry Levels - Tentukan format berdasarkan skala harga
         entry = setup.get('entry', 'N/A')
+        entry1 = setup.get('entry1', 'N/A')
+        entry2 = setup.get('entry2', 'N/A')
+        entry3 = setup.get('entry3', 'N/A')
+        
         if isinstance(entry, (int, float)):
             # Tentukan format angka berdasarkan skala harga (sama seperti analisis_quant.py)
             if entry < 1:
@@ -296,15 +300,43 @@ class TelegramBot:
             else:
                 price_format = ".0f"  # 0 desimal untuk harga sangat besar
             
-            # Format entry dengan presisi yang sesuai
-            if price_format == ".4f":
-                lines.append(f"💰 <b>LIMIT ENTRY:</b> {entry:.4f}")
-            elif price_format == ".2f":
-                lines.append(f"💰 <b>LIMIT ENTRY:</b> {entry:.2f}")
+            # Format multiple entry levels
+            lines.append("💰 <b>MULTIPLE ENTRY LEVELS:</b>")
+            if isinstance(entry1, (int, float)):
+                if price_format == ".4f":
+                    lines.append(f"   Entry 1 (Agresif): {format_price_no_rounding(entry1)}")
+                elif price_format == ".2f":
+                    lines.append(f"   Entry 1 (Agresif): {format_price_no_rounding(entry1)}")
+                else:
+                    lines.append(f"   Entry 1 (Agresif): {format_price_no_rounding(entry1)}")
             else:
-                lines.append(f"💰 <b>LIMIT ENTRY:</b> {entry:.0f}")
+                lines.append(f"   Entry 1 (Agresif): {entry1}")
+            
+            if isinstance(entry2, (int, float)):
+                if price_format == ".4f":
+                    lines.append(f"   Entry 2 (Konservatif - Recommended): {format_price_no_rounding(entry2)}")
+                elif price_format == ".2f":
+                    lines.append(f"   Entry 2 (Konservatif - Recommended): {format_price_no_rounding(entry2)}")
+                else:
+                    lines.append(f"   Entry 2 (Konservatif - Recommended): {format_price_no_rounding(entry2)}")
+            else:
+                lines.append(f"   Entry 2 (Konservatif - Recommended): {entry2}")
+            
+            if isinstance(entry3, (int, float)):
+                if price_format == ".4f":
+                    lines.append(f"   Entry 3 (Sangat Konservatif): {format_price_no_rounding(entry3)}")
+                elif price_format == ".2f":
+                    lines.append(f"   Entry 3 (Sangat Konservatif): {format_price_no_rounding(entry3)}")
+                else:
+                    lines.append(f"   Entry 3 (Sangat Konservatif): {format_price_no_rounding(entry3)}")
+            else:
+                lines.append(f"   Entry 3 (Sangat Konservatif): {entry3}")
         else:
-            lines.append(f"💰 <b>LIMIT ENTRY:</b> {entry}")
+            # Fallback jika entry bukan angka
+            lines.append("💰 <b>MULTIPLE ENTRY LEVELS:</b>")
+            lines.append(f"   Entry 1 (Agresif): {entry1}")
+            lines.append(f"   Entry 2 (Konservatif - Recommended): {entry2}")
+            lines.append(f"   Entry 3 (Sangat Konservatif): {entry3}")
         lines.append("")
         
         # Stop Loss - Gunakan format yang sama dengan entry
@@ -334,7 +366,7 @@ class TelegramBot:
             lines.append(f"🛑 <b>Stop Loss:</b> {stop_loss}")
         lines.append("")
         
-        # Targets - Gunakan format yang sama dengan entry
+        # Targets - Tampilkan persentase untuk setiap entry level
         tp1 = setup.get('tp1', 'N/A')
         tp2 = setup.get('tp2', 'N/A')
         tp3 = setup.get('tp3', 'N/A')
@@ -352,37 +384,103 @@ class TelegramBot:
             else:
                 price_format = ".0f"
             
-            # Calculate percentages dan format
-            if isinstance(tp1, (int, float)):
+            # Calculate percentages untuk setiap entry level dan format
+            if isinstance(tp1, (int, float)) and isinstance(entry1, (int, float)) and isinstance(entry2, (int, float)) and isinstance(entry3, (int, float)):
+                # TP1 dengan persentase untuk setiap entry level
+                tp1_pct_e1 = ((tp1 - entry1) / entry1) * 100 if direction == "LONG" else ((entry1 - tp1) / entry1) * 100
+                tp1_pct_e2 = ((tp1 - entry2) / entry2) * 100 if direction == "LONG" else ((entry2 - tp1) / entry2) * 100
+                tp1_pct_e3 = ((tp1 - entry3) / entry3) * 100 if direction == "LONG" else ((entry3 - tp1) / entry3) * 100
+                
+                if price_format == ".4f":
+                    lines.append(f"   TP1: {format_price_no_rounding(tp1)}")
+                    lines.append(f"      • Entry 1: {tp1_pct_e1:+.2f}%")
+                    lines.append(f"      • Entry 2: {tp1_pct_e2:+.2f}%")
+                    lines.append(f"      • Entry 3: {tp1_pct_e3:+.2f}%")
+                elif price_format == ".2f":
+                    lines.append(f"   TP1: {format_price_no_rounding(tp1)}")
+                    lines.append(f"      • Entry 1: {tp1_pct_e1:+.2f}%")
+                    lines.append(f"      • Entry 2: {tp1_pct_e2:+.2f}%")
+                    lines.append(f"      • Entry 3: {tp1_pct_e3:+.2f}%")
+                else:
+                    lines.append(f"   TP1: {format_price_no_rounding(tp1)}")
+                    lines.append(f"      • Entry 1: {tp1_pct_e1:+.2f}%")
+                    lines.append(f"      • Entry 2: {tp1_pct_e2:+.2f}%")
+                    lines.append(f"      • Entry 3: {tp1_pct_e3:+.2f}%")
+            elif isinstance(tp1, (int, float)):
+                # Fallback jika entry levels tidak tersedia
                 tp1_pct = ((tp1 - entry) / entry) * 100 if direction == "LONG" else ((entry - tp1) / entry) * 100
                 if price_format == ".4f":
-                    lines.append(f"   TP1: {tp1:.4f} (+{tp1_pct:.2f}%)")
+                    lines.append(f"   TP1: {format_price_no_rounding(tp1)} (+{tp1_pct:.2f}%)")
                 elif price_format == ".2f":
-                    lines.append(f"   TP1: {tp1:.2f} (+{tp1_pct:.2f}%)")
+                    lines.append(f"   TP1: {format_price_no_rounding(tp1)} (+{tp1_pct:.2f}%)")
                 else:
-                    lines.append(f"   TP1: {tp1:.0f} (+{tp1_pct:.2f}%)")
+                    lines.append(f"   TP1: {format_price_no_rounding(tp1)} (+{tp1_pct:.2f}%)")
             else:
                 lines.append(f"   TP1: {tp1}")
             
-            if isinstance(tp2, (int, float)):
+            if isinstance(tp2, (int, float)) and isinstance(entry1, (int, float)) and isinstance(entry2, (int, float)) and isinstance(entry3, (int, float)):
+                # TP2 dengan persentase untuk setiap entry level
+                tp2_pct_e1 = ((tp2 - entry1) / entry1) * 100 if direction == "LONG" else ((entry1 - tp2) / entry1) * 100
+                tp2_pct_e2 = ((tp2 - entry2) / entry2) * 100 if direction == "LONG" else ((entry2 - tp2) / entry2) * 100
+                tp2_pct_e3 = ((tp2 - entry3) / entry3) * 100 if direction == "LONG" else ((entry3 - tp2) / entry3) * 100
+                
+                if price_format == ".4f":
+                    lines.append(f"   TP2: {format_price_no_rounding(tp2)}")
+                    lines.append(f"      • Entry 1: {tp2_pct_e1:+.2f}%")
+                    lines.append(f"      • Entry 2: {tp2_pct_e2:+.2f}%")
+                    lines.append(f"      • Entry 3: {tp2_pct_e3:+.2f}%")
+                elif price_format == ".2f":
+                    lines.append(f"   TP2: {format_price_no_rounding(tp2)}")
+                    lines.append(f"      • Entry 1: {tp2_pct_e1:+.2f}%")
+                    lines.append(f"      • Entry 2: {tp2_pct_e2:+.2f}%")
+                    lines.append(f"      • Entry 3: {tp2_pct_e3:+.2f}%")
+                else:
+                    lines.append(f"   TP2: {format_price_no_rounding(tp2)}")
+                    lines.append(f"      • Entry 1: {tp2_pct_e1:+.2f}%")
+                    lines.append(f"      • Entry 2: {tp2_pct_e2:+.2f}%")
+                    lines.append(f"      • Entry 3: {tp2_pct_e3:+.2f}%")
+            elif isinstance(tp2, (int, float)):
+                # Fallback jika entry levels tidak tersedia
                 tp2_pct = ((tp2 - entry) / entry) * 100 if direction == "LONG" else ((entry - tp2) / entry) * 100
                 if price_format == ".4f":
-                    lines.append(f"   TP2: {tp2:.4f} (+{tp2_pct:.2f}%)")
+                    lines.append(f"   TP2: {format_price_no_rounding(tp2)} (+{tp2_pct:.2f}%)")
                 elif price_format == ".2f":
-                    lines.append(f"   TP2: {tp2:.2f} (+{tp2_pct:.2f}%)")
+                    lines.append(f"   TP2: {format_price_no_rounding(tp2)} (+{tp2_pct:.2f}%)")
                 else:
-                    lines.append(f"   TP2: {tp2:.0f} (+{tp2_pct:.2f}%)")
+                    lines.append(f"   TP2: {format_price_no_rounding(tp2)} (+{tp2_pct:.2f}%)")
             else:
                 lines.append(f"   TP2: {tp2}")
             
-            if isinstance(tp3, (int, float)):
+            if isinstance(tp3, (int, float)) and isinstance(entry1, (int, float)) and isinstance(entry2, (int, float)) and isinstance(entry3, (int, float)):
+                # TP3 dengan persentase untuk setiap entry level
+                tp3_pct_e1 = ((tp3 - entry1) / entry1) * 100 if direction == "LONG" else ((entry1 - tp3) / entry1) * 100
+                tp3_pct_e2 = ((tp3 - entry2) / entry2) * 100 if direction == "LONG" else ((entry2 - tp3) / entry2) * 100
+                tp3_pct_e3 = ((tp3 - entry3) / entry3) * 100 if direction == "LONG" else ((entry3 - tp3) / entry3) * 100
+                
+                if price_format == ".4f":
+                    lines.append(f"   TP3: {format_price_no_rounding(tp3)}")
+                    lines.append(f"      • Entry 1: {tp3_pct_e1:+.2f}%")
+                    lines.append(f"      • Entry 2: {tp3_pct_e2:+.2f}%")
+                    lines.append(f"      • Entry 3: {tp3_pct_e3:+.2f}%")
+                elif price_format == ".2f":
+                    lines.append(f"   TP3: {format_price_no_rounding(tp3)}")
+                    lines.append(f"      • Entry 1: {tp3_pct_e1:+.2f}%")
+                    lines.append(f"      • Entry 2: {tp3_pct_e2:+.2f}%")
+                    lines.append(f"      • Entry 3: {tp3_pct_e3:+.2f}%")
+                else:
+                    lines.append(f"   TP3: {format_price_no_rounding(tp3)}")
+                    lines.append(f"      • Entry 1: {tp3_pct_e1:+.2f}%")
+                    lines.append(f"      • Entry 2: {tp3_pct_e2:+.2f}%")
+                    lines.append(f"      • Entry 3: {tp3_pct_e3:+.2f}%")
+            elif isinstance(tp3, (int, float)):
+                # Fallback jika entry levels tidak tersedia
                 tp3_pct = ((tp3 - entry) / entry) * 100 if direction == "LONG" else ((entry - tp3) / entry) * 100
                 if price_format == ".4f":
-                    lines.append(f"   TP3: {tp3:.4f} (+{tp3_pct:.2f}%)")
+                    lines.append(f"   TP3: {format_price_no_rounding(tp3)} (+{tp3_pct:.2f}%)")
                 elif price_format == ".2f":
-                    lines.append(f"   TP3: {tp3:.2f} (+{tp3_pct:.2f}%)")
+                    lines.append(f"   TP3: {format_price_no_rounding(tp3)} (+{tp3_pct:.2f}%)")
                 else:
-                    lines.append(f"   TP3: {tp3:.0f} (+{tp3_pct:.2f}%)")
+                    lines.append(f"   TP3: {format_price_no_rounding(tp3)} (+{tp3_pct:.2f}%)")
             else:
                 lines.append(f"   TP3: {tp3}")
         else:
@@ -534,5 +632,64 @@ class TelegramBot:
             symbol
         )
         
+        return self.send_message(message)
+    
+    def format_screening_results(self, results: list) -> str:
+        """
+        Format screening results untuk Telegram
+        
+        Args:
+            results: List of coin metrics dictionaries dari coin_screening
+        
+        Returns:
+            Formatted HTML string
+        """
+        if not results:
+            return "❌ Tidak ada coin yang memenuhi criteria"
+        
+        lines = []
+        lines.append("🔍 <b>COIN SCREENING RESULTS</b>")
+        lines.append("=" * 40)
+        lines.append("")
+        
+        for i, coin in enumerate(results, 1):
+            symbol = coin['symbol']
+            price = coin['current_price']
+            change_1d = coin['price_change_1d']
+            change_7d = coin['price_change_7d']
+            volume_ratio = coin['volume_ratio']
+            rsi = coin['rsi']
+            rsi_signal = coin['rsi_signal']
+            ma_signal = coin['ma_signal']
+            score = coin['combined_score']
+            
+            # Emoji berdasarkan signal
+            signal_emoji = "🟢" if ma_signal == "BUY" else "🔴" if ma_signal == "SELL" else "🟡"
+            change_emoji = "📈" if change_7d > 0 else "📉"
+            
+            lines.append(f"<b>{i}. {symbol}</b>")
+            lines.append(f"💵 Price: ${format_price_no_rounding(price)}")
+            lines.append(f"{change_emoji} Change: 1d: {change_1d:+.2f}% | 7d: {change_7d:+.2f}%")
+            lines.append(f"📊 Volume: {volume_ratio:.2f}x")
+            lines.append(f"📈 RSI: {rsi:.2f} ({rsi_signal})")
+            lines.append(f"{signal_emoji} Signal: {ma_signal}")
+            lines.append(f"⭐ Score: {score:.4f}")
+            lines.append("")
+        
+        lines.append("💡 <i>Kirim symbol coin untuk analisis detail</i>")
+        
+        return "\n".join(lines)
+    
+    def send_screening_results(self, results: list) -> bool:
+        """
+        Kirim screening results ke Telegram
+        
+        Args:
+            results: List of coin metrics dictionaries
+        
+        Returns:
+            True jika berhasil, False jika gagal
+        """
+        message = self.format_screening_results(results)
         return self.send_message(message)
 
