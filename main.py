@@ -770,18 +770,19 @@ class TradingBot:
                 f"⏳ Ini mungkin memakan waktu beberapa detik..."
             )
             
-            # Jalankan screening
+            # Jalankan screening dengan filter yang lebih akurat dan realistis
             results = screen_coins(
                 coins=None,  # Gunakan default coins
                 days=days,  # Parameter dari Telegram atau default 90
-                min_volume_ratio=0.5,
-                min_price_change=-50.0,
-                max_price_change=100.0,
+                min_volume_ratio=0.3,  # Lebih longgar: 0.3 (was 0.5)
+                min_price_change=-80.0,  # Lebih longgar: -80% (was -50%)
+                max_price_change=200.0,  # Lebih longgar: +200% (was +100%)
                 rsi_range=None,
                 top_n=top_n,
                 data_source=DATA_SOURCE,  # Gunakan DATA_SOURCE dari config
                 api_key=BINANCE_API_KEY,
-                api_secret=BINANCE_API_SECRET
+                api_secret=BINANCE_API_SECRET,
+                use_adaptive_filtering=True  # Auto-relax filters jika tidak ada hasil
             )
             
             if not results:

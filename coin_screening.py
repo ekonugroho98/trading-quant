@@ -302,16 +302,37 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
         else:
             volatility = 0
         
-        # Combined score (untuk ranking)
-        # Score = (price_change * 0.3) + (volume_ratio * 0.2) + (momentum * 0.2) + (RSI_signal * 0.15) + (MA_signal * 0.15)
-        rsi_score = (rsi - 50) / 50  # Normalize RSI: -1 to 1
+        # Combined score (untuk ranking) - Improved formula
+        # Normalize semua metrics ke range yang sama untuk akurasi lebih baik
+        
+        # 1. Price change score (normalize: -100% to +100% -> -1 to +1)
+        price_score = np.clip(price_change_7d / 100, -1, 1)
+        
+        # 2. Volume score (normalize: 0 to 3x -> -0.5 to +1)
+        # Volume ratio 1.0 = score 0, >1.0 = positive, <1.0 = negative
+        volume_score = np.clip((volume_ratio - 1) / 2, -0.5, 1)
+        
+        # 3. Momentum score (normalize: -50% to +50% -> -1 to +1)
+        momentum_score = np.clip(momentum / 50, -1, 1)
+        
+        # 4. RSI score (normalize: 0-100 -> -1 to +1, dengan RSI 50 = 0)
+        rsi_score = (rsi - 50) / 50  # -1 to +1
+        
+        # 5. MA signal score (BUY=1, SELL=-1, NEUTRAL=0)
         ma_score = 1 if ma_signal == "BUY" else (-1 if ma_signal == "SELL" else 0)
+        
+        # 6. Volatility score (inverse: volatility rendah = score tinggi)
+        # Normalize: 0-10% -> 1 to 0 (volatility rendah = bagus untuk trading)
+        volatility_score = max(0, 1 - (volatility / 10)) if volatility > 0 else 0.5
+        
+        # Combined score dengan weights yang lebih seimbang
         combined_score = (
-            (price_change_7d / 100) * 0.3 +  # 30% weight on 7d change
-            (volume_ratio - 1) * 0.2 +  # 20% weight on volume
-            (momentum / 100) * 0.2 +  # 20% weight on momentum
-            rsi_score * 0.15 +  # 15% weight on RSI
-            ma_score * 0.15  # 15% weight on MA signal
+            price_score * 0.25 +           # 25% weight on price change
+            volume_score * 0.20 +          # 20% weight on volume
+            momentum_score * 0.20 +        # 20% weight on momentum
+            rsi_score * 0.15 +             # 15% weight on RSI
+            ma_score * 0.10 +              # 10% weight on MA signal
+            volatility_score * 0.10        # 10% weight on volatility (lower is better)
         )
         
         return {
@@ -339,14 +360,15 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
 def screen_coins(
     coins: Optional[List[str]] = None,
     days: int = 90,
-    min_volume_ratio: float = 0.5,
-    min_price_change: float = -50.0,
-    max_price_change: float = 100.0,
+    min_volume_ratio: float = 0.3,  # Lebih longgar: 0.3 (was 0.5)
+    min_price_change: float = -80.0,  # Lebih longgar: -80% (was -50%)
+    max_price_change: float = 200.0,  # Lebih longgar: +200% (was +100%)
     rsi_range: Optional[Tuple[float, float]] = None,
     top_n: int = 10,
     data_source: Optional[str] = None,
     api_key: Optional[str] = None,
-    api_secret: Optional[str] = None
+    api_secret: Optional[str] = None,
+    use_adaptive_filtering: bool = True  # Auto-relax filters jika tidak ada hasil
 ) -> List[Dict]:
     """
     Screen multiple coins berdasarkan criteria
@@ -354,9 +376,10 @@ def screen_coins(
     Args:
         coins: List of coin symbols (default: DEFAULT_COINS)
         days: Jumlah hari data (default: 90)
-        min_volume_ratio: Minimum volume ratio (default: 0.5)
-        min_price_change: Minimum price change % (default: -50)
-        max_price_change: Maximum price change % (default: 100)
+        min_volume_ratio: Minimum volume ratio (default: 0.3, lebih longgar)
+        min_price_change: Minimum price change % (default: -80, lebih longgar)
+        max_price_change: Maximum price change % (default: 200, lebih longgar)
+        use_adaptive_filtering: Auto-relax filters jika tidak ada hasil (default: True)
         rsi_range: RSI range (min, max) atau None untuk semua (default: None)
         top_n: Jumlah top coins yang dikembalikan (default: 10)
         data_source: "yfinance" atau "binance" (default: dari config.py)
@@ -398,6 +421,44 @@ def screen_coins(
                     continue
             
             results.append(metrics)
+    
+    # Adaptive filtering: jika tidak ada hasil, relax filters
+    if use_adaptive_filtering and len(results) == 0:
+        print("⚠️  Tidak ada hasil dengan filter ketat, mencoba dengan filter lebih longgar...")
+        
+        # Relaxed filters
+        relaxed_volume_ratio = max(0.1, min_volume_ratio * 0.5)  # 50% dari original
+        relaxed_min_change = min_price_change * 1.5  # 50% lebih longgar
+        relaxed_max_change = max_price_change * 1.5  # 50% lebih longgar
+        
+        print(f"   Volume ratio: {relaxed_volume_ratio:.2f} (was {min_volume_ratio:.2f})")
+        print(f"   Price change: {relaxed_min_change:.1f}% to {relaxed_max_change:.1f}% (was {min_price_change:.1f}% to {max_price_change:.1f}%)")
+        
+        for symbol in coins:
+            metrics = calculate_quick_metrics(data, symbol)
+            if metrics:
+                # Apply relaxed filters
+                if metrics['volume_ratio'] < relaxed_volume_ratio:
+                    continue
+                if metrics['price_change_7d'] < relaxed_min_change or metrics['price_change_7d'] > relaxed_max_change:
+                    continue
+                # RSI range tetap sama (jika ada)
+                if rsi_range:
+                    if metrics['rsi'] < rsi_range[0] or metrics['rsi'] > rsi_range[1]:
+                        continue
+                
+                results.append(metrics)
+        
+        if len(results) > 0:
+            print(f"✅ Ditemukan {len(results)} coin dengan filter lebih longgar")
+    
+    # Jika masih tidak ada hasil, return semua coin dengan score terbaik (tanpa filter)
+    if len(results) == 0:
+        print("⚠️  Masih tidak ada hasil, mengembalikan semua coin dengan score terbaik (tanpa filter)...")
+        for symbol in coins:
+            metrics = calculate_quick_metrics(data, symbol)
+            if metrics:
+                results.append(metrics)
     
     # Sort by combined_score (descending)
     results.sort(key=lambda x: x['combined_score'], reverse=True)
