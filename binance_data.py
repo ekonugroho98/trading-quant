@@ -183,13 +183,33 @@ def get_data_binance(symbol: str, days_back: int, interval: str,
         # Initialize Binance client
         # Untuk public endpoints (klines), tidak perlu API key
         # Tapi lebih baik gunakan API key untuk rate limit yang lebih tinggi
+        # Handle SSL verification issues (untuk testing, bisa disable)
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        # Setup requests params dengan support proxy dan SSL fix
+        requests_params = {
+            'timeout': 30,
+            'verify': False  # Disable SSL verification untuk testing (tidak aman untuk production!)
+        }
+        
+        # Support proxy dari environment variables
+        proxies = {}
+        if os.environ.get('HTTP_PROXY'):
+            proxies['http'] = os.environ.get('HTTP_PROXY')
+        if os.environ.get('HTTPS_PROXY'):
+            proxies['https'] = os.environ.get('HTTPS_PROXY')
+        if proxies:
+            requests_params['proxies'] = proxies
+            print(f"🔗 Menggunakan proxy: {proxies}")
+        
         if api_key and api_secret:
             print("🔑 Menggunakan Binance API dengan autentikasi")
-            client = Client(api_key, api_secret, requests_params={'timeout': 30})
+            client = Client(api_key, api_secret, requests_params=requests_params)
         else:
             print("ℹ️  Menggunakan Binance API tanpa autentikasi (public endpoints)")
             print("   ⚠️  Rate limit lebih rendah, gunakan API key untuk rate limit lebih tinggi")
-            client = Client(requests_params={'timeout': 30})
+            client = Client(requests_params=requests_params)
         
         # Get klines (candlestick data)
         print(f"📡 Mengambil klines dari Binance...")

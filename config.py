@@ -26,7 +26,7 @@ FILTER_YEAR = 2025  # Filter data hanya tahun tertentu (None = tidak filter)
 # ============================================
 # KONFIGURASI DATA HISTORICAL
 # ============================================
-DATA_SOURCE = "yfinance"  # Pilihan: "yfinance", "binance", "coingecko", "indodax", "freecryptoapi"
+DATA_SOURCE = "binance"  # Pilihan: "yfinance", "binance", "coingecko", "indodax", "freecryptoapi"
 SYMBOL = "BNX-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
 # Daftar coin populer: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, BNB-USD, ADA-USD, SOL-USD, DOT-USD, LINK-USD
 # Lihat YFINANCE_COINS.md untuk daftar lengkap coin yang didukung
@@ -165,9 +165,9 @@ TELEGRAM_CHAT_ID = "788501152"  # Chat ID untuk mengirim pesan
 # ============================================
 # KONFIGURASI BINANCE API INTEGRATION
 # ============================================
-ENABLE_BINANCE_API = False  # Aktifkan integrasi Binance API
-BINANCE_API_KEY = None  # Binance API Key (dapatkan di https://www.binance.com/en/my/settings/api-management)
-BINANCE_API_SECRET = None  # Binance API Secret (dapatkan di https://www.binance.com/en/my/settings/api-management)
+ENABLE_BINANCE_API = True  # Aktifkan integrasi Binance API
+BINANCE_API_KEY = "TRo3T1oaz6BuOf2n9sw0Z5wXuISDN7Nlkry3QDL5uiaMTQSGxebTDeMc7zzx5swg"  # Binance API Key (dapatkan di https://www.binance.com/en/my/settings/api-management)
+BINANCE_API_SECRET = "TRo3T1oaz6BuOf2n9sw0Z5wXuISDN7Nlkry3QDL5uiaMTQSGxebTDeMc7zzx5swg"  # Binance API Secret (dapatkan di https://www.binance.com/en/my/settings/api-management)
 # Catatan: Untuk keamanan, jangan commit API key dan secret ke repository!
 # Gunakan environment variables atau file .env untuk production
 # Testnet: https://testnet.binance.vision (untuk testing tanpa risiko)
