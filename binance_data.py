@@ -10,6 +10,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import time
+import os
 
 try:
     from binance.client import Client
