@@ -162,3 +162,13 @@ ENABLE_TELEGRAM_BOT = True  # Aktifkan integrasi Telegram Bot
 TELEGRAM_BOT_TOKEN = "8510299481:AAGN6iEEqPyu6GrrBT_7eGn903eMWgLXe6k"  # Bot Token dari @BotFather
 TELEGRAM_CHAT_ID = "788501152"  # Chat ID untuk mengirim pesan
 
+# ============================================
+# KONFIGURASI BINANCE API INTEGRATION
+# ============================================
+ENABLE_BINANCE_API = False  # Aktifkan integrasi Binance API
+BINANCE_API_KEY = None  # Binance API Key (dapatkan di https://www.binance.com/en/my/settings/api-management)
+BINANCE_API_SECRET = None  # Binance API Secret (dapatkan di https://www.binance.com/en/my/settings/api-management)
+# Catatan: Untuk keamanan, jangan commit API key dan secret ke repository!
+# Gunakan environment variables atau file .env untuk production
+# Testnet: https://testnet.binance.vision (untuk testing tanpa risiko)
+
