@@ -419,10 +419,28 @@ class Ticker:
         if Client is None:
             raise ImportError("python-binance library tidak terinstall")
         
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        # Setup requests params dengan support proxy
+        requests_params = {
+            'timeout': 30,
+            'verify': False  # Disable SSL verification untuk testing
+        }
+        
+        # Support proxy dari environment variables
+        proxies = {}
+        if os.environ.get('HTTP_PROXY'):
+            proxies['http'] = os.environ.get('HTTP_PROXY')
+        if os.environ.get('HTTPS_PROXY'):
+            proxies['https'] = os.environ.get('HTTPS_PROXY')
+        if proxies:
+            requests_params['proxies'] = proxies
+        
         if self.api_key and self.api_secret:
-            self.client = Client(self.api_key, self.api_secret, requests_params={'timeout': 30})
+            self.client = Client(self.api_key, self.api_secret, requests_params=requests_params)
         else:
-            self.client = Client(requests_params={'timeout': 30})
+            self.client = Client(requests_params=requests_params)
     
     def history(self, period: Optional[str] = None, 
                 start: Optional[datetime] = None,
