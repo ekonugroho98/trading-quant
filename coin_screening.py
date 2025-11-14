@@ -589,7 +589,15 @@ def format_screening_results(results: List[Dict]) -> str:
         lines.append(f"   📊 Volume Ratio: {volume_ratio:.2f}x")
         lines.append(f"   📈 RSI: {rsi:.2f} ({rsi_signal})")
         lines.append(f"   {signal_emoji} MA Signal: {ma_signal}")
-        lines.append(f"   ⭐ Score: {score:.4f}")
+        
+        # Tampilkan direction dan scores jika ada
+        if 'best_direction' in coin:
+            direction_emoji = "🟢" if coin['best_direction'] == "LONG" else "🔴" if coin['best_direction'] == "SHORT" else "🟡"
+            lines.append(f"   {direction_emoji} Direction: {coin['best_direction']}")
+            if 'long_score' in coin and 'short_score' in coin:
+                lines.append(f"      Long Score: {coin['long_score']:.4f} | Short Score: {coin['short_score']:.4f}")
+        
+        lines.append(f"   ⭐ Combined Score: {score:.4f}")
         lines.append("")
     
     return "\n".join(lines)

@@ -673,6 +673,14 @@ class TelegramBot:
             lines.append(f"📊 Volume: {volume_ratio:.2f}x")
             lines.append(f"📈 RSI: {rsi:.2f} ({rsi_signal})")
             lines.append(f"{signal_emoji} Signal: {ma_signal}")
+            
+            # Tampilkan direction dan scores jika ada
+            if 'best_direction' in coin:
+                direction_emoji = "🟢" if coin['best_direction'] == "LONG" else "🔴" if coin['best_direction'] == "SHORT" else "🟡"
+                lines.append(f"{direction_emoji} <b>Direction:</b> {coin['best_direction']}")
+                if 'long_score' in coin and 'short_score' in coin:
+                    lines.append(f"   Long: {coin['long_score']:.4f} | Short: {coin['short_score']:.4f}")
+            
             lines.append(f"⭐ Score: {score:.4f}")
             lines.append("")
         
