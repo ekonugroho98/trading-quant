@@ -359,6 +359,9 @@ def screen_coins(
         max_price_change: Maximum price change % (default: 100)
         rsi_range: RSI range (min, max) atau None untuk semua (default: None)
         top_n: Jumlah top coins yang dikembalikan (default: 10)
+        data_source: "yfinance" atau "binance" (default: dari config.py)
+        api_key: Binance API key (optional, default: dari config.py)
+        api_secret: Binance API secret (optional, default: dari config.py)
     
     Returns:
         List of dictionaries dengan coin metrics, sorted by combined_score
