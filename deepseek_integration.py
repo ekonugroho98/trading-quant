@@ -179,16 +179,47 @@ Berdasarkan semua data di atas, berikan rekomendasi trading dalam format JSON be
     "reason": "string singkat menjelaskan alasan rekomendasi"
 }}
 
-Pertimbangkan:
-1. Current position dan signal dari strategi
-2. Support/Resistance levels
-3. Volume analysis dan market context
-4. Advanced features (RSI, Z-Score, patterns)
-5. Validation metrics (win rate, drawdown, consistency)
-6. ML prediction dan confidence level
-7. Risk/reward ratio dari trading setup
+**PENTING - ATURAN REKOMENDASI:**
 
-Berikan rekomendasi yang konservatif dan berdasarkan data. Jika confidence rendah atau sinyal bertentangan, pilih HOLD dengan position CASH.
+1. **BUY (LONG)** - Pilih jika:
+   - Strategi menunjukkan signal BELI dan confidence > 50%
+   - ML prediction menunjukkan BELI dengan probabilitas > 50%
+   - Harga di atas support atau mendekati support (bounce opportunity)
+   - RSI < 70 (tidak overbought) atau Z-Score menunjukkan oversold
+   - Volume analysis menunjukkan akumulasi atau volume spike positif
+   - Risk/reward ratio dari trading setup > 1.2
+   - **WAJIB berikan entry_price, targets (minimal 2), dan stop_loss**
+
+2. **SELL (SHORT)** - Pilih jika:
+   - Strategi menunjukkan signal JUAL dan confidence > 50%
+   - ML prediction menunjukkan JUAL dengan probabilitas > 50%
+   - Harga di bawah resistance atau mendekati resistance (rejection opportunity)
+   - RSI > 30 (tidak oversold) atau Z-Score menunjukkan overbought
+   - Volume analysis menunjukkan distribusi atau volume spike negatif
+   - Risk/reward ratio dari trading setup > 1.2
+   - **WAJIB berikan entry_price, targets (minimal 2), dan stop_loss**
+
+3. **HOLD (CASH)** - Pilih HANYA jika:
+   - Semua sinyal bertentangan (strategi vs ML vs market context)
+   - Confidence < 40% untuk semua sinyal
+   - Tidak ada setup yang jelas (harga di tengah-tengah range tanpa konfirmasi)
+   - Risk/reward ratio < 1.0
+   - Untuk HOLD, set entry_price, targets, dan stop_loss ke null
+
+**PRIORITAS ANALISIS:**
+1. ML prediction signal dan confidence (berat 30%)
+2. Strategi signal dan performance metrics (berat 25%)
+3. Support/Resistance levels dan price action (berat 20%)
+4. Volume analysis dan market context (berat 15%)
+5. Advanced features (RSI, Z-Score, patterns) (berat 10%)
+
+**UNTUK BUY/SELL:**
+- entry_price: Gunakan limit_entry dari trading setup jika ada, atau current_price ± 0.5% untuk limit order
+- targets: Gunakan TP1, TP2, TP3 dari trading setup jika ada, atau hitung berdasarkan support/resistance
+- stop_loss: Gunakan stop_loss dari trading setup jika ada, atau hitung berdasarkan support/resistance dengan risk 1-2%
+- confidence: Hitung berdasarkan alignment semua sinyal (semakin banyak sinyal yang align, semakin tinggi confidence)
+
+**JANGAN terlalu konservatif!** Jika ada sinyal yang jelas (strategi + ML + market context align), berikan BUY atau SELL dengan entry yang jelas. HOLD hanya untuk situasi yang benar-benar tidak jelas.
 
 Hanya kembalikan JSON, tanpa penjelasan tambahan."""
         
@@ -222,8 +253,8 @@ Hanya kembalikan JSON, tanpa penjelasan tambahan."""
                     "content": prompt
                 }
             ],
-            "temperature": 0.3,  # Lower temperature untuk konsistensi
-            "max_tokens": 500
+            "temperature": 0.5,  # Balanced temperature untuk lebih agresif tapi tetap konsisten
+            "max_tokens": 800  # Increase untuk response yang lebih lengkap
         }
         
         try:
@@ -280,12 +311,51 @@ Hanya kembalikan JSON, tanpa penjelasan tambahan."""
             
             # Validate structure
             required_fields = ['action', 'position', 'confidence', 'entry_price', 'targets', 'stop_loss', 'reason']
-            if all(field in result for field in required_fields):
-                return result
-            else:
+            if not all(field in result for field in required_fields):
                 print("⚠️  Response tidak lengkap, field yang hilang:", 
                       [f for f in required_fields if f not in result])
                 return None
+            
+            # Validate action-specific requirements
+            action = result.get('action', '').upper()
+            if action in ['BUY', 'SELL']:
+                # Untuk BUY/SELL, entry_price, targets, dan stop_loss harus ada dan valid
+                entry_price = result.get('entry_price')
+                targets = result.get('targets', [])
+                stop_loss = result.get('stop_loss')
+                
+                if entry_price is None or (not isinstance(entry_price, (int, float)) and entry_price != 'null'):
+                    print(f"⚠️  BUY/SELL memerlukan entry_price yang valid, mendapat: {entry_price}")
+                    # Fallback: gunakan current_price dari data jika ada
+                    # Tapi kita tidak punya akses ke current_price di sini, jadi return None
+                    return None
+                
+                if not targets or (isinstance(targets, list) and len(targets) == 0):
+                    print(f"⚠️  BUY/SELL memerlukan minimal 1 target, mendapat: {targets}")
+                    return None
+                
+                if stop_loss is None or (not isinstance(stop_loss, (int, float)) and stop_loss != 'null'):
+                    print(f"⚠️  BUY/SELL memerlukan stop_loss yang valid, mendapat: {stop_loss}")
+                    return None
+                
+                # Convert null string to None if needed
+                if isinstance(entry_price, str) and entry_price.lower() == 'null':
+                    result['entry_price'] = None
+                if isinstance(stop_loss, str) and stop_loss.lower() == 'null':
+                    result['stop_loss'] = None
+                if isinstance(targets, str) and targets.lower() == 'null':
+                    result['targets'] = []
+            
+            elif action == 'HOLD':
+                # Untuk HOLD, entry_price, targets, dan stop_loss harus null
+                if result.get('entry_price') not in [None, 'null', '']:
+                    result['entry_price'] = None
+                if result.get('targets') not in [None, [], 'null']:
+                    result['targets'] = []
+                if result.get('stop_loss') not in [None, 'null', '']:
+                    result['stop_loss'] = None
+            
+            return result
                 
         except json.JSONDecodeError as e:
             print(f"❌ Error parsing JSON: {e}")
