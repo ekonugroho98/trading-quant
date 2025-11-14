@@ -179,6 +179,53 @@ def load_data_from_csv(csv_file=None):
     
     return df_resampled
 
+def load_data_from_binance():
+    """Load data dari Binance API (kompatibel dengan yfinance)"""
+    try:
+        from binance_data import get_data_binance
+        from config import BINANCE_API_KEY, BINANCE_API_SECRET, get_days_back, get_interval
+        
+        print("Mengambil data dari Binance API...")
+        days_back = get_days_back()
+        interval = get_interval()
+        
+        # Gunakan SYMBOL dari config, fallback ke BTC-USD jika tidak ada
+        symbol_to_download = SYMBOL if SYMBOL else "BTC-USD"
+        print(f"Symbol: {symbol_to_download}")
+        print(f"Periode: {days_back} hari terakhir")
+        print(f"Interval: {interval}")
+        
+        data = get_data_binance(
+            symbol_to_download,
+            days_back,
+            interval,
+            BINANCE_API_KEY,
+            BINANCE_API_SECRET
+        )
+        
+        if data is None or data.empty:
+            print("⚠️  Data kosong dari Binance API")
+            return None
+        
+        # Set date sebagai index (seperti yfinance)
+        if 'date' in data.columns:
+            data['date'] = pd.to_datetime(data['date'])
+            data.set_index('date', inplace=True)
+        
+        # Filter tahun jika diperlukan
+        if FILTER_YEAR is not None and not data.empty:
+            data = data[data.index.year == FILTER_YEAR]
+            print(f"Data setelah filter tahun {FILTER_YEAR}: {len(data)} records")
+        
+        return data
+        
+    except ImportError as e:
+        print(f"⚠️  Binance data module tidak tersedia: {e}")
+        return None
+    except Exception as e:
+        print(f"⚠️  Error mengambil data dari Binance: {e}")
+        return None
+
 def load_data_from_yfinance():
     """Load data dari yfinance (fallback)"""
     print("Mengambil data dari yfinance...")
@@ -247,25 +294,58 @@ if USE_CSV_DATA:
                     print(f"   Periode: {data.index.min()} sampai {data.index.max()}")
                 except Exception as e2:
                     print(f"⚠️  Masih gagal memuat CSV setelah pengambilan data: {e2}")
-                    print("⚠️  Fallback ke yfinance...")
-                    data = load_data_from_yfinance()
+                    print(f"⚠️  Fallback ke {DATA_SOURCE}...")
+                    if DATA_SOURCE == "binance":
+                        data = load_data_from_binance()
+                        if data is None or data.empty:
+                            print("⚠️  Binance gagal, fallback ke yfinance...")
+                            data = load_data_from_yfinance()
+                    else:
+                        data = load_data_from_yfinance()
             else:
                 print(f"⚠️  Gagal mengambil data historical: {result.stderr[:200] if result.stderr else 'Unknown error'}")
-                print("⚠️  Fallback ke yfinance...")
-                data = load_data_from_yfinance()
+                print(f"⚠️  Fallback ke {DATA_SOURCE}...")
+                if DATA_SOURCE == "binance":
+                    data = load_data_from_binance()
+                    if data is None or data.empty:
+                        print("⚠️  Binance gagal, fallback ke yfinance...")
+                        data = load_data_from_yfinance()
+                else:
+                    data = load_data_from_yfinance()
         except Exception as e2:
             print(f"⚠️  Error menjalankan get_historical_data.py: {e2}")
-            print("⚠️  Fallback ke yfinance...")
-            data = load_data_from_yfinance()
+            print(f"⚠️  Fallback ke {DATA_SOURCE}...")
+            if DATA_SOURCE == "binance":
+                data = load_data_from_binance()
+                if data is None or data.empty:
+                    print("⚠️  Binance gagal, fallback ke yfinance...")
+                    data = load_data_from_yfinance()
+            else:
+                data = load_data_from_yfinance()
             
     except Exception as e:
         print(f"\n❌ Error memuat data CSV: {e}")
-        print("⚠️  Fallback ke yfinance...")
-        print("   PERINGATAN: Ini akan mengambil data lebih lama (1 tahun), mungkin tidak sesuai dengan data CSV!")
-        print("   Jika ingin menggunakan data CSV, perbaiki error di atas atau set USE_CSV_DATA = False")
-        data = load_data_from_yfinance()
+        print(f"⚠️  Fallback ke {DATA_SOURCE}...")
+        if DATA_SOURCE == "binance":
+            data = load_data_from_binance()
+            if data is None or data.empty:
+                print("⚠️  Binance gagal, fallback ke yfinance...")
+                print("   PERINGATAN: Ini akan mengambil data lebih lama (1 tahun), mungkin tidak sesuai dengan data CSV!")
+                data = load_data_from_yfinance()
+        else:
+            print("   PERINGATAN: Ini akan mengambil data lebih lama (1 tahun), mungkin tidak sesuai dengan data CSV!")
+            print("   Jika ingin menggunakan data CSV, perbaiki error di atas atau set USE_CSV_DATA = False")
+            data = load_data_from_yfinance()
 else:
-    data = load_data_from_yfinance()
+    # Gunakan DATA_SOURCE dari config untuk menentukan sumber data
+    if DATA_SOURCE == "binance":
+        data = load_data_from_binance()
+        # Fallback ke yfinance jika Binance gagal
+        if data is None or data.empty:
+            print("⚠️  Binance API gagal, fallback ke yfinance...")
+            data = load_data_from_yfinance()
+    else:
+        data = load_data_from_yfinance()
 
 if data is None or len(data) == 0:
     print("❌ Tidak ada data yang bisa digunakan!")

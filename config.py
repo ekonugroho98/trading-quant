@@ -167,7 +167,7 @@ TELEGRAM_CHAT_ID = "788501152"  # Chat ID untuk mengirim pesan
 # ============================================
 ENABLE_BINANCE_API = True  # Aktifkan integrasi Binance API
 BINANCE_API_KEY = "TRo3T1oaz6BuOf2n9sw0Z5wXuISDN7Nlkry3QDL5uiaMTQSGxebTDeMc7zzx5swg"  # Binance API Key (dapatkan di https://www.binance.com/en/my/settings/api-management)
-BINANCE_API_SECRET = "TRo3T1oaz6BuOf2n9sw0Z5wXuISDN7Nlkry3QDL5uiaMTQSGxebTDeMc7zzx5swg"  # Binance API Secret (dapatkan di https://www.binance.com/en/my/settings/api-management)
+BINANCE_API_SECRET = "m4XHxGdR6K1iHPjGGcog2X4xPvOSZ8BxdsL5hUF6aydpE7SJ1yDPppArX9mTMFJI"  # Binance API Secret (dapatkan di https://www.binance.com/en/my/settings/api-management)
 # Catatan: Untuk keamanan, jangan commit API key dan secret ke repository!
 # Gunakan environment variables atau file .env untuk production
 # Testnet: https://testnet.binance.vision (untuk testing tanpa risiko)
