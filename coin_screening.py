@@ -364,14 +364,37 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
         volatility_score = max(0, 1 - (volatility / 10)) if volatility > 0 else 0.5
         
         # Combined score dengan weights yang lebih seimbang
-        combined_score = (
-            price_score * 0.25 +           # 25% weight on price change
-            volume_score * 0.20 +          # 20% weight on volume
-            momentum_score * 0.20 +        # 20% weight on momentum
-            rsi_score * 0.15 +             # 15% weight on RSI
-            ma_score * 0.10 +              # 10% weight on MA signal
-            volatility_score * 0.10        # 10% weight on volatility (lower is better)
+        # Score untuk LONG (bullish)
+        long_score = (
+            price_score * 0.25 +           # 25% weight on price change (positive = good)
+            volume_score * 0.20 +          # 20% weight on volume (higher = good)
+            momentum_score * 0.20 +        # 20% weight on momentum (positive = good)
+            rsi_score * 0.15 +             # 15% weight on RSI (50-70 = good for long)
+            ma_score * 0.10 +              # 10% weight on MA signal (BUY = good)
+            volatility_score * 0.10        # 10% weight on volatility (lower = good)
         )
+        
+        # Score untuk SHORT (bearish) - inverse logic
+        # Untuk short: price drop = good, negative momentum = good, RSI > 70 = good, MA SELL = good
+        short_score = (
+            (-price_score) * 0.25 +        # 25% weight on price change (negative = good for short)
+            volume_score * 0.20 +          # 20% weight on volume (higher = good, same)
+            (-momentum_score) * 0.20 +     # 20% weight on momentum (negative = good for short)
+            (-rsi_score) * 0.15 +          # 15% weight on RSI (70-100 = good for short, inverse)
+            (-ma_score) * 0.10 +           # 10% weight on MA signal (SELL = good for short)
+            volatility_score * 0.10        # 10% weight on volatility (lower = good, same)
+        )
+        
+        # Determine best direction
+        if long_score > short_score:
+            best_direction = "LONG"
+            best_score = long_score
+        elif short_score > long_score:
+            best_direction = "SHORT"
+            best_score = short_score
+        else:
+            best_direction = "NEUTRAL"
+            best_score = (long_score + short_score) / 2
         
         return {
             'symbol': symbol,
@@ -387,7 +410,10 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
             'rsi_signal': "OVERSOLD" if rsi < 30 else ("OVERBOUGHT" if rsi > 70 else "NEUTRAL"),
             'momentum': momentum,
             'volatility': volatility,
-            'combined_score': combined_score
+            'combined_score': best_score,  # Best score (long or short)
+            'long_score': long_score,
+            'short_score': short_score,
+            'best_direction': best_direction  # LONG, SHORT, or NEUTRAL
         }
         
     except Exception as e:
@@ -406,7 +432,8 @@ def screen_coins(
     data_source: Optional[str] = None,
     api_key: Optional[str] = None,
     api_secret: Optional[str] = None,
-    use_adaptive_filtering: bool = True  # Auto-relax filters jika tidak ada hasil
+    use_adaptive_filtering: bool = True,  # Auto-relax filters jika tidak ada hasil
+    trade_direction: str = "both"  # "long", "short", atau "both"
 ) -> List[Dict]:
     """
     Screen multiple coins berdasarkan criteria
@@ -418,6 +445,7 @@ def screen_coins(
         min_price_change: Minimum price change % (default: -80, lebih longgar)
         max_price_change: Maximum price change % (default: 200, lebih longgar)
         use_adaptive_filtering: Auto-relax filters jika tidak ada hasil (default: True)
+        trade_direction: "long", "short", atau "both" (default: "both")
         rsi_range: RSI range (min, max) atau None untuk semua (default: None)
         top_n: Jumlah top coins yang dikembalikan (default: 10)
         data_source: "yfinance" atau "binance" (default: dari config.py)
@@ -433,6 +461,7 @@ def screen_coins(
     print(f"\n🔍 Screening {len(coins)} coins...")
     print(f"📅 Periode: {days} hari")
     print(f"📊 Filter: Volume ratio >= {min_volume_ratio}, Price change: {min_price_change}% to {max_price_change}%")
+    print(f"📈 Trade Direction: {trade_direction.upper()}")
     if rsi_range:
         print(f"📈 RSI range: {rsi_range[0]} - {rsi_range[1]}")
     print()
@@ -457,6 +486,21 @@ def screen_coins(
             if rsi_range:
                 if metrics['rsi'] < rsi_range[0] or metrics['rsi'] > rsi_range[1]:
                     continue
+            
+            # Filter berdasarkan trade_direction
+            if trade_direction == "long":
+                # Hanya ambil coin dengan long_score lebih tinggi
+                if metrics['long_score'] <= metrics['short_score']:
+                    continue
+                # Update combined_score untuk long only
+                metrics['combined_score'] = metrics['long_score']
+            elif trade_direction == "short":
+                # Hanya ambil coin dengan short_score lebih tinggi
+                if metrics['short_score'] <= metrics['long_score']:
+                    continue
+                # Update combined_score untuk short only
+                metrics['combined_score'] = metrics['short_score']
+            # else: "both" - tidak ada filter, gunakan best_score yang sudah dihitung
             
             results.append(metrics)
     

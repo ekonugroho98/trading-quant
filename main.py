@@ -770,6 +770,14 @@ class TradingBot:
                 f"⏳ Ini mungkin memakan waktu beberapa detik..."
             )
             
+            # Parse trade direction dari command (optional)
+            # Format: /screen [days] [top_n] [long|short|both]
+            trade_direction = "both"  # Default: both
+            if len(parts) > 3:
+                direction_param = parts[3].lower()
+                if direction_param in ["long", "short", "both"]:
+                    trade_direction = direction_param
+            
             # Jalankan screening dengan filter yang lebih akurat dan realistis
             results = screen_coins(
                 coins=None,  # Gunakan default coins
@@ -782,7 +790,8 @@ class TradingBot:
                 data_source=DATA_SOURCE,  # Gunakan DATA_SOURCE dari config
                 api_key=BINANCE_API_KEY,
                 api_secret=BINANCE_API_SECRET,
-                use_adaptive_filtering=True  # Auto-relax filters jika tidak ada hasil
+                use_adaptive_filtering=True,  # Auto-relax filters jika tidak ada hasil
+                trade_direction=trade_direction  # long, short, atau both
             )
             
             if not results:
