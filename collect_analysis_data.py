@@ -145,9 +145,21 @@ def collect_analysis_data(data: pd.DataFrame,
     
     # Market Context
     if market_context:
+        try:
+            # Ensure trend_direction is a scalar, not a Series
+            trend_dir = market_context.get('trend_direction', 0)
+            if isinstance(trend_dir, pd.Series):
+                trend_dir = float(trend_dir.iloc[0]) if len(trend_dir) > 0 else 0
+            else:
+                trend_dir = float(trend_dir) if trend_dir is not None else 0
+            
+            trend_text = 'Up' if trend_dir > 0 else 'Down' if trend_dir < 0 else 'Neutral'
+        except:
+            trend_text = 'Neutral'
+        
         analysis_results['market_context'] = {
             'market_regime': str(market_context.get('current_regime', 'Unknown')),
-            'trend_direction': 'Up' if market_context.get('trend_direction', 0) > 0 else 'Down' if market_context.get('trend_direction', 0) < 0 else 'Neutral',
+            'trend_direction': trend_text,
             'volatility_regime': str(market_context.get('volatility_regime', 'Unknown')),
             'higher_tf_trend': str(market_context.get('higher_tf_trend', 'Unknown'))
         }
@@ -155,24 +167,89 @@ def collect_analysis_data(data: pd.DataFrame,
     # Advanced Features
     advanced_features = {}
     if 'Z_Score' in data.columns:
-        last_z = float(data['Z_Score'].iloc[-1]) if pd.notna(data['Z_Score'].iloc[-1]) else None
-        advanced_features['z_score'] = last_z
+        try:
+            z_score_val = data['Z_Score'].iloc[-1]
+            if pd.notna(z_score_val):
+                # Convert to scalar if it's a Series
+                if isinstance(z_score_val, pd.Series):
+                    z_score_val = float(z_score_val.iloc[0]) if len(z_score_val) > 0 else None
+                else:
+                    z_score_val = float(z_score_val)
+                advanced_features['z_score'] = z_score_val
+            else:
+                advanced_features['z_score'] = None
+        except:
+            advanced_features['z_score'] = None
     
     if 'RSI' in data.columns:
-        last_rsi = float(data['RSI'].iloc[-1]) if pd.notna(data['RSI'].iloc[-1]) else None
-        advanced_features['rsi'] = last_rsi
+        try:
+            rsi_val = data['RSI'].iloc[-1]
+            if pd.notna(rsi_val):
+                # Convert to scalar if it's a Series
+                if isinstance(rsi_val, pd.Series):
+                    rsi_val = float(rsi_val.iloc[0]) if len(rsi_val) > 0 else None
+                else:
+                    rsi_val = float(rsi_val)
+                advanced_features['rsi'] = rsi_val
+            else:
+                advanced_features['rsi'] = None
+        except:
+            advanced_features['rsi'] = None
     
     if 'Cycle_Period' in data.columns:
-        cycle_period = float(data['Cycle_Period'].iloc[-1]) if pd.notna(data['Cycle_Period'].iloc[-1]) else None
-        advanced_features['cycle_period'] = cycle_period
+        try:
+            cycle_val = data['Cycle_Period'].iloc[-1]
+            if pd.notna(cycle_val):
+                # Convert to scalar if it's a Series
+                if isinstance(cycle_val, pd.Series):
+                    cycle_val = float(cycle_val.iloc[0]) if len(cycle_val) > 0 else None
+                else:
+                    cycle_val = float(cycle_val)
+                advanced_features['cycle_period'] = cycle_val
+            else:
+                advanced_features['cycle_period'] = None
+        except:
+            advanced_features['cycle_period'] = None
     
     patterns = {}
     if 'Pattern_HnS' in data.columns:
-        patterns['Head_and_Shoulders'] = bool(data['Pattern_HnS'].iloc[-1]) if pd.notna(data['Pattern_HnS'].iloc[-1]) else False
+        try:
+            pattern_val = data['Pattern_HnS'].iloc[-1]
+            if pd.notna(pattern_val):
+                # Convert to scalar if it's a Series
+                if isinstance(pattern_val, pd.Series):
+                    pattern_val = pattern_val.iloc[0] if len(pattern_val) > 0 else False
+                patterns['Head_and_Shoulders'] = bool(pattern_val)
+            else:
+                patterns['Head_and_Shoulders'] = False
+        except:
+            patterns['Head_and_Shoulders'] = False
+    
     if 'Pattern_DoubleTop' in data.columns:
-        patterns['Double_Top'] = bool(data['Pattern_DoubleTop'].iloc[-1]) if pd.notna(data['Pattern_DoubleTop'].iloc[-1]) else False
+        try:
+            pattern_val = data['Pattern_DoubleTop'].iloc[-1]
+            if pd.notna(pattern_val):
+                # Convert to scalar if it's a Series
+                if isinstance(pattern_val, pd.Series):
+                    pattern_val = pattern_val.iloc[0] if len(pattern_val) > 0 else False
+                patterns['Double_Top'] = bool(pattern_val)
+            else:
+                patterns['Double_Top'] = False
+        except:
+            patterns['Double_Top'] = False
+    
     if 'Pattern_DoubleBottom' in data.columns:
-        patterns['Double_Bottom'] = bool(data['Pattern_DoubleBottom'].iloc[-1]) if pd.notna(data['Pattern_DoubleBottom'].iloc[-1]) else False
+        try:
+            pattern_val = data['Pattern_DoubleBottom'].iloc[-1]
+            if pd.notna(pattern_val):
+                # Convert to scalar if it's a Series
+                if isinstance(pattern_val, pd.Series):
+                    pattern_val = pattern_val.iloc[0] if len(pattern_val) > 0 else False
+                patterns['Double_Bottom'] = bool(pattern_val)
+            else:
+                patterns['Double_Bottom'] = False
+        except:
+            patterns['Double_Bottom'] = False
     
     if patterns:
         advanced_features['patterns'] = patterns
