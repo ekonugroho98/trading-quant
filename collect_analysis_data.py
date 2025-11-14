@@ -47,13 +47,15 @@ def collect_analysis_data(data: pd.DataFrame,
     # Current Position
     last_idx = data.index[-1]
     last_signal = data['Signal'].iloc[-1] if 'Signal' in data.columns else 0
-    last_close = float(data['Close'].iloc[-1])
+    # Ambil nilai dengan presisi penuh, jangan bulatkan
+    last_close_raw = data['Close'].iloc[-1]
+    last_close = float(last_close_raw) if pd.notna(last_close_raw) else None
     last_ma_short = float(data['MA_short'].iloc[-1]) if 'MA_short' in data.columns and pd.notna(data['MA_short'].iloc[-1]) else None
     last_ma_long = float(data['MA_long'].iloc[-1]) if 'MA_long' in data.columns and pd.notna(data['MA_long'].iloc[-1]) else None
     
     signal_text = "BELI" if last_signal == 1 else ("JUAL" if last_signal == -1 else "NETRAL")
     
-    # Support/Resistance
+    # Support/Resistance - ambil dengan presisi penuh
     last_support = None
     last_resistance = None
     support_dist = None
@@ -66,6 +68,7 @@ def collect_analysis_data(data: pd.DataFrame,
                 if isinstance(last_support_val, pd.Series):
                     last_support = float(last_support_val.iloc[0])
                 else:
+                    # Ambil nilai langsung tanpa pembulatan
                     last_support = float(last_support_val)
                 support_dist = ((last_close - last_support) / last_close * 100) if last_close > 0 else 0
         except:
@@ -78,6 +81,7 @@ def collect_analysis_data(data: pd.DataFrame,
                 if isinstance(last_resistance_val, pd.Series):
                     last_resistance = float(last_resistance_val.iloc[0])
                 else:
+                    # Ambil nilai langsung tanpa pembulatan
                     last_resistance = float(last_resistance_val)
                 resistance_dist = ((last_resistance - last_close) / last_close * 100) if last_close > 0 else 0
         except:

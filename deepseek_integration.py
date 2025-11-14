@@ -9,6 +9,32 @@ from typing import Dict, Optional, Any
 from datetime import datetime
 
 
+def format_price_no_rounding(price: float) -> str:
+    """
+    Format harga tanpa pembulatan, menampilkan semua digit signifikan
+    
+    Args:
+        price: Harga yang akan diformat
+    
+    Returns:
+        String dengan harga yang diformat tanpa pembulatan
+    """
+    if price is None:
+        return "None"
+    
+    # Konversi ke string dengan format yang menghilangkan trailing zeros
+    # Tapi tetap menampilkan semua digit signifikan
+    if price >= 1:
+        # Untuk harga >= 1, tampilkan hingga 8 desimal (cukup untuk crypto)
+        return f"{price:.8f}".rstrip('0').rstrip('.')
+    elif price >= 0.01:
+        # Untuk harga 0.01-1, tampilkan hingga 8 desimal
+        return f"{price:.8f}".rstrip('0').rstrip('.')
+    else:
+        # Untuk harga < 0.01, tampilkan hingga 10 desimal
+        return f"{price:.10f}".rstrip('0').rstrip('.')
+
+
 class DeepSeekTradingAdvisor:
     """Class untuk integrasi dengan DeepSeek API untuk trading advice"""
     
@@ -365,12 +391,13 @@ Hanya kembalikan JSON, tanpa penjelasan tambahan."""
             print(f"❌ Error: {e}")
             return None
     
-    def get_trading_recommendation(self, analysis_results: Dict) -> Optional[Dict]:
+    def get_trading_recommendation(self, analysis_results: Dict, model: str = "deepseek-chat") -> Optional[Dict]:
         """
         Main method untuk mendapatkan rekomendasi trading dari DeepSeek
         
         Args:
             analysis_results: Dictionary dengan semua hasil analisis
+            model: Model name (default: deepseek-chat, bisa diubah ke deepseek-chat-v3.2 atau deepseek-v3.2)
         
         Returns:
             Dictionary dengan rekomendasi trading atau None jika error
@@ -381,8 +408,8 @@ Hanya kembalikan JSON, tanpa penjelasan tambahan."""
         # Create prompt
         prompt = self.create_trading_prompt(analysis_data)
         
-        # Call API
-        recommendation = self.call_deepseek_api(prompt)
+        # Call API dengan model yang ditentukan
+        recommendation = self.call_deepseek_api(prompt, model=model)
         
         return recommendation
 
@@ -423,15 +450,15 @@ def format_recommendation_output(recommendation: Dict,
     
     # Tampilkan current price jika tersedia
     if current_price is not None:
-        output.append(f"\n💵 Current Price: {current_price:,.2f}")
+        output.append(f"\n💵 Current Price: {format_price_no_rounding(current_price)}")
     
     # Support & Resistance
     if support is not None or resistance is not None:
         output.append(f"\n📈 Key Levels:")
         if support is not None:
-            output.append(f"   🟢 Support: {support:,.2f}")
+            output.append(f"   🟢 Support: {format_price_no_rounding(support)}")
         if resistance is not None:
-            output.append(f"   🔴 Resistance: {resistance:,.2f}")
+            output.append(f"   🔴 Resistance: {format_price_no_rounding(resistance)}")
     
     output.append(f"\n📊 Action: {recommendation.get('action', 'N/A')}")
     output.append(f"📍 Position: {recommendation.get('position', 'N/A')}")
@@ -450,7 +477,7 @@ def format_recommendation_output(recommendation: Dict,
         # Entry Price
         entry_price = recommendation.get('entry_price')
         if isinstance(entry_price, (int, float)):
-            output.append(f"\n💰 Entry Price: {entry_price:,.2f}")
+            output.append(f"\n💰 Entry Price: {format_price_no_rounding(entry_price)}")
         else:
             output.append(f"\n💰 Entry Price: {entry_price}")
         
@@ -459,7 +486,9 @@ def format_recommendation_output(recommendation: Dict,
         if isinstance(stop_loss, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
             stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
             sign = "+" if stop_loss_pct > 0 else ""
-            output.append(f"🛑 Stop Loss: {stop_loss:,.2f} ({sign}{stop_loss_pct:.2f}%)")
+            # Format persentase dengan lebih banyak desimal untuk akurasi
+            stop_loss_str = format_price_no_rounding(stop_loss)
+            output.append(f"🛑 Stop Loss: {stop_loss_str} ({sign}{stop_loss_pct:.6f}%)".rstrip('0').rstrip('.'))
         else:
             output.append(f"🛑 Stop Loss: {stop_loss}")
         
@@ -471,7 +500,10 @@ def format_recommendation_output(recommendation: Dict,
                 if isinstance(target, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
                     target_pct = ((target - entry_price) / entry_price) * 100
                     sign = "+" if target_pct > 0 else ""
-                    output.append(f"   TP{i}: {target:,.2f} ({sign}{target_pct:.2f}%)")
+                    # Format target dengan lebih banyak desimal untuk akurasi
+                    target_str = format_price_no_rounding(target)
+                    pct_str = f"{sign}{target_pct:.6f}%".rstrip('0').rstrip('.')
+                    output.append(f"   TP{i}: {target_str} ({pct_str})")
                 else:
                     output.append(f"   TP{i}: {target}")
         else:

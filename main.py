@@ -189,8 +189,32 @@ class TradingBot:
                             "🔄 Melanjutkan ke analisis..."
                         )
                     else:
-                        # Data tidak berhasil diambil, tapi lanjutkan saja (analisis_quant.py akan fallback ke yfinance)
-                        print(f"⚠️  Warning: Gagal mengambil data historical, analisis akan menggunakan yfinance")
+                        # Data tidak berhasil diambil, tampilkan error detail
+                        error_output = result_data.stderr[:500] if result_data.stderr else result_data.stdout[-500:] if result_data.stdout else "Unknown error"
+                        print(f"⚠️  Warning: Gagal mengambil data historical")
+                        print(f"   Return code: {result_data.returncode}")
+                        print(f"   Error output: {error_output}")
+                        
+                        # Cek apakah error karena symbol tidak ditemukan
+                        error_lower = error_output.lower()
+                        if "not found" in error_lower or "no data" in error_lower or "empty" in error_lower:
+                            self.send_message(
+                                chat_id,
+                                f"⚠️ <b>Symbol {symbol} tidak ditemukan atau tidak memiliki data</b>\n\n"
+                                f"💡 <b>Kemungkinan penyebab:</b>\n"
+                                f"• Symbol tidak valid di yfinance\n"
+                                f"• Coin tidak memiliki data historical\n"
+                                f"• Format symbol salah\n\n"
+                                f"🔄 <b>Mencoba fallback ke yfinance langsung...</b>"
+                            )
+                        else:
+                            self.send_message(
+                                chat_id,
+                                f"⚠️ <b>Gagal mengambil data historical</b>\n\n"
+                                f"🔄 <b>Mencoba fallback ke yfinance langsung...</b>\n\n"
+                                f"<code>{error_output[:200]}</code>"
+                            )
+                        print(f"⚠️  Analisis akan menggunakan yfinance langsung")
             except Exception as e:
                 # Error mengambil data, tapi lanjutkan saja
                 print(f"⚠️  Warning: Error saat mengambil data historical: {e}")
@@ -300,7 +324,7 @@ class TradingBot:
     
     def update_config_trading_style(self, trading_style: str):
         """
-        Update TRADING_STYLE di config.py
+        Update TRADING_STYLE di config.py dan auto-update DAYS_BACK
         
         Args:
             trading_style: Trading style baru (SCALPING, DAY_TRADING, SWING_TRADING, POSITION_TRADING)
@@ -316,18 +340,56 @@ class TradingBot:
             replacement = f'TRADING_STYLE = "{trading_style}"'
             new_content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
             
+            # Auto-update DAYS_BACK berdasarkan TRADING_STYLE
+            # Mapping DAYS_BACK berdasarkan TRADING_STYLE
+            days_back_map = {
+                "SCALPING": 7,
+                "DAY_TRADING": 30,
+                "SWING_TRADING": 365,
+                "POSITION_TRADING": 365
+            }
+            new_days_back = days_back_map.get(trading_style, 30)
+            
+            # Update DAYS_BACK ke None agar menggunakan auto dari TRADING_STYLE
+            # Hanya update DAYS_BACK, JANGAN sentuh TRADING_STYLE_DAYS_BACK dictionary
+            # Pattern yang lebih spesifik: hanya match "DAYS_BACK = " di awal baris, bukan "TRADING_STYLE_DAYS_BACK"
+            pattern_days = r'^DAYS_BACK\s*=\s*[^\n]*$'
+            replacement_days = f'DAYS_BACK = None  # Auto berdasarkan TRADING_STYLE ({new_days_back} hari)'
+            new_content = re.sub(pattern_days, replacement_days, new_content, flags=re.MULTILINE)
+            
+            # Pastikan TRADING_STYLE_DAYS_BACK tetap sebagai dictionary yang valid
+            # Jika ada yang merusak (misalnya menjadi None dengan entri di bawahnya), fix itu
+            # Pattern untuk detect broken dictionary: TRADING_STYLE_DAYS_BACK = None diikuti oleh "SCALPING"
+            pattern_dict_broken = r'TRADING_STYLE_DAYS_BACK\s*=\s*None[^\n]*\n(\s+)"SCALPING"'
+            match_broken = re.search(pattern_dict_broken, new_content)
+            if match_broken:
+                # Jika ada TRADING_STYLE_DAYS_BACK = None diikuti oleh entri dictionary, fix itu
+                indent = match_broken.group(1)
+                dict_replacement = f'''TRADING_STYLE_DAYS_BACK = {{
+{indent}"SCALPING": 7,           # 7 hari untuk scalping
+{indent}"DAY_TRADING": 30,       # 30 hari untuk day trading
+{indent}"SWING_TRADING": 365,    # 365 hari untuk swing trading
+{indent}"POSITION_TRADING": 365  # 365 hari untuk position trading
+}}'''
+                # Pattern untuk match dari TRADING_STYLE_DAYS_BACK = None sampai closing brace
+                pattern_dict_fix = r'TRADING_STYLE_DAYS_BACK\s*=\s*None[^\n]*\n\s*"SCALPING":\s*\d+[^\n]*\n\s*"DAY_TRADING":\s*\d+[^\n]*\n\s*"SWING_TRADING":\s*\d+[^\n]*\n\s*"POSITION_TRADING":\s*\d+[^\n]*\n\s*\}'
+                new_content = re.sub(pattern_dict_fix, dict_replacement, new_content, flags=re.MULTILINE)
+            
             if new_content != content:
                 with open(config_file, 'w', encoding='utf-8') as f:
                     f.write(new_content)
-                print(f"✅ Config updated: TRADING_STYLE = {trading_style}")
+                print(f"✅ Config updated: TRADING_STYLE = {trading_style}, DAYS_BACK = {new_days_back} (auto)")
             else:
                 # Coba pattern alternatif
                 pattern2 = r'TRADING_STYLE\s*=\s*["\'].*?["\']'
                 new_content2 = re.sub(pattern2, replacement, content)
+                # Pattern yang lebih spesifik: hanya match "DAYS_BACK = " bukan "TRADING_STYLE_DAYS_BACK"
+                pattern_days2 = r'^DAYS_BACK\s*=\s*[^\n]*$'
+                new_content2 = re.sub(pattern_days2, replacement_days, new_content2, flags=re.MULTILINE)
                 if new_content2 != content:
                     with open(config_file, 'w', encoding='utf-8') as f:
                         f.write(new_content2)
-                    print(f"✅ Config updated: TRADING_STYLE = {trading_style}")
+                    print(f"✅ Config updated: TRADING_STYLE = {trading_style}, DAYS_BACK = {new_days_back} (auto)")
         except Exception as e:
             print(f"⚠️  Error updating trading_style in config: {e}")
     
@@ -511,24 +573,37 @@ class TradingBot:
         
         # Baca config untuk mendapatkan setting lainnya
         try:
-            from config import TRADING_STYLE, SYMBOL
+            from config import TRADING_STYLE, SYMBOL, get_days_back
             config_style = TRADING_STYLE
             config_symbol = SYMBOL
+            current_days_back = get_days_back()
         except:
             config_style = "DAY_TRADING"
             config_symbol = "BTC-USD"
+            current_days_back = 30
         
         # Gunakan user style jika ada, kalau tidak gunakan config
         active_style = self.user_trading_styles.get(chat_id, config_style)
         
+        # DAYS_BACK selalu otomatis berdasarkan TRADING_STYLE
+        days_back_map = {
+            "SCALPING": 7,
+            "DAY_TRADING": 30,
+            "SWING_TRADING": 365,
+            "POSITION_TRADING": 365
+        }
+        expected_days = days_back_map.get(active_style, 30)
+        
         settings_text = (
             "⚙️ <b>Pengaturan Saat Ini</b>\n\n"
             f"📊 <b>TRADING_STYLE:</b> <code>{active_style}</code>\n"
+            f"📅 <b>DAYS_BACK:</b> <code>{expected_days}</code> hari (Auto)\n"
             f"💰 <b>SYMBOL:</b> <code>{config_symbol}</code>\n\n"
             "<b>Command yang tersedia:</b>\n"
             "• <code>/style STYLE</code> - Ubah TRADING_STYLE\n"
             "• <code>/settings</code> - Lihat pengaturan\n"
-            "• Kirim symbol coin untuk analisis"
+            "• Kirim symbol coin untuk analisis\n\n"
+            "💡 <b>Catatan:</b> DAYS_BACK otomatis disesuaikan berdasarkan TRADING_STYLE"
         )
         
         self.send_message(chat_id, settings_text)

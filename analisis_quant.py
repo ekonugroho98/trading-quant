@@ -1264,11 +1264,11 @@ if RUN_PREDICTION:
                 # We can add them to analysis_data if needed, but for now
                 # the AI will see them in the prompt context
                 
-                # Initialize DeepSeek advisor
+                # Initialize DeepSeek advisor dengan model dari config
                 advisor = DeepSeekTradingAdvisor(api_key=DEEPSEEK_API_KEY)
                 
-                # Get recommendation
-                recommendation = advisor.get_trading_recommendation(analysis_data)
+                # Get recommendation (model akan digunakan dari config via get_trading_recommendation)
+                recommendation = advisor.get_trading_recommendation(analysis_data, model=DEEPSEEK_MODEL)
                 
                 # Get current price from analysis data
                 current_price = None
@@ -1406,13 +1406,18 @@ if RUN_PREDICTION:
     # plt.show()  # Disabled - chart hanya dikirim ke Telegram
     
     # Hapus file CSV setelah SEMUA proses selesai (termasuk prediksi dan DeepSeek)
-    # Tunggu sebentar untuk memastikan semua subprocess sudah selesai menggunakan file
-    import time
-    time.sleep(1)  # Tunggu 1 detik untuk memastikan prediksi_next_day.py sudah selesai
-    
-    if 'used_csv_file' in globals() and used_csv_file and os.path.exists(used_csv_file):
-        try:
-            os.remove(used_csv_file)
-            print(f"\n🗑️  File CSV dihapus: {used_csv_file}")
-        except Exception as e:
-            print(f"\n⚠️  Gagal menghapus file CSV {used_csv_file}: {e}")
+    # TAPI: Jangan hapus jika script ini dipanggil dari run_all_analysis.py
+    # (run_all_analysis.py akan menghapus file setelah semua step selesai)
+    if os.environ.get('RUN_FROM_MASTER_SCRIPT') != '1':
+        # Tunggu sebentar untuk memastikan semua subprocess sudah selesai menggunakan file
+        import time
+        time.sleep(1)  # Tunggu 1 detik untuk memastikan prediksi_next_day.py sudah selesai
+        
+        if 'used_csv_file' in globals() and used_csv_file and os.path.exists(used_csv_file):
+            try:
+                os.remove(used_csv_file)
+                print(f"\n🗑️  File CSV dihapus: {used_csv_file}")
+            except Exception as e:
+                print(f"\n⚠️  Gagal menghapus file CSV {used_csv_file}: {e}")
+    else:
+        print(f"\n💡 File CSV akan dihapus setelah semua proses selesai (dipanggil dari run_all_analysis.py)")

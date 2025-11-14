@@ -9,19 +9,27 @@ Menjalankan:
 import subprocess
 import sys
 import os
+import time
+import glob
 
-def run_script(script_name, description):
+def run_script(script_name, description, env=None):
     """Jalankan script Python dan tampilkan output"""
     print("\n" + "=" * 70)
     print(f"🚀 MENJALANKAN: {description}")
     print("=" * 70)
     
     try:
+        # Gunakan environment dari parent process, atau env yang diberikan
+        process_env = os.environ.copy()
+        if env:
+            process_env.update(env)
+        
         result = subprocess.run(
             [sys.executable, script_name],
             capture_output=False,
             text=True,
-            check=False
+            check=False,
+            env=process_env
         )
         return result.returncode == 0
     except Exception as e:
@@ -72,7 +80,18 @@ def main():
     print("STEP 0: AMBIL DATA HISTORICAL")
     print("=" * 70)
     print(f"📊 Mengambil data dengan interval: {interval} (sesuai {TRADING_STYLE})")
+    
+    # Simpan timestamp sebelum mengambil data untuk mencari file terbaru
+    csv_files_before = set(glob.glob("*_historical_*.csv"))
+    
     success0 = run_script("get_historical_data.py", "Ambil Data Historical")
+    
+    # Tunggu sebentar untuk memastikan file sudah ditulis
+    time.sleep(1)
+    
+    # Verifikasi file CSV sudah dibuat
+    csv_files_after = set(glob.glob("*_historical_*.csv"))
+    new_csv_files = csv_files_after - csv_files_before
     
     if not success0:
         print("\n⚠️  Pengambilan data mengalami error, lanjutkan ke analisis? (y/n)")
@@ -80,12 +99,27 @@ def main():
         if choice != 'y':
             print("Membatalkan...")
             return
+    elif not new_csv_files and not csv_files_after:
+        print("\n⚠️  File CSV tidak ditemukan setelah pengambilan data")
+        print("⚠️  Mencoba melanjutkan dengan fallback ke yfinance...")
+    elif new_csv_files:
+        latest_csv = max(new_csv_files, key=os.path.getctime)
+        print(f"\n✅ File CSV berhasil dibuat: {latest_csv}")
+        print(f"   File size: {os.path.getsize(latest_csv):,} bytes")
+    else:
+        # File CSV sudah ada sebelumnya
+        if csv_files_after:
+            latest_csv = max(csv_files_after, key=os.path.getctime)
+            print(f"\n✅ Menggunakan file CSV yang ada: {latest_csv}")
     
     # Step 1: Jalankan analisis strategi
     print("\n" + "=" * 70)
     print("STEP 1: ANALISIS STRATEGI")
     print("=" * 70)
-    success1 = run_script("analisis_quant.py", "Analisis Strategi Trading")
+    # Set environment variable untuk memberitahu analisis_quant.py bahwa ini dipanggil dari run_all_analysis.py
+    # Environment variable akan diteruskan ke subprocess
+    success1 = run_script("analisis_quant.py", "Analisis Strategi Trading", 
+                        env={'RUN_FROM_MASTER_SCRIPT': '1'})
     
     if not success1:
         print("\n⚠️  Analisis strategi mengalami error, lanjutkan ke prediksi? (y/n)")
@@ -107,6 +141,21 @@ def main():
     print(f"✅ Ambil Data Historical: {'Berhasil' if success0 else 'Error'}")
     print(f"✅ Analisis Strategi: {'Berhasil' if success1 else 'Error'}")
     print(f"✅ Prediksi Hari Berikutnya: {'Berhasil' if success2 else 'Error'}")
+    
+    # Hapus file CSV setelah SEMUA proses selesai
+    print("\n" + "=" * 70)
+    print("🧹 CLEANUP: Menghapus file temporary")
+    print("=" * 70)
+    csv_files_to_clean = glob.glob("*_historical_*.csv")
+    if csv_files_to_clean:
+        for csv_file in csv_files_to_clean:
+            try:
+                os.remove(csv_file)
+                print(f"🗑️  File CSV dihapus: {csv_file}")
+            except Exception as e:
+                print(f"⚠️  Gagal menghapus file CSV {csv_file}: {e}")
+    else:
+        print("💡 Tidak ada file CSV untuk dihapus")
     
     if success0 and success1 and success2:
         print("\n🎉 Semua analisis selesai!")

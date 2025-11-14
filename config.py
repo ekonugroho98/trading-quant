@@ -30,7 +30,24 @@ DATA_SOURCE = "yfinance"  # Pilihan: "yfinance", "coingecko", "indodax", "freecr
 SYMBOL = "BTC-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
 # Daftar coin populer: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, BNB-USD, ADA-USD, SOL-USD, DOT-USD, LINK-USD
 # Lihat YFINANCE_COINS.md untuk daftar lengkap coin yang didukung
-DAYS_BACK = 7  # Berapa hari ke belakang (akan auto-adjust berdasarkan interval)
+# DAYS_BACK akan otomatis disesuaikan berdasarkan TRADING_STYLE
+# Bisa di-override manual jika perlu
+DAYS_BACK = None  # Auto berdasarkan TRADING_STYLE (30 hari)
+
+# Mapping DAYS_BACK berdasarkan TRADING_STYLE
+TRADING_STYLE_DAYS_BACK = {
+    "SCALPING": 7,           # 7 hari untuk scalping
+    "DAY_TRADING": 30,       # 30 hari untuk day trading
+    "SWING_TRADING": 365,    # 365 hari untuk swing trading
+    "POSITION_TRADING": 365  # 365 hari untuk position trading
+}
+
+def get_days_back():
+    """Mendapatkan DAYS_BACK berdasarkan TRADING_STYLE atau manual override"""
+    if DAYS_BACK is not None:
+        return DAYS_BACK
+    return TRADING_STYLE_DAYS_BACK.get(TRADING_STYLE, 30)
+
 # Catatan: yfinance memiliki limit berdasarkan interval:
 # - Interval 1m: maksimal 7 hari (auto-adjust jika lebih)
 # - Interval 5m, 15m, 30m: maksimal 60 hari (auto-adjust jika lebih)
@@ -64,14 +81,14 @@ COINGECKO_API_KEY = None  # None = gunakan free API, atau set API key Anda di si
 #   1. Daftar di https://freecryptoapi.com/ untuk mendapatkan API key gratis
 #   2. Set DATA_SOURCE = "freecryptoapi"
 #   3. Set FREECRYPTOAPI_KEY = "your-api-key-here"
-#   4. Set FREECRYPTOAPI_SYMBOL = "BTC" (atau symbol lain)
+#   4. Set FREECRYPTOAPI_SYMBOL = "FARTCOIN-USD" (atau symbol lain)
 FREECRYPTOAPI_KEY = "004nraq2mz5uzczfpww5"  # API key FreeCryptoAPI
 
 # Symbol untuk FreeCryptoAPI (format berbeda dari yfinance)
 # Format: "BTC", "ETH", "XRP", "DOGE", "BNB", "ADA", "SOL", dll (tanpa "-USD")
 # Cek daftar lengkap di: https://freecryptoapi.com/api/v1/getCryptoList
 # Atau gunakan endpoint: GET https://freecryptoapi.com/api/v1/getCryptoList?api_key=YOUR_KEY
-FREECRYPTOAPI_SYMBOL = "BTC"  # Symbol untuk FreeCryptoAPI (default: BTC)
+FREECRYPTOAPI_SYMBOL = "FARTCOIN-USD"  # Symbol untuk FreeCryptoAPI (default: BTC)
 
 # Interval akan otomatis disesuaikan berdasarkan TRADING_STYLE
 # Tapi bisa di-override manual jika perlu
@@ -80,7 +97,7 @@ INTERVAL = None  # None = auto berdasarkan TRADING_STYLE, atau set manual (e.g.,
 
 # Mapping interval berdasarkan TRADING_STYLE
 TRADING_STYLE_INTERVALS = {
-    "SCALPING": "1m",        # 1 menit untuk scalping
+    "SCALPING": "5m",        # 1 menit untuk scalping
     "DAY_TRADING": "15m",    # 15 menit untuk day trading
     "SWING_TRADING": "4h",   # 1 jam untuk swing trading (atau bisa "4h" untuk swing lebih pendek)
     "POSITION_TRADING": "1d" # 1 hari untuk position trading
@@ -100,7 +117,7 @@ def get_interval():
 # ============================================
 # KONFIGURASI TRADING SETUP
 # ============================================
-TRADING_SYMBOL = "BTCUSDT"  # Symbol untuk trading setup (contoh: BTCUSDT, XRPUSDT, DOGEUSDT, ENAUSDT, MAGICUSDT, dll)
+TRADING_SYMBOL = "FARTCOIN-USD"  # Symbol untuk trading setup (contoh: BTCUSDT, XRPUSDT, DOGEUSDT, ENAUSDT, MAGICUSDT, dll)
 
 # Konfigurasi Risk & Reward untuk Trading Setup
 # Sesuaikan berdasarkan TRADING_STYLE:
@@ -134,7 +151,9 @@ CORRELATION_SYMBOLS = ["ETH-USD", "BNB-USD"]  # Symbols untuk korelasi (opsional
 # ============================================
 ENABLE_DEEPSEEK_AI = True  # Aktifkan integrasi DeepSeek AI
 DEEPSEEK_API_KEY = "sk-e35bb3b3d15b4d899895fb927917d0d3"  # API key DeepSeek
-DEEPSEEK_MODEL = "deepseek-chat"  # Model yang digunakan
+DEEPSEEK_MODEL = "deepseek-chat"  # Model yang digunakan (default: deepseek-chat)
+# Model tersedia: deepseek-chat (default), deepseek-chat-v3.2, deepseek-v3.2
+# Untuk menggunakan DeepSeek-V3.2, ubah ke: "deepseek-chat-v3.2" atau "deepseek-v3.2"
 
 # ============================================
 # KONFIGURASI TELEGRAM BOT INTEGRATION

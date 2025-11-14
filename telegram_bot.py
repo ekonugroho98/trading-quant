@@ -9,6 +9,32 @@ from datetime import datetime
 import os
 
 
+def format_price_no_rounding(price: float) -> str:
+    """
+    Format harga tanpa pembulatan, menampilkan semua digit signifikan
+    
+    Args:
+        price: Harga yang akan diformat
+    
+    Returns:
+        String dengan harga yang diformat tanpa pembulatan
+    """
+    if price is None:
+        return "None"
+    
+    # Konversi ke string dengan format yang menghilangkan trailing zeros
+    # Tapi tetap menampilkan semua digit signifikan
+    if price >= 1:
+        # Untuk harga >= 1, tampilkan hingga 8 desimal (cukup untuk crypto)
+        return f"{price:.8f}".rstrip('0').rstrip('.')
+    elif price >= 0.01:
+        # Untuk harga 0.01-1, tampilkan hingga 8 desimal
+        return f"{price:.8f}".rstrip('0').rstrip('.')
+    else:
+        # Untuk harga < 0.01, tampilkan hingga 10 desimal
+        return f"{price:.10f}".rstrip('0').rstrip('.')
+
+
 class TelegramBot:
     """Class untuk mengirim pesan ke Telegram Bot"""
     
@@ -140,16 +166,16 @@ class TelegramBot:
         
         # Current Price
         if current_price is not None:
-            lines.append(f"💵 <b>Current Price:</b> {current_price:,.2f}")
+            lines.append(f"💵 <b>Current Price:</b> {format_price_no_rounding(current_price)}")
             lines.append("")
         
         # Support & Resistance
         if support is not None or resistance is not None:
             lines.append("📈 <b>Key Levels:</b>")
             if support is not None:
-                lines.append(f"   🟢 Support: {support:,.2f}")
+                lines.append(f"   🟢 Support: {format_price_no_rounding(support)}")
             if resistance is not None:
-                lines.append(f"   🔴 Resistance: {resistance:,.2f}")
+                lines.append(f"   🔴 Resistance: {format_price_no_rounding(resistance)}")
             lines.append("")
         
         # Action & Position
@@ -183,7 +209,7 @@ class TelegramBot:
             
             lines.append("💰 <b>Trading Setup:</b>")
             if isinstance(entry_price, (int, float)):
-                lines.append(f"   Entry: {entry_price:,.2f}")
+                lines.append(f"   Entry: {format_price_no_rounding(entry_price)}")
             else:
                 lines.append(f"   Entry: {entry_price}")
             
@@ -191,7 +217,9 @@ class TelegramBot:
             if isinstance(stop_loss, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
                 stop_loss_pct = ((stop_loss - entry_price) / entry_price) * 100
                 sign = "+" if stop_loss_pct > 0 else ""
-                lines.append(f"   Stop Loss: {stop_loss:,.2f} ({sign}{stop_loss_pct:.2f}%)")
+                stop_loss_str = format_price_no_rounding(stop_loss)
+                pct_str = f"{sign}{stop_loss_pct:.6f}%".rstrip('0').rstrip('.')
+                lines.append(f"   Stop Loss: {stop_loss_str} ({pct_str})")
             else:
                 lines.append(f"   Stop Loss: {stop_loss}")
             lines.append("")
@@ -204,7 +232,9 @@ class TelegramBot:
                     if isinstance(target, (int, float)) and isinstance(entry_price, (int, float)) and entry_price > 0:
                         target_pct = ((target - entry_price) / entry_price) * 100
                         sign = "+" if target_pct > 0 else ""
-                        lines.append(f"   TP{i}: {target:,.2f} ({sign}{target_pct:.2f}%)")
+                        target_str = format_price_no_rounding(target)
+                        pct_str = f"{sign}{target_pct:.6f}%".rstrip('0').rstrip('.')
+                        lines.append(f"   TP{i}: {target_str} ({pct_str})")
                     else:
                         lines.append(f"   TP{i}: {target}")
                 lines.append("")

@@ -12,13 +12,15 @@ import time
 # Import konfigurasi terpusat
 try:
     from config import (
-        DATA_SOURCE, SYMBOL, DAYS_BACK, TRADING_STYLE, get_interval, 
+        DATA_SOURCE, SYMBOL, TRADING_STYLE, get_interval, get_days_back,
         COINGECKO_API_KEY, COIN_ID, FREECRYPTOAPI_KEY, FREECRYPTOAPI_SYMBOL
     )
     INTERVAL = get_interval()  # Otomatis berdasarkan TRADING_STYLE
+    DAYS_BACK = get_days_back()  # Otomatis berdasarkan TRADING_STYLE
     print(f"📋 Menggunakan konfigurasi dari config.py")
     print(f"   TRADING_STYLE: {TRADING_STYLE}")
     print(f"   INTERVAL: {INTERVAL} (otomatis berdasarkan TRADING_STYLE)")
+    print(f"   DAYS_BACK: {DAYS_BACK} (otomatis berdasarkan TRADING_STYLE)")
 except ImportError:
     # Fallback jika config.py tidak ada
     print("⚠️  config.py tidak ditemukan, menggunakan konfigurasi default")
@@ -122,7 +124,18 @@ def get_data_yfinance(symbol, days_back, interval):
         return data
     
     except Exception as e:
-        print(f"❌ Error mengambil data dari yfinance: {e}")
+        error_msg = str(e)
+        print(f"❌ Error mengambil data dari yfinance: {error_msg}")
+        
+        # Cek apakah error karena symbol tidak ditemukan
+        if "not found" in error_msg.lower() or "no data" in error_msg.lower():
+            print(f"💡 Symbol '{symbol}' mungkin tidak valid atau tidak memiliki data di yfinance")
+            print(f"   Coba gunakan symbol lain seperti: BTC-USD, ETH-USD, XRP-USD, dll")
+        elif "timeout" in error_msg.lower():
+            print(f"💡 Request timeout - coba lagi nanti")
+        elif "rate limit" in error_msg.lower():
+            print(f"💡 Rate limit tercapai - tunggu beberapa saat")
+        
         return None
 
 def get_data_coingecko(days_back, coin_id="bitcoin", api_key=None):
