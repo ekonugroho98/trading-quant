@@ -1679,6 +1679,19 @@ if RUN_PREDICTION:
     # Chart sudah dikirim ke Telegram, tidak perlu ditampilkan di terminal
     # plt.show()  # Disabled - chart hanya dikirim ke Telegram
     
+    # SELALU hapus semua file trading_chart_*.png yang mungkin masih ada (cleanup)
+    try:
+        chart_files = glob.glob("trading_chart_*.png")
+        for chart_file in chart_files:
+            try:
+                if os.path.exists(chart_file):
+                    os.remove(chart_file)
+                    print(f"🗑️  File chart dihapus (cleanup): {chart_file}")
+            except Exception as e:
+                print(f"⚠️  Gagal menghapus file chart {chart_file}: {e}")
+    except Exception as e:
+        print(f"⚠️  Error saat cleanup chart files: {e}")
+    
     # Hapus file CSV setelah SEMUA proses selesai (termasuk prediksi dan DeepSeek)
     # TAPI: Jangan hapus jika script ini dipanggil dari run_all_analysis.py
     # (run_all_analysis.py akan menghapus file setelah semua step selesai)
