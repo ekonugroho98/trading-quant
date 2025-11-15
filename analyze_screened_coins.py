@@ -49,6 +49,23 @@ def update_config_symbol(symbol: str):
         print(f"⚠️  Error updating config: {e}")
 
 
+def update_config_trading_style(trading_style: str):
+    """Update TRADING_STYLE di config.py"""
+    try:
+        with open('config.py', 'r') as f:
+            content = f.read()
+        
+        # Replace TRADING_STYLE line
+        pattern = r'^TRADING_STYLE\s*=\s*["\'][^"\']*["\']'
+        replacement = f'TRADING_STYLE = "{trading_style}"'
+        content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+        
+        with open('config.py', 'w') as f:
+            f.write(content)
+    except Exception as e:
+        print(f"⚠️  Error updating TRADING_STYLE: {e}")
+
+
 def extract_trading_setup_from_output(output: str, symbol: str) -> Optional[Dict]:
     """
     Extract trading setup dari output analisis_quant.py
@@ -151,12 +168,13 @@ def extract_deepseek_recommendation_from_output(output: str) -> Optional[str]:
         return None
 
 
-def run_analysis_for_coin(symbol: str) -> Optional[Dict]:
+def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> Optional[Dict]:
     """
     Jalankan analisis lengkap untuk satu coin dan extract hasil penting
     
     Args:
         symbol: Coin symbol (format: BTC-USD)
+        trading_style: Trading style untuk analisis (default: None = gunakan dari config)
     
     Returns:
         Dictionary dengan:
@@ -179,8 +197,10 @@ def run_analysis_for_coin(symbol: str) -> Optional[Dict]:
     }
     
     try:
-        # 1. Update config dengan symbol
+        # 1. Update config dengan symbol dan trading_style (jika diberikan)
         update_config_symbol(symbol)
+        if trading_style:
+            update_config_trading_style(trading_style)
         time.sleep(0.5)  # Tunggu file ditulis
         
         # 2. Jalankan get_historical_data.py
@@ -424,7 +444,8 @@ def analyze_screened_coins(
     top_n: int = 5,
     trade_direction: str = "both",
     max_coins: int = 10,  # Limit jumlah coin yang dianalisis
-    send_to_telegram: bool = True
+    send_to_telegram: bool = True,
+    trading_style: Optional[str] = "DAY_TRADING"  # Default: DAY_TRADING untuk analisis screened coins
 ) -> List[Dict]:
     """
     Screen coins dan analisis hasilnya
@@ -436,6 +457,8 @@ def analyze_screened_coins(
         trade_direction: "long", "short", atau "both"
         max_coins: Maximum jumlah coin yang dianalisis (default: 10)
         send_to_telegram: Kirim hasil ke Telegram (default: True)
+        trading_style: Trading style untuk analisis (default: "DAY_TRADING")
+                       Pilihan: "SCALPING", "DAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
     
     Returns:
         List of analysis results
@@ -447,6 +470,7 @@ def analyze_screened_coins(
     print(f"📊 Top N: {top_n}")
     print(f"📈 Direction: {trade_direction}")
     print(f"🔢 Max coins to analyze: {max_coins}")
+    print(f"⚙️  Trading Style: {trading_style}")
     print()
     
     # 1. Screen coins
@@ -482,7 +506,7 @@ def analyze_screened_coins(
         symbol = coin_data['symbol']
         print(f"\n[{i}/{len(coins_to_analyze)}] Menganalisis {symbol}...")
         
-        result = run_analysis_for_coin(symbol)
+        result = run_analysis_for_coin(symbol, trading_style=trading_style)
         analysis_results.append(result)
         
         # Small delay antara analisis

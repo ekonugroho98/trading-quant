@@ -892,6 +892,9 @@ class TradingBot:
                 if direction_param in ["long", "short", "both"]:
                     trade_direction = direction_param
             
+            # Tentukan trading style untuk analisis
+            trading_style = "DAY_TRADING"  # Default untuk analisis screened coins
+            
             # Kirim notifikasi sedang analisis
             self.send_message(
                 chat_id,
@@ -899,12 +902,18 @@ class TradingBot:
                 f"📅 Periode screening: {days} hari\n"
                 f"📊 Top {top_n} coins dari screening\n"
                 f"🔢 Menganalisis {max_coins} coins teratas\n"
-                f"📈 Direction: {trade_direction}\n\n"
+                f"📈 Direction: {trade_direction}\n"
+                f"⚙️  Trading Style: {trading_style}\n\n"
                 f"⏳ Proses ini mungkin memakan waktu beberapa menit..."
             )
             
             print(f"🔍 [handle_analyze_screened_command] Starting analysis for chat_id={chat_id}")
             print(f"   Parameters: days={days}, top_n={top_n}, max_coins={max_coins}, direction={trade_direction}")
+            
+            # Tentukan trading style untuk analisis
+            # Default: DAY_TRADING untuk analisis screened coins (lebih stabil)
+            # User bisa override dengan parameter jika diperlukan
+            trading_style = "DAY_TRADING"  # Default untuk analisis screened coins
             
             # Jalankan analisis (akan otomatis kirim ke Telegram)
             results = analyze_screened_coins(
@@ -913,7 +922,8 @@ class TradingBot:
                 top_n=top_n,
                 trade_direction=trade_direction,
                 max_coins=max_coins,
-                send_to_telegram=True  # Otomatis kirim ke Telegram
+                send_to_telegram=True,  # Otomatis kirim ke Telegram
+                trading_style=trading_style  # DAY_TRADING untuk analisis screened coins
             )
             
             if not results:
