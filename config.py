@@ -3,6 +3,28 @@
 # ============================================
 # Semua script akan membaca konfigurasi dari file ini
 # Ubah sekali, berlaku untuk semua script
+#
+# CREDENTIAL PRIBADI: Pindah ke file .env
+# - DEEPSEEK_API_KEY
+# - TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# - BINANCE_API_KEY, BINANCE_API_SECRET
+# - COINGECKO_API_KEY (optional)
+# - FREECRYPTOAPI_KEY (optional)
+
+# Load environment variables dari .env file
+try:
+    from dotenv import load_dotenv
+    import os
+    load_dotenv()  # Load .env file
+except ImportError:
+    # Jika python-dotenv tidak terinstall, gunakan os.environ langsung
+    import os
+    print("⚠️  python-dotenv tidak terinstall. Install dengan: pip install python-dotenv")
+    print("   Atau set environment variables secara manual")
+except Exception as e:
+    import os
+    print(f"⚠️  Error loading .env file: {e}")
+    print("   Menggunakan environment variables atau nilai default")
 
 # ============================================
 # KONFIGURASI STRATEGI TRADING
@@ -71,18 +93,14 @@ COIN_ID = "bitcoin"  # Coin ID untuk CoinGecko (untuk yfinance, gunakan SYMBOL d
 
 # API Key untuk CoinGecko (opsional - hanya jika diperlukan)
 # Dapatkan API key gratis di: https://www.coingecko.com/en/api
-# Jika None, akan menggunakan free API (mungkin ada rate limit lebih ketat)
-COINGECKO_API_KEY = None  # None = gunakan free API, atau set API key Anda di sini (contoh: "CG-xxxxxxxxxxxxx")
+# Load dari .env file atau environment variable
+COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", None)  # Load dari .env, None = gunakan free API
 
 # API Key untuk FreeCryptoAPI (jika menggunakan DATA_SOURCE = "freecryptoapi")
 # Dapatkan API key gratis di: https://freecryptoapi.com/
 # FreeCryptoAPI menyediakan data historis OHLC harian
-# Cara menggunakan:
-#   1. Daftar di https://freecryptoapi.com/ untuk mendapatkan API key gratis
-#   2. Set DATA_SOURCE = "freecryptoapi"
-#   3. Set FREECRYPTOAPI_KEY = "your-api-key-here"
-#   4. Set FREECRYPTOAPI_SYMBOL = "BTC-USD" (atau symbol lain)
-FREECRYPTOAPI_KEY = "004nraq2mz5uzczfpww5"  # API key FreeCryptoAPI
+# Load dari .env file atau environment variable
+FREECRYPTOAPI_KEY = os.getenv("FREECRYPTOAPI_KEY", None)  # Load dari .env
 
 # Symbol untuk FreeCryptoAPI (format berbeda dari yfinance)
 # Format: "BTC", "ETH", "XRP", "DOGE", "BNB", "ADA", "SOL", dll (tanpa "-USD")
@@ -150,7 +168,8 @@ CORRELATION_SYMBOLS = ["ETH-USD", "BNB-USD"]  # Symbols untuk korelasi (opsional
 # KONFIGURASI DEEPSEEK AI INTEGRATION
 # ============================================
 ENABLE_DEEPSEEK_AI = True  # Aktifkan integrasi DeepSeek AI
-DEEPSEEK_API_KEY = "sk-e35bb3b3d15b4d899895fb927917d0d3"  # API key DeepSeek
+# API key dari .env file atau environment variable
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", None)  # Load dari .env
 DEEPSEEK_MODEL = "deepseek-chat"  # Model yang digunakan (default: deepseek-chat)
 # Model tersedia: deepseek-chat (default), deepseek-chat-v3.2, deepseek-v3.2
 # Untuk menggunakan DeepSeek-V3.2, ubah ke: "deepseek-chat-v3.2" atau "deepseek-v3.2"
@@ -159,16 +178,17 @@ DEEPSEEK_MODEL = "deepseek-chat"  # Model yang digunakan (default: deepseek-chat
 # KONFIGURASI TELEGRAM BOT INTEGRATION
 # ============================================
 ENABLE_TELEGRAM_BOT = True  # Aktifkan integrasi Telegram Bot
-TELEGRAM_BOT_TOKEN = "8510299481:AAGN6iEEqPyu6GrrBT_7eGn903eMWgLXe6k"  # Bot Token dari @BotFather
-TELEGRAM_CHAT_ID = "788501152"  # Chat ID untuk mengirim pesan
+# Credential dari .env file atau environment variables
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", None)  # Load dari .env
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", None)  # Load dari .env
 
 # ============================================
 # KONFIGURASI BINANCE API INTEGRATION
 # ============================================
 ENABLE_BINANCE_API = True  # Aktifkan integrasi Binance API
-BINANCE_API_KEY = "TRo3T1oaz6BuOf2n9sw0Z5wXuISDN7Nlkry3QDL5uiaMTQSGxebTDeMc7zzx5swg"  # Binance API Key (dapatkan di https://www.binance.com/en/my/settings/api-management)
-BINANCE_API_SECRET = "m4XHxGdR6K1iHPjGGcog2X4xPvOSZ8BxdsL5hUF6aydpE7SJ1yDPppArX9mTMFJI"  # Binance API Secret (dapatkan di https://www.binance.com/en/my/settings/api-management)
-# Catatan: Untuk keamanan, jangan commit API key dan secret ke repository!
-# Gunakan environment variables atau file .env untuk production
+# Credential dari .env file atau environment variables
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", None)  # Load dari .env
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", None)  # Load dari .env
+# Catatan: Credential disimpan di file .env (tidak di-commit ke repository)
 # Testnet: https://testnet.binance.vision (untuk testing tanpa risiko)
 
