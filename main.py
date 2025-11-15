@@ -429,6 +429,7 @@ class TradingBot:
             days_back_map = {
                 "SCALPING": 7,
                 "DAY_TRADING": 30,
+                "INTRADAY_TRADING": 60,
                 "SWING_TRADING": 365,
                 "POSITION_TRADING": 365
             }
@@ -451,7 +452,8 @@ class TradingBot:
                 indent = match_broken.group(1)
                 dict_replacement = f'''TRADING_STYLE_DAYS_BACK = {{
 {indent}"SCALPING": 7,           # 7 hari untuk scalping
-{indent}"DAY_TRADING": 30,       # 30 hari untuk day trading
+{indent}"DAY_TRADING": 30,
+                "INTRADAY_TRADING": 60,       # 30 hari untuk day trading
 {indent}"INTRADAY_TRADING": 60,  # 60 hari untuk intraday trading
 {indent}"SWING_TRADING": 365,    # 365 hari untuk swing trading
 {indent}"POSITION_TRADING": 365  # 365 hari untuk position trading
@@ -622,12 +624,14 @@ class TradingBot:
                 "<b>Format:</b>\n"
                 "<code>/style STYLE</code>\n\n"
                 "<b>Pilihan TRADING_STYLE:</b>\n"
-                "• <code>SCALPING</code> - Trading sangat cepat (detik-menit)\n"
-                "• <code>DAY_TRADING</code> - Trading dalam 1 hari\n"
-                "• <code>SWING_TRADING</code> - Trading beberapa hari-minggu\n"
-                "• <code>POSITION_TRADING</code> - Trading jangka panjang (minggu-bulan)\n\n"
+                "• <code>SCALPING</code> - Trading sangat cepat (5m timeframe)\n"
+                "• <code>DAY_TRADING</code> - Trading dalam 1 hari (15m timeframe)\n"
+                "• <code>INTRADAY_TRADING</code> - Trading intraday (2h timeframe)\n"
+                "• <code>SWING_TRADING</code> - Trading beberapa hari-minggu (4h timeframe)\n"
+                "• <code>POSITION_TRADING</code> - Trading jangka panjang (1d timeframe)\n\n"
                 "<b>Contoh:</b>\n"
                 "<code>/style DAY_TRADING</code>\n"
+                "<code>/style INTRADAY_TRADING</code>\n"
                 "<code>/style SCALPING</code>"
             )
             self.send_message(chat_id, help_text)
@@ -700,6 +704,7 @@ class TradingBot:
         days_back_map = {
             "SCALPING": 7,
             "DAY_TRADING": 30,
+                "INTRADAY_TRADING": 60,
             "SWING_TRADING": 365,
             "POSITION_TRADING": 365
         }
