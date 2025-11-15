@@ -30,7 +30,7 @@ class TradingBot:
         self.running = False
         self.active_users = set()  # Set untuk menyimpan chat_id user yang sudah /start
         self.user_trading_styles = {}  # Dictionary untuk menyimpan TRADING_STYLE per user
-        self.valid_trading_styles = ["SCALPING", "DAY_TRADING", "SWING_TRADING", "POSITION_TRADING"]
+        self.valid_trading_styles = ["SCALPING", "DAY_TRADING", "INTRADAY_TRADING", "SWING_TRADING", "POSITION_TRADING"]
     
     def get_updates(self) -> Optional[dict]:
         """
@@ -452,6 +452,7 @@ class TradingBot:
                 dict_replacement = f'''TRADING_STYLE_DAYS_BACK = {{
 {indent}"SCALPING": 7,           # 7 hari untuk scalping
 {indent}"DAY_TRADING": 30,       # 30 hari untuk day trading
+{indent}"INTRADAY_TRADING": 60,  # 60 hari untuk intraday trading
 {indent}"SWING_TRADING": 365,    # 365 hari untuk swing trading
 {indent}"POSITION_TRADING": 365  # 365 hari untuk position trading
 }}'''

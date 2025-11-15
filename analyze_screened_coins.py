@@ -458,7 +458,7 @@ def analyze_screened_coins(
         max_coins: Maximum jumlah coin yang dianalisis (default: 10)
         send_to_telegram: Kirim hasil ke Telegram (default: True)
         trading_style: Trading style untuk analisis (default: "DAY_TRADING")
-                       Pilihan: "SCALPING", "DAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
+                       Pilihan: "SCALPING", "DAY_TRADING", "INTRADAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
     
     Returns:
         List of analysis results

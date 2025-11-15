@@ -32,10 +32,11 @@ except Exception as e:
 # Pilih jenis trading yang ingin digunakan:
 # - "SCALPING": Trading sangat cepat (detik-menit), banyak sinyal, profit kecil per trade
 # - "DAY_TRADING": Trading dalam 1 hari, beberapa sinyal per hari
+# - "INTRADAY_TRADING": Trading intraday dengan timeframe 2 jam, beberapa sinyal per hari
 # - "SWING_TRADING": Trading beberapa hari-minggu, sinyal lebih jarang tapi lebih reliable
 # - "POSITION_TRADING": Trading jangka panjang (minggu-bulan), sinyal sangat jarang
 
-TRADING_STYLE = "SCALPING"  # Pilihan: "SCALPING", "DAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
+TRADING_STYLE = "SWING_TRADING"  # Pilihan: "SCALPING", "DAY_TRADING", "INTRADAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
 
 # ============================================
 # KONFIGURASI DATA
@@ -49,17 +50,18 @@ FILTER_YEAR = 2025  # Filter data hanya tahun tertentu (None = tidak filter)
 # KONFIGURASI DATA HISTORICAL
 # ============================================
 DATA_SOURCE = "binance"  # Pilihan: "yfinance", "binance", "coingecko", "indodax", "freecryptoapi"
-SYMBOL = "KAITO-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
+SYMBOL = "BTC-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
 # Daftar coin populer: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, BNB-USD, ADA-USD, SOL-USD, DOT-USD, LINK-USD
 # Lihat YFINANCE_COINS.md untuk daftar lengkap coin yang didukung
 # DAYS_BACK akan otomatis disesuaikan berdasarkan TRADING_STYLE
 # Bisa di-override manual jika perlu
-DAYS_BACK = None  # Auto berdasarkan TRADING_STYLE (7 hari)
+DAYS_BACK = None  # Auto berdasarkan TRADING_STYLE (365 hari)
 
 # Mapping DAYS_BACK berdasarkan TRADING_STYLE
 TRADING_STYLE_DAYS_BACK = {
     "SCALPING": 7,           # 7 hari untuk scalping
     "DAY_TRADING": 30,       # 30 hari untuk day trading
+    "INTRADAY_TRADING": 60,  # 60 hari untuk intraday trading (2h timeframe)
     "SWING_TRADING": 365,    # 365 hari untuk swing trading
     "POSITION_TRADING": 365  # 365 hari untuk position trading
 }
@@ -115,9 +117,10 @@ INTERVAL = None  # None = auto berdasarkan TRADING_STYLE, atau set manual (e.g.,
 
 # Mapping interval berdasarkan TRADING_STYLE
 TRADING_STYLE_INTERVALS = {
-    "SCALPING": "5m",        # 1 menit untuk scalping
+    "SCALPING": "5m",        # 5 menit untuk scalping
     "DAY_TRADING": "15m",    # 15 menit untuk day trading
-    "SWING_TRADING": "4h",   # 1 jam untuk swing trading (atau bisa "4h" untuk swing lebih pendek)
+    "INTRADAY_TRADING": "2h", # 2 jam untuk intraday trading
+    "SWING_TRADING": "4h",   # 4 jam untuk swing trading
     "POSITION_TRADING": "1d" # 1 hari untuk position trading
 }
 
@@ -141,6 +144,7 @@ TRADING_SYMBOL = "BTC-USD"  # Symbol untuk trading setup (contoh: BTCUSDT, XRPUS
 # Sesuaikan berdasarkan TRADING_STYLE:
 # - SCALPING: risk_percent = 0.5-1.0%, tp_multiplier lebih kecil (1.2x, 1.5x, 2.0x)
 # - DAY_TRADING: risk_percent = 1.5-2.5%, tp_multiplier sedang (1.5x, 2.5x, 3.5x)
+# - INTRADAY_TRADING: risk_percent = 1.5-2.0%, tp_multiplier sedang (1.5x, 2.5x, 3.5x)
 # - SWING_TRADING: risk_percent = 2.0-3.0%, tp_multiplier besar (2.0x, 3.0x, 5.0x)
 # - POSITION_TRADING: risk_percent = 3.0-5.0%, tp_multiplier sangat besar (3.0x, 5.0x, 8.0x)
 

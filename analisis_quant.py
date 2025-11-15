@@ -1100,6 +1100,7 @@ if last_support is not None and last_resistance is not None:
         risk_config = {
             "SCALPING": 0.75,        # 0.75% risk untuk scalping
             "DAY_TRADING": 2.0,      # 2.0% risk untuk day trading
+            "INTRADAY_TRADING": 1.75, # 1.75% risk untuk intraday trading
             "SWING_TRADING": 2.5,    # 2.5% risk untuk swing trading
             "POSITION_TRADING": 3.5  # 3.5% risk untuk position trading
         }
@@ -1112,6 +1113,7 @@ if last_support is not None and last_resistance is not None:
         tp_config = {
             "SCALPING": [1.2, 1.5, 2.0],        # Target kecil untuk scalping
             "DAY_TRADING": [1.5, 2.5, 3.5],    # Target sedang untuk day trading
+            "INTRADAY_TRADING": [1.5, 2.5, 3.5], # Target sedang untuk intraday trading
             "SWING_TRADING": [2.0, 3.0, 5.0],  # Target besar untuk swing trading
             "POSITION_TRADING": [3.0, 5.0, 8.0] # Target sangat besar untuk position trading
         }
