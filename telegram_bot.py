@@ -35,6 +35,35 @@ def format_price_no_rounding(price: float) -> str:
         return f"{price:.10f}".rstrip('0').rstrip('.')
 
 
+def format_price_with_comma(price: float, decimals: int = 0) -> str:
+    """
+    Format harga dengan koma sebagai thousand separator (format internasional)
+    
+    Args:
+        price: Harga yang akan diformat
+        decimals: Jumlah desimal (default: 0 = tanpa desimal)
+    
+    Returns:
+        String dengan harga yang diformat dengan koma sebagai thousand separator
+    """
+    if price is None:
+        return "None"
+    
+    try:
+        if decimals == 0:
+            # Format tanpa desimal
+            return f"{int(round(price)):,}"
+        else:
+            # Format dengan desimal
+            formatted = f"{price:,.{decimals}f}"
+            # Hapus trailing zeros
+            if '.' in formatted:
+                formatted = formatted.rstrip('0').rstrip('.')
+            return formatted
+    except (ValueError, TypeError):
+        return str(price)
+
+
 class TelegramBot:
     """Class untuk mengirim pesan ke Telegram Bot"""
     
@@ -700,4 +729,188 @@ class TelegramBot:
         """
         message = self.format_screening_results(results)
         return self.send_message(message)
+    
+    def format_simplified_trading_signal(self,
+                                         symbol: str,
+                                         timeframe: Optional[str] = None,
+                                         current_price: Optional[float] = None,
+                                         support: Optional[float] = None,
+                                         resistance: Optional[float] = None,
+                                         trading_setup: Optional[Dict] = None,
+                                         deepseek_recommendation: Optional[Dict] = None,
+                                         ml_prediction: Optional[Dict] = None) -> str:
+        """
+        Format trading signal yang disederhanakan - menggabungkan semua informasi
+        
+        Args:
+            symbol: Trading symbol
+            timeframe: Timeframe (optional)
+            current_price: Current price (optional)
+            support: Support level (optional)
+            resistance: Resistance level (optional)
+            trading_setup: Trading setup dictionary (optional)
+            deepseek_recommendation: DeepSeek recommendation dictionary (optional)
+            ml_prediction: ML prediction dictionary (optional)
+        
+        Returns:
+            Formatted HTML message
+        """
+        lines = []
+        
+        # Header (timeframe dalam kurung)
+        if timeframe:
+            lines.append(f"🤖 <b>TRADING SIGNAL: {symbol} ({timeframe})</b>")
+        else:
+            lines.append(f"🤖 <b>TRADING SIGNAL: {symbol}</b>")
+        lines.append("")
+        
+        # Price & Key Levels (satu baris dengan koma separator)
+        price_info = []
+        if current_price is not None:
+            price_info.append(f"Price: {format_price_with_comma(current_price)}")
+        if support is not None:
+            price_info.append(f"Support: {format_price_with_comma(support)}")
+        if resistance is not None:
+            price_info.append(f"Resistance: {format_price_with_comma(resistance)}")
+        
+        if price_info:
+            lines.append(" | ".join(price_info))
+            lines.append("")
+        
+        # Deteksi konflik sinyal
+        ai_action = None
+        ai_confidence = 0
+        ml_signal = None
+        ml_prob = 0
+        
+        if deepseek_recommendation:
+            ai_action = deepseek_recommendation.get('action', '').upper()
+            ai_confidence = deepseek_recommendation.get('confidence', 0)
+        
+        if ml_prediction:
+            ml_signal_raw = ml_prediction.get('signal', 'N/A')
+            ml_prob = ml_prediction.get('buy_probability', ml_prediction.get('buy_prob', 0))
+            # Convert ML signal to action
+            if ml_signal_raw == "BELI":
+                ml_signal = "BUY"
+            elif ml_signal_raw == "JUAL":
+                ml_signal = "SELL"
+            else:
+                ml_signal = "HOLD"
+        
+        # Tampilkan konflik jika ada
+        has_conflict = False
+        if ai_action and ml_signal and ai_action != "HOLD" and ml_signal != "HOLD":
+            if (ai_action == "BUY" and ml_signal == "SELL") or (ai_action == "SELL" and ml_signal == "BUY"):
+                has_conflict = True
+                lines.append("⚠️ <b>KONFLIKT:</b>")
+                lines.append(f"   - AI Strategy: {ai_action} ({ai_confidence}% confidence)")
+                lines.append(f"   - Quant Model: {ml_signal} ({ml_prob:.1f}% probability)")
+                lines.append("")
+        
+        # Rekomendasi final (prioritas AI Strategy jika ada konflik)
+        if has_conflict:
+            final_action = ai_action
+            final_reason = "berdasarkan AI Strategy + Technical Pattern"
+        elif ai_action:
+            final_action = ai_action
+            final_reason = "berdasarkan AI Strategy + Technical Pattern"
+        elif ml_signal:
+            final_action = ml_signal
+            final_reason = "berdasarkan Quant Model"
+        else:
+            final_action = "HOLD"
+            final_reason = "tidak ada sinyal jelas"
+        
+        lines.append(f"📊 <b>REKOMENDASI:</b> {final_action} ({final_reason})")
+        lines.append("")
+        
+        # Trading Setup (disederhanakan - hanya 2 entry dan 2 TP)
+        if trading_setup:
+            direction = trading_setup.get('direction', 'N/A')
+            action_text = "SELL" if direction == "SHORT" else "BUY" if direction == "LONG" else "HOLD"
+            
+            lines.append(f"💰 <b>SETUP:</b>")
+            
+            # Entry levels (3 level: agresif, konservatif, sangat konservatif)
+            entry1 = trading_setup.get('entry1')  # Agresif
+            entry2 = trading_setup.get('entry2')  # Konservatif (recommended)
+            entry3 = trading_setup.get('entry3')  # Sangat Konservatif
+            
+            if entry1 and entry2 and entry3:
+                lines.append(f"   Entry: {format_price_with_comma(entry2)} (konservatif) / {format_price_with_comma(entry1)} (agresif) / {format_price_with_comma(entry3)} (sangat konservatif)")
+            elif entry1 and entry2:
+                lines.append(f"   Entry: {format_price_with_comma(entry2)} (konservatif) / {format_price_with_comma(entry1)} (agresif)")
+            elif entry2:
+                lines.append(f"   Entry: {format_price_with_comma(entry2)}")
+            elif entry1:
+                lines.append(f"   Entry: {format_price_with_comma(entry1)}")
+            
+            # Stop Loss
+            stop_loss = trading_setup.get('stop_loss')
+            risk_pct = trading_setup.get('risk_pct', 0)
+            if stop_loss:
+                lines.append(f"   Stop Loss: {format_price_with_comma(stop_loss)} (-{risk_pct:.1f}%)")
+            
+            # Targets (3 TP dalam satu baris)
+            tp1 = trading_setup.get('tp1')
+            tp2 = trading_setup.get('tp2')
+            tp3 = trading_setup.get('tp3')
+            
+            if tp1 and tp2 and tp3:
+                # Calculate percentage untuk entry konservatif (entry2)
+                if entry2 and isinstance(entry2, (int, float)) and entry2 > 0:
+                    if direction == "LONG":
+                        tp1_pct = ((tp1 - entry2) / entry2) * 100
+                        tp2_pct = ((tp2 - entry2) / entry2) * 100
+                        tp3_pct = ((tp3 - entry2) / entry2) * 100
+                    else:  # SHORT
+                        # Untuk SHORT, TP lebih rendah dari entry, jadi persentase negatif
+                        tp1_pct = ((tp1 - entry2) / entry2) * 100
+                        tp2_pct = ((tp2 - entry2) / entry2) * 100
+                        tp3_pct = ((tp3 - entry2) / entry2) * 100
+                    
+                    # Format persentase dengan 2 desimal, selalu tampilkan tanda
+                    lines.append(f"   TP1: {format_price_with_comma(tp1)} ({tp1_pct:+.2f}%) | TP2: {format_price_with_comma(tp2)} ({tp2_pct:+.2f}%) | TP3: {format_price_with_comma(tp3)} ({tp3_pct:+.2f}%)")
+                else:
+                    lines.append(f"   TP1: {format_price_with_comma(tp1)} | TP2: {format_price_with_comma(tp2)} | TP3: {format_price_with_comma(tp3)}")
+            elif tp1 and tp2:
+                # Fallback jika hanya ada 2 TP
+                if entry2 and isinstance(entry2, (int, float)) and entry2 > 0:
+                    if direction == "LONG":
+                        tp1_pct = ((tp1 - entry2) / entry2) * 100
+                        tp2_pct = ((tp2 - entry2) / entry2) * 100
+                    else:  # SHORT
+                        tp1_pct = ((tp1 - entry2) / entry2) * 100
+                        tp2_pct = ((tp2 - entry2) / entry2) * 100
+                    
+                    lines.append(f"   TP1: {format_price_with_comma(tp1)} ({tp1_pct:+.2f}%) | TP2: {format_price_with_comma(tp2)} ({tp2_pct:+.2f}%)")
+                else:
+                    lines.append(f"   TP1: {format_price_with_comma(tp1)} | TP2: {format_price_with_comma(tp2)}")
+            
+            lines.append("")
+        
+        # Quant Metrics (ringkas dalam satu baris)
+        if ml_prediction:
+            metrics_parts = []
+            
+            accuracy = ml_prediction.get('accuracy')
+            if accuracy is not None:
+                if isinstance(accuracy, float) and accuracy < 1:
+                    accuracy = accuracy * 100
+                metrics_parts.append(f"Accuracy {accuracy:.0f}%")
+            
+            sharpe = ml_prediction.get('sharpe_ratio')
+            if sharpe is not None:
+                metrics_parts.append(f"Sharpe {sharpe:.2f}")
+            
+            expected_value = ml_prediction.get('expected_value')
+            if expected_value is not None:
+                metrics_parts.append(f"Expected Value {expected_value:.2f}%")
+            
+            if metrics_parts:
+                lines.append(f"📈 <b>Quant Metrics:</b> {', '.join(metrics_parts)}")
+                lines.append("")
+        
+        return "\n".join(lines)
 

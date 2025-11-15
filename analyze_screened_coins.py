@@ -140,6 +140,45 @@ def extract_trading_setup_from_output(output: str, symbol: str) -> Optional[Dict
         return None
 
 
+def extract_price_info_from_output(output: str) -> Dict:
+    """
+    Extract current price, support, resistance, dan timeframe dari output analisis_quant.py
+    
+    Args:
+        output: Output string dari analisis_quant.py
+    
+    Returns:
+        Dictionary dengan price info
+    """
+    info = {}
+    
+    try:
+        # Extract Current Price (dengan atau tanpa emoji)
+        price_match = re.search(r'(?:💵\s*)?Current Price:\s*\$?([\d,]+\.?\d*)', output)
+        if price_match:
+            info['current_price'] = float(price_match.group(1).replace(',', ''))
+        
+        # Extract Support (dengan atau tanpa emoji)
+        support_match = re.search(r'(?:🟢\s*)?Support:\s*([\d,]+\.?\d*)', output)
+        if support_match:
+            info['support'] = float(support_match.group(1).replace(',', ''))
+        
+        # Extract Resistance (dengan atau tanpa emoji)
+        resistance_match = re.search(r'(?:🔴\s*)?Resistance:\s*([\d,]+\.?\d*)', output)
+        if resistance_match:
+            info['resistance'] = float(resistance_match.group(1).replace(',', ''))
+        
+        # Extract Timeframe
+        timeframe_match = re.search(r'Timeframe:\s*(\w+)', output, re.IGNORECASE)
+        if timeframe_match:
+            info['timeframe'] = timeframe_match.group(1)
+        
+    except Exception as e:
+        print(f"⚠️  Error extracting price info: {e}")
+    
+    return info
+
+
 def extract_deepseek_recommendation_from_output(output: str) -> Optional[str]:
     """
     Extract DeepSeek recommendation dari output analisis_quant.py
@@ -168,6 +207,67 @@ def extract_deepseek_recommendation_from_output(output: str) -> Optional[str]:
         return None
 
 
+def parse_deepseek_recommendation_string(recommendation_str: str) -> Optional[Dict]:
+    """
+    Parse DeepSeek recommendation string menjadi dictionary
+    
+    Args:
+        recommendation_str: String recommendation dari extract_deepseek_recommendation_from_output
+    
+    Returns:
+        Dictionary dengan recommendation atau None
+    """
+    if not recommendation_str:
+        return None
+    
+    try:
+        rec = {}
+        
+        # Extract Action
+        action_match = re.search(r'Action:\s*(\w+)', recommendation_str, re.IGNORECASE)
+        if action_match:
+            rec['action'] = action_match.group(1).upper()
+        
+        # Extract Position
+        position_match = re.search(r'Position:\s*(\w+)', recommendation_str, re.IGNORECASE)
+        if position_match:
+            rec['position'] = position_match.group(1).upper()
+        
+        # Extract Confidence
+        confidence_match = re.search(r'Confidence:\s*([\d.]+)', recommendation_str)
+        if confidence_match:
+            rec['confidence'] = float(confidence_match.group(1))
+        
+        # Extract Entry Price
+        entry_match = re.search(r'Entry Price:\s*([\d,]+\.?\d*)', recommendation_str)
+        if entry_match:
+            rec['entry_price'] = float(entry_match.group(1).replace(',', ''))
+        
+        # Extract Stop Loss
+        sl_match = re.search(r'Stop Loss:\s*([\d,]+\.?\d*)', recommendation_str)
+        if sl_match:
+            rec['stop_loss'] = float(sl_match.group(1).replace(',', ''))
+        
+        # Extract Targets
+        targets = []
+        tp_pattern = r'TP(\d+):\s*([\d,]+\.?\d*)'
+        for match in re.finditer(tp_pattern, recommendation_str):
+            targets.append(float(match.group(2).replace(',', '')))
+        if targets:
+            rec['targets'] = targets
+        
+        # Extract Reason
+        reason_match = re.search(r'Reason:\s*(.+?)(?=\n|$)', recommendation_str, re.DOTALL)
+        if reason_match:
+            rec['reason'] = reason_match.group(1).strip()
+        
+        return rec if rec else None
+        
+    except Exception as e:
+        print(f"⚠️  Error parsing DeepSeek recommendation: {e}")
+        return None
+
+
 def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> Optional[Dict]:
     """
     Jalankan analisis lengkap untuk satu coin dan extract hasil penting
@@ -193,6 +293,7 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
         'trading_setup': None,
         'deepseek_recommendation': None,
         'ml_prediction': None,
+        'price_info': None,
         'error': None
     }
     
@@ -237,12 +338,18 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
             env={**os.environ, 'RUN_FROM_MASTER_SCRIPT': '1'}  # Set flag untuk tidak delete CSV
         )
         
-        # Extract trading setup dari output
+        # Extract trading setup dan price info dari output
         if analysis_result.stdout:
             trading_setup = extract_trading_setup_from_output(analysis_result.stdout, symbol)
             if trading_setup:
                 result['trading_setup'] = trading_setup
                 print(f"✅ Trading setup ditemukan")
+            
+            # Extract price info (current_price, support, resistance, timeframe)
+            price_info = extract_price_info_from_output(analysis_result.stdout)
+            if price_info:
+                result['price_info'] = price_info
+                print(f"✅ Price info ditemukan")
             
             # Extract DeepSeek recommendation
             if ENABLE_DEEPSEEK_AI and DEEPSEEK_API_KEY:
@@ -310,7 +417,7 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
 
 def send_analysis_results_to_telegram(results: List[Dict], bot: TelegramBot) -> bool:
     """
-    Kirim hasil analisis ke Telegram
+    Kirim hasil analisis ke Telegram dengan format yang disederhanakan
     
     Args:
         results: List of analysis results
@@ -326,104 +433,45 @@ def send_analysis_results_to_telegram(results: List[Dict], bot: TelegramBot) -> 
         for i, result in enumerate(results, 1):
             symbol = result['symbol']
             
-            # Header untuk setiap coin
-            message_parts = []
-            message_parts.append(f"📊 <b>ANALISIS COIN #{i}</b>")
-            message_parts.append(f"<b>{symbol}</b>")
-            message_parts.append("")
-            
             if not result['success']:
-                message_parts.append(f"❌ <b>Error:</b> {result.get('error', 'Unknown error')}")
-                bot.send_message("\n".join(message_parts))
+                error_msg = f"❌ <b>Error untuk {symbol}:</b> {result.get('error', 'Unknown error')}"
+                bot.send_message(error_msg)
                 continue
             
-            # TRADING SETUP
-            if result['trading_setup']:
+            # Parse DeepSeek recommendation string menjadi dict
+            deepseek_rec_dict = None
+            if result.get('deepseek_recommendation'):
+                deepseek_rec_str = result['deepseek_recommendation']
+                deepseek_rec_dict = parse_deepseek_recommendation_string(deepseek_rec_str)
+            
+            # Extract current_price, support, resistance dari price_info atau trading_setup
+            price_info = result.get('price_info', {})
+            current_price = price_info.get('current_price')
+            support = price_info.get('support')
+            resistance = price_info.get('resistance')
+            timeframe = price_info.get('timeframe')
+            
+            # Fallback: coba ambil dari trading_setup (jika price_info tidak ada)
+            if not current_price and result.get('trading_setup'):
                 setup = result['trading_setup']
-                message_parts.append("📋 <b>TRADING SETUP</b>")
-                message_parts.append("-" * 40)
-                
-                if 'direction' in setup:
-                    message_parts.append(f"📈 <b>Direction:</b> {setup['direction']}")
-                
-                if 'entry1' in setup and 'entry2' in setup and 'entry3' in setup:
-                    message_parts.append("💰 <b>MULTIPLE ENTRY LEVELS:</b>")
-                    message_parts.append(f"   Entry 1 (Agresif): {setup['entry1']}")
-                    message_parts.append(f"   Entry 2 (Konservatif - Recommended): {setup['entry2']}")
-                    message_parts.append(f"   Entry 3 (Sangat Konservatif): {setup['entry3']}")
-                    message_parts.append("")
-                
-                if 'stop_loss' in setup:
-                    risk_pct = setup.get('risk_pct', 0)
-                    message_parts.append(f"🛑 <b>Stop Loss:</b> {setup['stop_loss']} (-{risk_pct:.2f}%)")
-                    message_parts.append("")
-                
-                if 'tp1' in setup and 'tp2' in setup and 'tp3' in setup:
-                    message_parts.append("🎯 <b>Targets:</b>")
-                    message_parts.append(f"   TP1: {setup['tp1']}")
-                    message_parts.append(f"   TP2: {setup['tp2']}")
-                    message_parts.append(f"   TP3: {setup['tp3']}")
-                    message_parts.append("")
+                # Gunakan entry2 (konservatif) sebagai estimasi current price
+                if 'entry2' in setup:
+                    current_price = setup.get('entry2')
             
-            # DEEPSEEK AI RECOMMENDATION
-            if result['deepseek_recommendation']:
-                message_parts.append("🤖 <b>DEEPSEEK AI TRADING RECOMMENDATION</b>")
-                message_parts.append("-" * 40)
-                # DeepSeek recommendation sudah dalam format HTML
-                message_parts.append(result['deepseek_recommendation'])
-                message_parts.append("")
+            # Format menggunakan fungsi baru yang disederhanakan
+            message = bot.format_simplified_trading_signal(
+                symbol=symbol,
+                timeframe=timeframe,
+                current_price=current_price,
+                support=support,
+                resistance=resistance,
+                trading_setup=result.get('trading_setup'),
+                deepseek_recommendation=deepseek_rec_dict,
+                ml_prediction=result.get('ml_prediction')
+            )
             
-            # ML PREDICTION SUMMARY
-            if result['ml_prediction']:
-                ml = result['ml_prediction']
-                message_parts.append("📊 <b>RINGKASAN QUANT MODEL</b>")
-                message_parts.append("-" * 40)
-                
-                if 'data_records' in ml:
-                    message_parts.append(f"📊 <b>Data Historis:</b> {ml['data_records']} records")
-                
-                if 'features_count' in ml:
-                    message_parts.append(f"🔧 <b>Feature Engineering:</b> {ml['features_count']} fitur")
-                
-                model = ml.get('model', ml.get('model_type', 'N/A'))
-                message_parts.append(f"🤖 <b>Model:</b> {model}")
-                
-                signal = ml.get('signal', 'N/A')
-                buy_prob = ml.get('buy_probability', ml.get('buy_prob', 0))
-                signal_emoji = "🟢" if signal == "BELI" else "🔴" if signal == "JUAL" else "🟡"
-                message_parts.append(f"📡 <b>Signal:</b> {signal_emoji} {signal} (Prob: {buy_prob:.1f}%)")
-                
-                if 'accuracy' in ml:
-                    acc = ml['accuracy']
-                    if isinstance(acc, float) and acc < 1:
-                        acc = acc * 100
-                    message_parts.append(f"📈 <b>Accuracy:</b> {acc:.2f}%")
-                
-                if 'expected_value' in ml:
-                    message_parts.append(f"📈 <b>Expected Value:</b> {ml['expected_value']:.2f}%")
-                
-                if 'sharpe_ratio' in ml:
-                    message_parts.append(f"📊 <b>Sharpe Ratio:</b> {ml['sharpe_ratio']:.2f}")
-                
-                message_parts.append("")
-            
-            # Kirim pesan (split jika terlalu panjang)
-            message = "\n".join(message_parts)
-            if len(message) > 4000:  # Telegram limit ~4096 chars
-                # Split message
-                parts = message.split("\n\n")
-                current_part = []
-                for part in parts:
-                    if len("\n\n".join(current_part + [part])) > 4000:
-                        if current_part:
-                            bot.send_message("\n\n".join(current_part))
-                        current_part = [part]
-                    else:
-                        current_part.append(part)
-                if current_part:
-                    bot.send_message("\n\n".join(current_part))
-            else:
-                bot.send_message(message)
+            # Kirim pesan
+            bot.send_message(message)
             
             # Delay antar pesan
             if i < len(results):
