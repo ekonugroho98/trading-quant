@@ -514,6 +514,11 @@ class TradingBot:
             self.handle_screening_command(chat_id, text)
             return
         
+        # Handle /analyze command untuk analisis screened coins
+        if text.startswith('/analyze') or text.startswith('/analyze_screen'):
+            self.handle_analyze_screened_command(chat_id, text)
+            return
+        
         # Check if user has started the bot
         if chat_id not in self.active_users:
             print(f"⚠️  [handle_message] User {chat_id} belum aktif, meminta /start")
@@ -586,10 +591,13 @@ class TradingBot:
             "• Trading Chart\n\n"
             "<b>Command yang tersedia:</b>\n"
             "• <code>/style STYLE</code> - Ubah TRADING_STYLE\n"
-            "• <code>/screen [days] [top_n]</code> - Screen coins\n"
+            "• <code>/screen [days] [top_n] [direction]</code> - Screen coins\n"
             "  Contoh: <code>/screen</code> (90 hari, top 10)\n"
             "          <code>/screen 7</code> (7 hari, top 10)\n"
             "          <code>/screen 7 15</code> (7 hari, top 15)\n"
+            "• <code>/analyze [days] [top_n] [max_coins] [direction]</code> - Analisis screened coins\n"
+            "  Contoh: <code>/analyze</code> (90 hari, top 5, analisis 5 coins)\n"
+            "          <code>/analyze 7 10 3</code> (7 hari, top 10, analisis 3 coins)\n"
             "• <code>/settings</code> - Lihat pengaturan\n\n"
             "🚀 <b>Mulai dengan mengirim symbol coin atau gunakan /screen untuk mencari peluang!</b>"
         )
@@ -702,15 +710,20 @@ class TradingBot:
             f"💰 <b>SYMBOL:</b> <code>{config_symbol}</code>\n\n"
             "<b>Command yang tersedia:</b>\n"
             "• <code>/style STYLE</code> - Ubah TRADING_STYLE\n"
-            "• <code>/screen [days] [top_n] [direction]</code> - Screen coins\n"
-            "  Contoh: <code>/screen</code> (90 hari, top 10, both)\n"
-            "          <code>/screen 7</code> (7 hari, top 10, both)\n"
-            "          <code>/screen 7 15</code> (7 hari, top 15, both)\n"
-            "          <code>/screen 7 15 long</code> (7 hari, top 15, long only)\n"
-            "          <code>/screen 7 15 short</code> (7 hari, top 15, short only)\n"
-            "• <code>/settings</code> - Lihat pengaturan\n"
-            "• Kirim symbol coin untuk analisis\n\n"
-            "💡 <b>Catatan:</b> DAYS_BACK otomatis disesuaikan berdasarkan TRADING_STYLE"
+                "• <code>/screen [days] [top_n] [direction]</code> - Screen coins\n"
+                "  Contoh: <code>/screen</code> (90 hari, top 10, both)\n"
+                "          <code>/screen 7</code> (7 hari, top 10, both)\n"
+                "          <code>/screen 7 15</code> (7 hari, top 15, both)\n"
+                "          <code>/screen 7 15 long</code> (7 hari, top 15, long only)\n"
+                "          <code>/screen 7 15 short</code> (7 hari, top 15, short only)\n"
+                "• <code>/analyze [days] [top_n] [max_coins] [direction]</code> - Analisis screened coins\n"
+                "  Contoh: <code>/analyze</code> (90 hari, top 5, analisis 5 coins)\n"
+                "          <code>/analyze 7</code> (7 hari, top 5, analisis 5 coins)\n"
+                "          <code>/analyze 7 10 3</code> (7 hari, top 10, analisis 3 coins)\n"
+                "          <code>/analyze 7 10 3 long</code> (long only)\n"
+                "• <code>/settings</code> - Lihat pengaturan\n"
+                "• Kirim symbol coin untuk analisis\n\n"
+                "💡 <b>Catatan:</b> DAYS_BACK otomatis disesuaikan berdasarkan TRADING_STYLE"
         )
         
         self.send_message(chat_id, settings_text)
@@ -825,6 +838,117 @@ class TradingBot:
                 f"❌ <b>Error saat screening:</b> {str(e)}"
             )
             print(f"Error in handle_screening_command: {e}")
+    
+    def handle_analyze_screened_command(self, chat_id: str, text: str):
+        """
+        Handle /analyze atau /analyze_screen command untuk analisis screened coins
+        
+        Args:
+            chat_id: Chat ID dari user
+            text: Command text (format: /analyze [days] [top_n] [max_coins] [direction])
+                  Contoh: /analyze -> days=90, top_n=5, max_coins=5
+                          /analyze 7 -> days=7, top_n=5, max_coins=5
+                          /analyze 7 10 3 -> days=7, top_n=10, max_coins=3
+        """
+        try:
+            from analyze_screened_coins import analyze_screened_coins
+            from config import (DATA_SOURCE, BINANCE_API_KEY, BINANCE_API_SECRET)
+            
+            parts = text.split()
+            
+            # Parse parameters
+            # Format: /analyze [days] [top_n] [max_coins] [direction]
+            days = 90  # Default
+            top_n = 5  # Default untuk screening
+            max_coins = 5  # Default untuk analisis (lebih kecil dari top_n karena analisis lebih lama)
+            trade_direction = "both"  # Default
+            
+            if len(parts) > 1:
+                try:
+                    param1 = int(parts[1])
+                    if 1 <= param1 <= 365:
+                        days = param1
+                except:
+                    pass
+            
+            if len(parts) > 2:
+                try:
+                    top_n = int(parts[2])
+                    if top_n < 1 or top_n > 20:
+                        top_n = 5
+                except:
+                    pass
+            
+            if len(parts) > 3:
+                try:
+                    max_coins = int(parts[3])
+                    if max_coins < 1 or max_coins > 10:
+                        max_coins = 5
+                except:
+                    pass
+            
+            if len(parts) > 4:
+                direction_param = parts[4].lower()
+                if direction_param in ["long", "short", "both"]:
+                    trade_direction = direction_param
+            
+            # Kirim notifikasi sedang analisis
+            self.send_message(
+                chat_id,
+                f"🔍 <b>Memulai analisis screened coins...</b>\n\n"
+                f"📅 Periode screening: {days} hari\n"
+                f"📊 Top {top_n} coins dari screening\n"
+                f"🔢 Menganalisis {max_coins} coins teratas\n"
+                f"📈 Direction: {trade_direction}\n\n"
+                f"⏳ Proses ini mungkin memakan waktu beberapa menit..."
+            )
+            
+            print(f"🔍 [handle_analyze_screened_command] Starting analysis for chat_id={chat_id}")
+            print(f"   Parameters: days={days}, top_n={top_n}, max_coins={max_coins}, direction={trade_direction}")
+            
+            # Jalankan analisis (akan otomatis kirim ke Telegram)
+            results = analyze_screened_coins(
+                coins=None,  # Gunakan default coins
+                days=days,
+                top_n=top_n,
+                trade_direction=trade_direction,
+                max_coins=max_coins,
+                send_to_telegram=True  # Otomatis kirim ke Telegram
+            )
+            
+            if not results:
+                self.send_message(
+                    chat_id,
+                    "❌ <b>Tidak ada coin yang berhasil dianalisis</b>\n\n"
+                    "💡 Coba ubah parameter atau coba lagi nanti"
+                )
+                return
+            
+            # Hitung berapa yang berhasil
+            success_count = sum(1 for r in results if r.get('success', False))
+            
+            # Kirim summary
+            self.send_message(
+                chat_id,
+                f"✅ <b>Analisis Selesai!</b>\n\n"
+                f"📊 Total coins dianalisis: {len(results)}\n"
+                f"✅ Berhasil: {success_count}\n"
+                f"❌ Gagal: {len(results) - success_count}\n\n"
+                f"📋 Detail hasil sudah dikirim sebelumnya."
+            )
+            
+            print(f"✅ [handle_analyze_screened_command] Analysis completed: {success_count}/{len(results)} successful")
+            
+        except ImportError as e:
+            error_msg = f"❌ Error: Module analyze_screened_coins tidak ditemukan\n\n{e}"
+            self.send_message(chat_id, error_msg)
+            print(f"Error in handle_analyze_screened_command: {e}")
+        except Exception as e:
+            error_msg = f"❌ Error saat analisis: {str(e)[:200]}"
+            self.send_message(chat_id, error_msg)
+            print(f"Error in handle_analyze_screened_command: {e}")
+            import traceback
+            traceback.print_exc()
     
     def format_screening_results(self, results: list) -> str:
         """
