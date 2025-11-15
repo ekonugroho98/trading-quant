@@ -36,7 +36,7 @@ except Exception as e:
 # - "SWING_TRADING": Trading beberapa hari-minggu, sinyal lebih jarang tapi lebih reliable
 # - "POSITION_TRADING": Trading jangka panjang (minggu-bulan), sinyal sangat jarang
 
-TRADING_STYLE = "SWING_TRADING"  # Pilihan: "SCALPING", "DAY_TRADING", "INTRADAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
+TRADING_STYLE = "DAY_TRADING"  # Pilihan: "SCALPING", "DAY_TRADING", "INTRADAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
 
 # ============================================
 # KONFIGURASI DATA
@@ -55,7 +55,7 @@ SYMBOL = "BTC-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-U
 # Lihat YFINANCE_COINS.md untuk daftar lengkap coin yang didukung
 # DAYS_BACK akan otomatis disesuaikan berdasarkan TRADING_STYLE
 # Bisa di-override manual jika perlu
-DAYS_BACK = None  # Auto berdasarkan TRADING_STYLE (365 hari)
+DAYS_BACK = None  # Auto berdasarkan TRADING_STYLE (7 hari)
 
 # Mapping DAYS_BACK berdasarkan TRADING_STYLE
 TRADING_STYLE_DAYS_BACK = {
@@ -152,6 +152,46 @@ SETUP_RISK_PERCENT = None  # None = auto berdasarkan TRADING_STYLE, atau set man
 SETUP_TP_MULTIPLIERS = None  # None = auto berdasarkan TRADING_STYLE, atau set manual [1.5, 2.5, 3.5]
 
 # ============================================
+# KONFIGURASI MACHINE LEARNING MODEL
+# ============================================
+# Pilihan metode prediksi:
+# - "linear": Linear Regression saja
+# - "random_forest": Random Forest saja
+# - "moving_avg": Moving Average + Momentum saja
+# - "ensemble": Gabungkan beberapa model (fleksibel, lihat ML_MODELS_CONFIG di bawah)
+
+PREDICTION_METHOD = "ensemble"  # Pilihan: "linear", "random_forest", "moving_avg", "ensemble"
+
+# Konfigurasi untuk ensemble (jika PREDICTION_METHOD = "ensemble")
+# Format: List of dict dengan keys: "model", "weight", "enabled"
+# - "model": Nama model ("linear", "random_forest", "moving_avg")
+# - "weight": Bobot model dalam ensemble (0.0 - 1.0), total harus <= 1.0
+# - "enabled": True/False untuk enable/disable model tertentu
+
+ML_MODELS_CONFIG = [
+    {
+        "model": "random_forest",
+        "weight": 0.5,  # 50% weight untuk Random Forest
+        "enabled": True
+    },
+    {
+        "model": "linear",
+        "weight": 0.3,  # 30% weight untuk Linear Regression
+        "enabled": True
+    },
+    {
+        "model": "moving_avg",
+        "weight": 0.2,  # 20% weight untuk Moving Average
+        "enabled": True
+    }
+]
+
+# Mode prediksi:
+# - True: Classification (prediksi Beli/Jual dengan probabilitas)
+# - False: Regression (prediksi harga)
+USE_CLASSIFICATION = True  # True = prediksi Beli/Jual, False = prediksi harga
+
+# ============================================
 # KONFIGURASI LAINNYA
 # ============================================
 RUN_PREDICTION = True  # True = jalankan prediksi_next_day.py setelah analisis selesai
@@ -167,6 +207,72 @@ ENABLE_ENHANCED_METRICS = True  # Enhanced validation metrics (drawdown, win rat
 
 # Konfigurasi untuk correlation analysis
 CORRELATION_SYMBOLS = ["ETH-USD", "BNB-USD"]  # Symbols untuk korelasi (opsional)
+
+# ============================================
+# KONFIGURASI QUANTITATIVE ANALYSIS
+# ============================================
+# Risk Metrics
+ENABLE_RISK_METRICS = True  # VaR, CVaR, Expected Shortfall
+RISK_CONFIDENCE_LEVELS = [0.90, 0.95, 0.99]  # Confidence levels untuk risk metrics
+
+# Enhanced Backtesting
+ENABLE_ENHANCED_BACKTESTING = True  # Monte Carlo simulation + Transaction costs
+COMMISSION_PCT = 0.001  # Commission 0.1%
+SLIPPAGE_PCT = 0.0005  # Slippage 0.05%
+MONTE_CARLO_SIMULATIONS = 1000  # Number of Monte Carlo simulations
+
+# Time Series Models
+ENABLE_TIME_SERIES_MODELS = True  # ARIMA + GARCH
+ARIMA_MAX_ORDER = (2, 1, 2)  # Maximum ARIMA order (p, d, q)
+GARCH_ORDER = (1, 1)  # GARCH order (p, q)
+
+# ============================================
+# KONFIGURASI ADVANCED TRADING STRATEGIES
+# ============================================
+# Pairs Trading
+ENABLE_PAIRS_TRADING = True  # Aktifkan pairs trading strategy
+PAIRS_ENTRY_THRESHOLD = 2.0  # Z-score threshold untuk entry
+PAIRS_EXIT_THRESHOLD = 0.5   # Z-score threshold untuk exit
+PAIRS_STOP_LOSS_PCT = 3.0    # Stop loss percentage
+PAIRS_LONG_ONLY = True       # True = long-only (spot trading), False = long-short (futures)
+
+# Statistical Arbitrage
+ENABLE_STATISTICAL_ARBITRAGE = True  # Aktifkan statistical arbitrage
+STAT_ARB_ENTRY_THRESHOLD = 2.0  # Z-score threshold untuk entry
+STAT_ARB_EXIT_THRESHOLD = 0.5    # Z-score threshold untuk exit
+STAT_ARB_MIN_CORRELATION = 0.7   # Minimum correlation untuk inclusion
+STAT_ARB_LONG_ONLY = True        # True = long-only (spot trading), False = long-short (futures)
+
+# Grid Trading
+ENABLE_GRID_TRADING = True  # Aktifkan grid trading strategy
+GRID_LEVELS = 10  # Number of grid levels
+GRID_SPACING_PCT = 1.0  # Spacing between grid levels (percentage)
+
+# Dollar Cost Averaging (DCA)
+ENABLE_DCA = True  # Aktifkan DCA strategy
+DCA_INVESTMENT_AMOUNT = 100.0  # Amount to invest per period
+DCA_FREQUENCY = 7  # Investment frequency (every N periods)
+
+# Multi-Strategy Portfolio
+ENABLE_MULTI_STRATEGY_PORTFOLIO = True  # Aktifkan multi-strategy portfolio
+PORTFOLIO_SELECTION_METHOD = "composite"  # 'sharpe', 'return', 'win_rate', 'composite'
+PORTFOLIO_WEIGHTING_METHOD = "sharpe"  # 'equal', 'sharpe', 'inverse_vol', 'performance'
+PORTFOLIO_TOP_N = 3  # Number of top strategies to include
+PORTFOLIO_PERFORMANCE_WINDOW = 30  # Window untuk performance calculation
+
+# ============================================
+# KONFIGURASI DERIVATIVES MODELING
+# ============================================
+ENABLE_DERIVATIVES_MODELING = True  # Aktifkan derivatives modeling (opsional)
+# Catatan: Derivatives modeling hanya diperlukan jika expand ke options/futures trading
+
+# Black-Scholes Parameters
+RISK_FREE_RATE = 0.05  # Risk-free rate (5% annual)
+DEFAULT_VOLATILITY = 0.30  # Default volatility (30% annual)
+
+# Options Strategies
+ENABLE_OPTIONS_STRATEGIES = False  # Aktifkan options strategies
+OPTIONS_CONTRACTS = 1  # Number of contracts (each = 100 shares)
 
 # ============================================
 # KONFIGURASI DEEPSEEK AI INTEGRATION

@@ -1458,6 +1458,250 @@ if USE_ENHANCED_FEATURES:
     enhanced_metrics = calculate_enhanced_validation_metrics(data)
     if enhanced_metrics:
         print_enhanced_metrics(enhanced_metrics)
+    
+    # Run enhanced backtesting (Monte Carlo + Transaction Costs)
+    try:
+        from enhanced_backtesting import run_enhanced_backtest, print_backtest_results
+        backtest_results = run_enhanced_backtest(data, commission_pct=0.001, slippage_pct=0.0005, num_simulations=1000)
+        print_backtest_results(backtest_results)
+    except ImportError:
+        print("ℹ️  Enhanced backtesting tidak tersedia")
+    except Exception as e:
+        print(f"⚠️  Error dalam enhanced backtesting: {e}")
+    
+    # Run time series analysis (ARIMA + GARCH)
+    try:
+        from time_series_models import analyze_time_series, print_time_series_results
+        ts_results = analyze_time_series(data)
+        print_time_series_results(ts_results)
+    except ImportError:
+        print("ℹ️  Time series models tidak tersedia")
+    except Exception as e:
+        print(f"⚠️  Error dalam time series analysis: {e}")
+    
+    # ============================================
+    # ADVANCED TRADING STRATEGIES
+    # ============================================
+    try:
+        from config import (
+            ENABLE_PAIRS_TRADING, ENABLE_STATISTICAL_ARBITRAGE,
+            ENABLE_GRID_TRADING, ENABLE_DCA,
+            ENABLE_MULTI_STRATEGY_PORTFOLIO,
+            PAIRS_ENTRY_THRESHOLD, PAIRS_EXIT_THRESHOLD, PAIRS_STOP_LOSS_PCT,
+            STAT_ARB_ENTRY_THRESHOLD, STAT_ARB_EXIT_THRESHOLD, STAT_ARB_MIN_CORRELATION,
+            GRID_LEVELS, GRID_SPACING_PCT,
+            DCA_INVESTMENT_AMOUNT, DCA_FREQUENCY,
+            PORTFOLIO_SELECTION_METHOD, PORTFOLIO_WEIGHTING_METHOD,
+            PORTFOLIO_TOP_N, PORTFOLIO_PERFORMANCE_WINDOW
+        )
+        
+        strategy_results = {}
+        
+        # Pairs Trading (requires 2 assets - skip if only 1 asset available)
+        if ENABLE_PAIRS_TRADING:
+            try:
+                from advanced_strategies import pairs_trading_strategy, print_strategy_results
+                from config import PAIRS_LONG_ONLY
+                # Note: Pairs trading requires 2 assets, so we'll skip for now
+                # In production, you would load data for a second asset
+                print(f"ℹ️  Pairs Trading: Requires 2 assets. Skipping for single-asset analysis.")
+                print(f"   Mode: {'Long-Only (Spot Trading)' if PAIRS_LONG_ONLY else 'Long-Short (Futures)'}")
+            except ImportError:
+                print("ℹ️  Advanced strategies tidak tersedia")
+            except Exception as e:
+                print(f"⚠️  Error dalam pairs trading: {e}")
+        
+        # Statistical Arbitrage (requires multiple assets - skip if only 1 asset)
+        if ENABLE_STATISTICAL_ARBITRAGE:
+            try:
+                from advanced_strategies import statistical_arbitrage_strategy, print_strategy_results
+                from config import STAT_ARB_LONG_ONLY
+                # Note: Statistical arbitrage requires multiple assets
+                print(f"ℹ️  Statistical Arbitrage: Requires multiple assets. Skipping for single-asset analysis.")
+                print(f"   Mode: {'Long-Only (Spot Trading)' if STAT_ARB_LONG_ONLY else 'Long-Short (Futures)'}")
+            except ImportError:
+                print("ℹ️  Advanced strategies tidak tersedia")
+            except Exception as e:
+                print(f"⚠️  Error dalam statistical arbitrage: {e}")
+        
+        # Grid Trading
+        if ENABLE_GRID_TRADING:
+            try:
+                from advanced_strategies import grid_trading_strategy, print_strategy_results
+                grid_results = grid_trading_strategy(
+                    data['Close'],
+                    grid_levels=GRID_LEVELS,
+                    grid_spacing_pct=GRID_SPACING_PCT
+                )
+                if grid_results:
+                    strategy_results['Grid Trading'] = grid_results
+                    print_strategy_results(grid_results)
+            except ImportError:
+                print("ℹ️  Advanced strategies tidak tersedia")
+            except Exception as e:
+                print(f"⚠️  Error dalam grid trading: {e}")
+        
+        # Dollar Cost Averaging (DCA)
+        if ENABLE_DCA:
+            try:
+                from advanced_strategies import dca_strategy, print_strategy_results
+                dca_results = dca_strategy(
+                    data['Close'],
+                    investment_amount=DCA_INVESTMENT_AMOUNT,
+                    frequency=DCA_FREQUENCY
+                )
+                if dca_results:
+                    strategy_results['DCA'] = dca_results
+                    print_strategy_results(dca_results)
+            except ImportError:
+                print("ℹ️  Advanced strategies tidak tersedia")
+            except Exception as e:
+                print(f"⚠️  Error dalam DCA: {e}")
+        
+        # Multi-Strategy Portfolio
+        if ENABLE_MULTI_STRATEGY_PORTFOLIO and len(strategy_results) > 0:
+            try:
+                from strategy_portfolio import (
+                    dynamic_strategy_selection,
+                    calculate_strategy_weights,
+                    combine_strategies,
+                    print_portfolio_results
+                )
+                
+                # Add base MA strategy to portfolio
+                if 'Strategy_Return' in data.columns:
+                    base_strategy = {
+                        'strategy_name': 'MA Crossover',
+                        'strategy_return': data['Strategy_Return']
+                    }
+                    strategy_results['MA Crossover'] = base_strategy
+                
+                # Select best strategies
+                selected = dynamic_strategy_selection(
+                    strategy_results,
+                    selection_method=PORTFOLIO_SELECTION_METHOD,
+                    top_n=PORTFOLIO_TOP_N
+                )
+                
+                # Calculate weights
+                weights = calculate_strategy_weights(
+                    strategy_results,
+                    weighting_method=PORTFOLIO_WEIGHTING_METHOD,
+                    performance_window=PORTFOLIO_PERFORMANCE_WINDOW
+                )
+                
+                # Combine strategies
+                portfolio_results = combine_strategies(
+                    strategy_results,
+                    weights=weights,
+                    selected_strategies=selected
+                )
+                
+                if portfolio_results:
+                    print_portfolio_results(portfolio_results)
+            except ImportError:
+                print("ℹ️  Strategy portfolio tidak tersedia")
+            except Exception as e:
+                print(f"⚠️  Error dalam multi-strategy portfolio: {e}")
+        
+    except ImportError:
+        print("ℹ️  Advanced strategies configuration tidak tersedia")
+    except Exception as e:
+        print(f"⚠️  Error dalam advanced strategies: {e}")
+    
+    # ============================================
+    # DERIVATIVES MODELING (Optional)
+    # ============================================
+    try:
+        from config import (
+            ENABLE_DERIVATIVES_MODELING, ENABLE_OPTIONS_STRATEGIES,
+            RISK_FREE_RATE, DEFAULT_VOLATILITY, OPTIONS_CONTRACTS
+        )
+        
+        if ENABLE_DERIVATIVES_MODELING:
+            try:
+                from derivatives_modeling import (
+                    black_scholes_price, calculate_greeks,
+                    covered_call_strategy, protective_put_strategy,
+                    straddle_strategy, print_derivatives_results
+                )
+                
+                # Example: Calculate option prices and Greeks for current price
+                current_price = float(data['Close'].iloc[-1])
+                strike_price = current_price  # At-the-money
+                time_to_expiry = 30 / 365  # 30 days
+                
+                print("\n" + "=" * 70)
+                print("📊 DERIVATIVES MODELING (Example)")
+                print("=" * 70)
+                print(f"\n💰 Current Price: ${current_price:.2f}")
+                print(f"🎯 Strike Price: ${strike_price:.2f} (ATM)")
+                print(f"⏰ Time to Expiry: {time_to_expiry*365:.0f} days")
+                print(f"📈 Volatility: {DEFAULT_VOLATILITY*100:.1f}%")
+                print(f"💵 Risk-Free Rate: {RISK_FREE_RATE*100:.1f}%")
+                
+                # Calculate option prices
+                call_price = black_scholes_price(
+                    current_price, strike_price, time_to_expiry,
+                    RISK_FREE_RATE, DEFAULT_VOLATILITY, 'call'
+                )
+                put_price = black_scholes_price(
+                    current_price, strike_price, time_to_expiry,
+                    RISK_FREE_RATE, DEFAULT_VOLATILITY, 'put'
+                )
+                
+                print(f"\n📊 Option Prices:")
+                print(f"   Call: ${call_price:.2f}")
+                print(f"   Put: ${put_price:.2f}")
+                
+                # Calculate Greeks
+                call_greeks = calculate_greeks(
+                    current_price, strike_price, time_to_expiry,
+                    RISK_FREE_RATE, DEFAULT_VOLATILITY, 'call'
+                )
+                
+                print(f"\n📈 Call Greeks:")
+                print(f"   Delta: {call_greeks['delta']:.4f}")
+                print(f"   Gamma: {call_greeks['gamma']:.6f}")
+                print(f"   Theta: {call_greeks['theta']:.4f} (per day)")
+                print(f"   Vega: {call_greeks['vega']:.4f} (per 1% vol)")
+                print(f"   Rho: {call_greeks['rho']:.4f} (per 1% rate)")
+                
+                # Options Strategies (if enabled)
+                if ENABLE_OPTIONS_STRATEGIES:
+                    print(f"\n📊 Options Strategies:")
+                    
+                    # Covered Call
+                    covered_call = covered_call_strategy(
+                        current_price, strike_price, time_to_expiry,
+                        RISK_FREE_RATE, DEFAULT_VOLATILITY, OPTIONS_CONTRACTS * 100
+                    )
+                    print_derivatives_results(covered_call)
+                    
+                    # Protective Put
+                    protective_put = protective_put_strategy(
+                        current_price, strike_price, time_to_expiry,
+                        RISK_FREE_RATE, DEFAULT_VOLATILITY, OPTIONS_CONTRACTS * 100
+                    )
+                    print_derivatives_results(protective_put)
+                    
+                    # Straddle
+                    straddle = straddle_strategy(
+                        current_price, strike_price, time_to_expiry,
+                        RISK_FREE_RATE, DEFAULT_VOLATILITY, OPTIONS_CONTRACTS
+                    )
+                    print_derivatives_results(straddle)
+                
+                print("\n" + "=" * 70)
+                
+            except ImportError:
+                print("ℹ️  Derivatives modeling tidak tersedia")
+            except Exception as e:
+                print(f"⚠️  Error dalam derivatives modeling: {e}")
+    except ImportError:
+        pass  # Config tidak tersedia, skip
+    except Exception as e:
+        print(f"⚠️  Error dalam derivatives modeling config: {e}")
 
 # Store analysis data for DeepSeek (will be used after ML prediction)
 analysis_data_for_deepseek = None

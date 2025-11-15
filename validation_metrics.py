@@ -277,6 +277,68 @@ def walk_forward_analysis(df: pd.DataFrame,
     }
 
 
+def calculate_var(returns: pd.Series, confidence_level: float = 0.95) -> float:
+    """
+    Calculate Value at Risk (VaR)
+    
+    Args:
+        returns: Series dengan returns
+        confidence_level: Confidence level (default 0.95 = 95%)
+    
+    Returns:
+        VaR value (positive number representing potential loss)
+    """
+    if len(returns) == 0:
+        return 0.0
+    
+    # Remove NaN values
+    returns_clean = returns.dropna()
+    
+    if len(returns_clean) == 0:
+        return 0.0
+    
+    # Calculate VaR using historical method (percentile)
+    var = np.percentile(returns_clean, (1 - confidence_level) * 100)
+    
+    # Return as positive number (loss)
+    return abs(var)
+
+
+def calculate_cvar(returns: pd.Series, confidence_level: float = 0.95) -> float:
+    """
+    Calculate Conditional Value at Risk (CVaR) / Expected Shortfall
+    
+    Args:
+        returns: Series dengan returns
+        confidence_level: Confidence level (default 0.95 = 95%)
+    
+    Returns:
+        CVaR value (positive number representing expected loss beyond VaR)
+    """
+    if len(returns) == 0:
+        return 0.0
+    
+    # Remove NaN values
+    returns_clean = returns.dropna()
+    
+    if len(returns_clean) == 0:
+        return 0.0
+    
+    # Calculate VaR first
+    var = np.percentile(returns_clean, (1 - confidence_level) * 100)
+    
+    # CVaR is the average of returns below VaR
+    returns_below_var = returns_clean[returns_clean <= var]
+    
+    if len(returns_below_var) == 0:
+        return abs(var)
+    
+    cvar = returns_below_var.mean()
+    
+    # Return as positive number (loss)
+    return abs(cvar)
+
+
 def get_all_validation_metrics(df: pd.DataFrame, 
                                equity_curve: Optional[pd.Series] = None,
                                signals: Optional[pd.Series] = None) -> Dict:
@@ -324,5 +386,123 @@ def get_all_validation_metrics(df: pd.DataFrame,
     if len(df) > 200:  # Need enough data
         metrics['walk_forward'] = walk_forward_analysis(df)
     
+    # Risk metrics (VaR, CVaR, Expected Shortfall)
+    if 'Strategy_Return' in df.columns:
+        strategy_returns = df['Strategy_Return'].dropna()
+        if len(strategy_returns) > 0:
+            metrics['risk_metrics'] = calculate_risk_metrics(strategy_returns)
+            
+            # Additional risk-adjusted metrics
+            from enhanced_backtesting import calculate_sharpe_ratio, calculate_sortino_ratio
+            metrics['sharpe_ratio'] = calculate_sharpe_ratio(strategy_returns)
+            metrics['sortino_ratio'] = calculate_sortino_ratio(strategy_returns)
+    
     return metrics
 
+
+
+def calculate_var(returns: pd.Series, confidence_level: float = 0.95) -> float:
+    """
+    Calculate Value at Risk (VaR)
+    
+    Args:
+        returns: Series dengan returns
+        confidence_level: Confidence level (default 0.95 = 95%)
+    
+    Returns:
+        VaR value (positive number representing potential loss)
+    """
+    if len(returns) == 0:
+        return 0.0
+    
+    # Remove NaN values
+    returns_clean = returns.dropna()
+    
+    if len(returns_clean) == 0:
+        return 0.0
+    
+    # Calculate VaR using historical method (percentile)
+    var = np.percentile(returns_clean, (1 - confidence_level) * 100)
+    
+    # Return as positive number (loss)
+    return abs(var)
+
+
+def calculate_cvar(returns: pd.Series, confidence_level: float = 0.95) -> float:
+    """
+    Calculate Conditional Value at Risk (CVaR) / Expected Shortfall
+    
+    Args:
+        returns: Series dengan returns
+        confidence_level: Confidence level (default 0.95 = 95%)
+    
+    Returns:
+        CVaR value (positive number representing expected loss beyond VaR)
+    """
+    if len(returns) == 0:
+        return 0.0
+    
+    # Remove NaN values
+    returns_clean = returns.dropna()
+    
+    if len(returns_clean) == 0:
+        return 0.0
+    
+    # Calculate VaR first
+    var = np.percentile(returns_clean, (1 - confidence_level) * 100)
+    
+    # CVaR is the average of returns below VaR
+    returns_below_var = returns_clean[returns_clean <= var]
+    
+    if len(returns_below_var) == 0:
+        return abs(var)
+    
+    cvar = returns_below_var.mean()
+    
+    # Return as positive number (loss)
+    return abs(cvar)
+
+
+def calculate_expected_shortfall(returns: pd.Series, confidence_level: float = 0.95) -> float:
+    """
+    Calculate Expected Shortfall (ES) - sama dengan CVaR
+    
+    Args:
+        returns: Series dengan returns
+        confidence_level: Confidence level (default 0.95 = 95%)
+    
+    Returns:
+        ES value (positive number representing expected loss beyond VaR)
+    """
+    # Expected Shortfall sama dengan CVaR
+    return calculate_cvar(returns, confidence_level)
+
+
+def calculate_risk_metrics(returns: pd.Series, confidence_levels: List[float] = None) -> Dict:
+    """
+    Calculate comprehensive risk metrics (VaR, CVaR, Expected Shortfall)
+    
+    Args:
+        returns: Series dengan returns
+        confidence_levels: List of confidence levels (default [0.90, 0.95, 0.99])
+    
+    Returns:
+        Dictionary dengan risk metrics untuk berbagai confidence levels
+    """
+    if confidence_levels is None:
+        confidence_levels = [0.90, 0.95, 0.99]
+    
+    risk_metrics = {}
+    
+    for cl in confidence_levels:
+        cl_pct = int(cl * 100)
+        
+        var = calculate_var(returns, cl)
+        cvar = calculate_cvar(returns, cl)
+        es = calculate_expected_shortfall(returns, cl)
+        
+        risk_metrics[f'var_{cl_pct}'] = var
+        risk_metrics[f'cvar_{cl_pct}'] = cvar
+        risk_metrics[f'expected_shortfall_{cl_pct}'] = es
+    
+    return risk_metrics

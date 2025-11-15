@@ -19,11 +19,35 @@ import os
 # 5. Backtesting (Evaluasi matematis)
 # ============================================
 
-# Konfigurasi
-USE_CSV_DATA = True
-CSV_FILE = None
-PREDICTION_METHOD = "ensemble"  # "linear", "random_forest", "moving_avg", "ensemble"
-USE_CLASSIFICATION = True  # True = prediksi Beli/Jual, False = prediksi harga
+# Import konfigurasi dari config.py
+try:
+    from config import (
+        PREDICTION_METHOD, USE_CLASSIFICATION, ML_MODELS_CONFIG,
+        USE_CSV_DATA, CSV_FILE
+    )
+except ImportError:
+    # Fallback jika config.py tidak ada
+    print("⚠️  config.py tidak ditemukan, menggunakan konfigurasi default")
+    PREDICTION_METHOD = "ensemble"
+    USE_CLASSIFICATION = True
+    ML_MODELS_CONFIG = [
+        {"model": "random_forest", "weight": 0.5, "enabled": True},
+        {"model": "linear", "weight": 0.3, "enabled": True},
+        {"model": "moving_avg", "weight": 0.2, "enabled": True}
+    ]
+    USE_CSV_DATA = True
+    CSV_FILE = None
+except Exception as e:
+    print(f"⚠️  Error loading config: {e}, menggunakan default")
+    PREDICTION_METHOD = "ensemble"
+    USE_CLASSIFICATION = True
+    ML_MODELS_CONFIG = [
+        {"model": "random_forest", "weight": 0.5, "enabled": True},
+        {"model": "linear", "weight": 0.3, "enabled": True},
+        {"model": "moving_avg", "weight": 0.2, "enabled": True}
+    ]
+    USE_CSV_DATA = True
+    CSV_FILE = None
 
 # Global variable untuk menyimpan nama file CSV yang digunakan
 used_csv_file_prediction = None
@@ -273,55 +297,176 @@ def predict_moving_average(df, window=20):
         'momentum': momentum
     }
 
-def predict_ensemble(features, df, use_classification=True):
-    """Prediksi menggunakan ensemble method (gabungan beberapa metode)"""
-    results = {}
+def predict_ensemble(features, df, use_classification=True, models_config=None):
+    """
+    Prediksi menggunakan ensemble method (gabungan beberapa metode)
     
-    # Method 1: RandomForest (prioritas jika classification)
-    if use_classification:
-        try:
-            rf_result = predict_random_forest(features, df, use_classification=True)
-            results['rf'] = rf_result
-        except Exception as e:
-            print(f"⚠️  RandomForest error: {e}, menggunakan metode lain")
+    Args:
+        features: DataFrame dengan features
+        df: DataFrame dengan data original
+        use_classification: True untuk classification, False untuk regression
+        models_config: List of dict dengan konfigurasi model dari config.py
+                      Format: [{"model": "random_forest", "weight": 0.5, "enabled": True}, ...]
     
-    # Method 2: Linear Regression
-    try:
-        lr_result = predict_linear_regression(features)
-        results['lr'] = lr_result
-    except Exception as e:
-        print(f"⚠️  Linear Regression error: {e}")
+    Returns:
+        Dictionary dengan hasil ensemble
+    """
+    # Gunakan config dari parameter atau global config
+    if models_config is None:
+        models_config = ML_MODELS_CONFIG if 'ML_MODELS_CONFIG' in globals() else [
+            {"model": "random_forest", "weight": 0.5, "enabled": True},
+            {"model": "linear", "weight": 0.3, "enabled": True},
+            {"model": "moving_avg", "weight": 0.2, "enabled": True}
+        ]
     
-    # Method 3: Moving Average
-    ma_result = predict_moving_average(df)
-    results['ma'] = ma_result
+    # Filter hanya model yang enabled
+    enabled_models = [m for m in models_config if m.get('enabled', True)]
     
-    if use_classification and 'rf' in results:
-        # Untuk classification, gunakan RandomForest sebagai utama
-        return {
-            'signal': results['rf']['signal'],
-            'buy_probability': results['rf']['buy_probability'],
-            'sell_probability': results['rf']['sell_probability'],
-            'accuracy': results['rf']['accuracy'],
-            'current_price': results['rf']['current_price'],
-            'model_type': 'RandomForestClassifier'
-        }
+    if not enabled_models:
+        raise ValueError("Tidak ada model yang enabled dalam ML_MODELS_CONFIG")
+    
+    # Normalize weights (pastikan total = 1.0)
+    total_weight = sum(m.get('weight', 0) for m in enabled_models)
+    if total_weight > 0:
+        # Normalize weights
+        for m in enabled_models:
+            m['weight'] = m.get('weight', 0) / total_weight
     else:
-        # Untuk regression, ensemble semua metode
-        lr_weight = 0.5 if 'lr' in results else 0
-        ma_weight = 0.5 if 'lr' in results else 1.0
+        # Jika semua weight = 0, set equal weights
+        equal_weight = 1.0 / len(enabled_models)
+        for m in enabled_models:
+            m['weight'] = equal_weight
+    
+    results = {}
+    model_results = {}
+    
+    # Jalankan setiap model yang enabled
+    for model_config in enabled_models:
+        model_name = model_config['model']
+        weight = model_config['weight']
         
-        ensemble_pred = (results['lr']['prediction'] * lr_weight) + (results['ma']['prediction'] * ma_weight)
-        confidence_interval = results['lr']['rmse'] if 'lr' in results else results['ma']['prediction'] * 0.02
+        try:
+            if model_name == "random_forest":
+                rf_result = predict_random_forest(features, df, use_classification=use_classification)
+                model_results['random_forest'] = rf_result
+                results['rf'] = rf_result
+                
+            elif model_name == "linear":
+                lr_result = predict_linear_regression(features)
+                model_results['linear'] = lr_result
+                results['lr'] = lr_result
+                
+            elif model_name == "moving_avg":
+                ma_result = predict_moving_average(df)
+                model_results['moving_avg'] = ma_result
+                results['ma'] = ma_result
+                
+        except Exception as e:
+            print(f"⚠️  {model_name} error: {e}, skip model ini")
+            # Kurangi weight model yang error, redistribute ke model lain
+            continue
+    
+    if not results:
+        raise ValueError("Semua model gagal, tidak bisa membuat ensemble")
+    
+    # Untuk classification: gunakan RandomForest jika ada, atau weighted voting
+    if use_classification:
+        if 'rf' in results:
+            # Jika ada RandomForest, gunakan sebagai base, tapi bisa combine dengan yang lain
+            rf_result = results['rf']
+            rf_weight = next((m['weight'] for m in enabled_models if m['model'] == 'random_forest'), 0.5)
+            
+            # Jika hanya RandomForest, return langsung
+            if len(results) == 1:
+                return {
+                    'signal': rf_result['signal'],
+                    'buy_probability': rf_result['buy_probability'],
+                    'sell_probability': rf_result['sell_probability'],
+                    'accuracy': rf_result['accuracy'],
+                    'current_price': rf_result['current_price'],
+                    'model_type': 'RandomForestClassifier',
+                    'ensemble_models': ['random_forest']
+                }
+            
+            # Jika ada multiple models, combine probabilities
+            # Untuk classification, kita bisa combine buy_probability
+            buy_probs = []
+            sell_probs = []
+            weights = []
+            
+            if 'rf' in results:
+                buy_probs.append(rf_result['buy_probability'])
+                sell_probs.append(rf_result['sell_probability'])
+                weights.append(next((m['weight'] for m in enabled_models if m['model'] == 'random_forest'), 0.5))
+            
+            # Normalize weights
+            total_w = sum(weights)
+            if total_w > 0:
+                weights = [w / total_w for w in weights]
+            
+            # Weighted average probabilities
+            combined_buy_prob = sum(bp * w for bp, w in zip(buy_probs, weights))
+            combined_sell_prob = sum(sp * w for sp, w in zip(sell_probs, weights))
+            
+            # Determine signal
+            signal = "BELI" if combined_buy_prob > 50 else "JUAL"
+            
+            return {
+                'signal': signal,
+                'buy_probability': combined_buy_prob,
+                'sell_probability': combined_sell_prob,
+                'accuracy': rf_result.get('accuracy', 0) if 'rf' in results else 0,
+                'current_price': rf_result['current_price'],
+                'model_type': 'Ensemble (Weighted)',
+                'ensemble_models': [m['model'] for m in enabled_models if m['model'] in model_results],
+                'model_weights': {m['model']: m['weight'] for m in enabled_models if m['model'] in model_results}
+            }
+        else:
+            # Jika tidak ada RandomForest, tidak bisa classification
+            raise ValueError("RandomForest diperlukan untuk classification mode")
+    
+    else:
+        # Untuk regression: weighted average predictions
+        predictions = []
+        weights = []
+        
+        if 'lr' in results:
+            predictions.append(results['lr']['prediction'])
+            weights.append(next((m['weight'] for m in enabled_models if m['model'] == 'linear'), 0.5))
+        
+        if 'ma' in results:
+            predictions.append(results['ma']['prediction'])
+            weights.append(next((m['weight'] for m in enabled_models if m['model'] == 'moving_avg'), 0.5))
+        
+        if not predictions:
+            raise ValueError("Tidak ada model regression yang berhasil")
+        
+        # Normalize weights
+        total_w = sum(weights)
+        if total_w > 0:
+            weights = [w / total_w for w in weights]
+        
+        # Weighted average prediction
+        ensemble_pred = sum(p * w for p, w in zip(predictions, weights))
+        
+        # Calculate confidence interval (gunakan RMSE dari Linear Regression jika ada)
+        confidence_interval = None
+        if 'lr' in results:
+            confidence_interval = results['lr'].get('rmse', ensemble_pred * 0.02)
+        else:
+            confidence_interval = ensemble_pred * 0.02
         
         return {
             'prediction': ensemble_pred,
             'lr_prediction': results['lr']['prediction'] if 'lr' in results else None,
-            'ma_prediction': results['ma']['prediction'],
+            'ma_prediction': results['ma']['prediction'] if 'ma' in results else None,
             'confidence_interval': confidence_interval,
-            'lr_mae': results['lr']['mae'] if 'lr' in results else None,
-            'lr_rmse': results['lr']['rmse'] if 'lr' in results else None,
-            'current_price': results['ma']['current_price']
+            'lr_mae': results['lr'].get('mae') if 'lr' in results else None,
+            'lr_rmse': results['lr'].get('rmse') if 'lr' in results else None,
+            'current_price': results['ma']['current_price'] if 'ma' in results else results['lr'].get('current_price', df['Close'].iloc[-1]),
+            'model_type': 'Ensemble (Weighted)',
+            'ensemble_models': [m['model'] for m in enabled_models if m['model'] in model_results],
+            'model_weights': {m['model']: m['weight'] for m in enabled_models if m['model'] in model_results}
         }
 
 def backtest_strategy(features, df, model_result, use_classification=True):
@@ -487,7 +632,7 @@ def main():
         print(f"   Prediksi harga: ${result['prediction']:,.2f}")
         
     elif PREDICTION_METHOD == "ensemble":
-        result = predict_ensemble(features, data, use_classification=USE_CLASSIFICATION)
+        result = predict_ensemble(features, data, use_classification=USE_CLASSIFICATION, models_config=ML_MODELS_CONFIG)
         if USE_CLASSIFICATION and 'signal' in result:
             print(f"✅ Model: Ensemble (RandomForestClassifier)")
             print(f"   Signal: {result['signal']}")

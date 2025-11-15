@@ -147,6 +147,31 @@ def print_enhanced_metrics(metrics: Dict):
         print(f"   Consistency Rate: {wf.get('consistency_rate', 0):.2f}%")
         print(f"   Positive Test Windows: {wf.get('positive_test_windows', 0)}")
     
+    # Risk Metrics (VaR, CVaR, Expected Shortfall)
+    if 'risk_metrics' in metrics:
+        rm = metrics['risk_metrics']
+        print(f"\n⚠️  Risk Metrics:")
+        
+        # VaR at different confidence levels
+        if 'var_90' in rm:
+            print(f"   VaR (90%): {rm['var_90']*100:.2f}%")
+        if 'var_95' in rm:
+            print(f"   VaR (95%): {rm['var_95']*100:.2f}%")
+        if 'var_99' in rm:
+            print(f"   VaR (99%): {rm['var_99']*100:.2f}%")
+        
+        # CVaR at different confidence levels
+        if 'cvar_90' in rm:
+            print(f"   CVaR (90%): {rm['cvar_90']*100:.2f}%")
+        if 'cvar_95' in rm:
+            print(f"   CVaR (95%): {rm['cvar_95']*100:.2f}%")
+        if 'cvar_99' in rm:
+            print(f"   CVaR (99%): {rm['cvar_99']*100:.2f}%")
+        
+        # Expected Shortfall
+        if 'expected_shortfall_95' in rm:
+            print(f"   Expected Shortfall (95%): {rm['expected_shortfall_95']*100:.2f}%")
+    
     print("\n" + "=" * 70)
 
 
