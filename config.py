@@ -49,7 +49,7 @@ FILTER_YEAR = 2025  # Filter data hanya tahun tertentu (None = tidak filter)
 # KONFIGURASI DATA HISTORICAL
 # ============================================
 DATA_SOURCE = "binance"  # Pilihan: "yfinance", "binance", "coingecko", "indodax", "freecryptoapi"
-SYMBOL = "RSR-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
+SYMBOL = "KAITO-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
 # Daftar coin populer: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, BNB-USD, ADA-USD, SOL-USD, DOT-USD, LINK-USD
 # Lihat YFINANCE_COINS.md untuk daftar lengkap coin yang didukung
 # DAYS_BACK akan otomatis disesuaikan berdasarkan TRADING_STYLE
