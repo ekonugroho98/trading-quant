@@ -641,10 +641,11 @@ class TradingBot:
                 chat_id,
                 f"❌ <b>TRADING_STYLE tidak valid!</b>\n\n"
                 f"Pilihan yang tersedia:\n"
-                f"• SCALPING\n"
-                f"• DAY_TRADING\n"
-                f"• SWING_TRADING\n"
-                f"• POSITION_TRADING\n\n"
+                f"• SCALPING (5m timeframe)\n"
+                f"• DAY_TRADING (15m timeframe)\n"
+                f"• INTRADAY_TRADING (2h timeframe)\n"
+                f"• SWING_TRADING (4h timeframe)\n"
+                f"• POSITION_TRADING (1d timeframe)\n\n"
                 f"Contoh: <code>/style DAY_TRADING</code>"
             )
             return
