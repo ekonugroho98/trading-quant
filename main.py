@@ -662,10 +662,11 @@ class TradingBot:
         
         # Kirim konfirmasi
         style_descriptions = {
-            "SCALPING": "Trading sangat cepat (detik-menit), banyak sinyal, profit kecil per trade",
-            "DAY_TRADING": "Trading dalam 1 hari, beberapa sinyal per hari",
-            "SWING_TRADING": "Trading beberapa hari-minggu, sinyal lebih jarang tapi lebih reliable",
-            "POSITION_TRADING": "Trading jangka panjang (minggu-bulan), sinyal sangat jarang"
+            "SCALPING": "Trading sangat cepat (5m timeframe), banyak sinyal, profit kecil per trade",
+            "DAY_TRADING": "Trading dalam 1 hari (15m timeframe), beberapa sinyal per hari",
+            "INTRADAY_TRADING": "Trading intraday (2h timeframe), beberapa sinyal per hari",
+            "SWING_TRADING": "Trading beberapa hari-minggu (4h timeframe), sinyal lebih jarang tapi lebih reliable",
+            "POSITION_TRADING": "Trading jangka panjang (1d timeframe), sinyal sangat jarang"
         }
         
         self.send_message(
