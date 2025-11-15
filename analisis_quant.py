@@ -1636,14 +1636,15 @@ if RUN_PREDICTION:
                                     )
                                     if chart_success:
                                         print("✅ Chart berhasil dikirim ke Telegram")
-                                        # Hapus file temporary
-                                        try:
-                                            os.remove(chart_filename)
-                                            print(f"🗑️  File temporary dihapus: {chart_filename}")
-                                        except:
-                                            pass
                                     else:
                                         print("⚠️  Gagal mengirim chart ke Telegram")
+                                    
+                                    # SELALU hapus file chart setelah dikirim (berhasil atau gagal)
+                                    try:
+                                        os.remove(chart_filename)
+                                        print(f"🗑️  File chart dihapus: {chart_filename}")
+                                    except Exception as e:
+                                        print(f"⚠️  Gagal menghapus file chart {chart_filename}: {e}")
                             else:
                                 print("⚠️  Gagal mengirim ke Telegram")
                         else:
