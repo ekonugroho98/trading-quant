@@ -23,23 +23,36 @@ except ImportError:
 
 
 # Load coins dari Binance (top 200) jika file tersedia
-def load_binance_coins(filename: str = "data/binance_top_coins.json") -> List[str]:
+def load_binance_coins(filename: Optional[str] = None) -> List[str]:
     """
-    Load list coins dari file JSON yang dihasilkan get_binance_coins.py
+    Load list coins dari file JSON yang dihasilkan get_binance_coins.py atau get_futures_coins.py
     
     Args:
-        filename: Nama file JSON
+        filename: Nama file JSON (optional, akan auto-detect berdasarkan BINANCE_API_TYPE)
     
     Returns:
         List of symbols dalam format yfinance (e.g., ["BTC-USD", "ETH-USD"])
     """
+    # Auto-detect filename berdasarkan BINANCE_API_TYPE jika tidak di-specify
+    if filename is None:
+        try:
+            from src.utils.config import BINANCE_API_TYPE
+            if BINANCE_API_TYPE.lower() == "futures":
+                filename = "data/binance_futures_top_coins.json"
+            else:
+                filename = "data/binance_top_coins.json"  # Default: spot
+        except ImportError:
+            filename = "data/binance_top_coins.json"  # Default: spot
+    
     try:
         import json
         with open(filename, 'r') as f:
             data = json.load(f)
         symbols = data.get('symbols', [])
         if symbols:
+            source = data.get('source', 'unknown')
             print(f"✅ Loaded {len(symbols)} coins dari {filename}")
+            print(f"   Source: {source}")
             print(f"   Last updated: {data.get('last_updated', 'Unknown')}")
         return symbols
     except FileNotFoundError:
@@ -50,6 +63,7 @@ def load_binance_coins(filename: str = "data/binance_top_coins.json") -> List[st
         return []
 
 # Coba load coins dari Binance, fallback ke DEFAULT_COINS
+# Auto-detect berdasarkan BINANCE_API_TYPE (spot atau futures)
 BINANCE_COINS = load_binance_coins()
 
 # Daftar 150 coin populer untuk screening (fallback jika Binance coins tidak tersedia)
