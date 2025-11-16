@@ -1914,6 +1914,10 @@ if RUN_PREDICTION:
                 timeframe = None
                 symbol = None
                 
+                # Prioritaskan SYMBOL dari config (yang di-update oleh user)
+                # Ini memastikan symbol yang dikirim ke Telegram sesuai dengan yang diminta user
+                symbol = SYMBOL if SYMBOL else None
+                
                 if 'current_position' in analysis_data:
                     current_price = analysis_data['current_position'].get('current_price')
                     support = analysis_data['current_position'].get('support')
@@ -1921,7 +1925,25 @@ if RUN_PREDICTION:
                 
                 if 'basic_info' in analysis_data:
                     timeframe = analysis_data['basic_info'].get('interval')
-                    symbol = analysis_data['basic_info'].get('symbol')
+                    # Gunakan symbol dari basic_info hanya jika symbol dari config tidak ada
+                    if not symbol:
+                        symbol = analysis_data['basic_info'].get('symbol')
+                
+                # Fallback: jika masih None, gunakan TRADING_SYMBOL (convert ke format yfinance)
+                if not symbol:
+                    if TRADING_SYMBOL:
+                        # Convert DOGEUSDT -> DOGE-USD
+                        if TRADING_SYMBOL.endswith('USDT'):
+                            base = TRADING_SYMBOL.replace('USDT', '')
+                            symbol = f"{base}-USD"
+                        else:
+                            symbol = TRADING_SYMBOL
+                
+                # Final fallback
+                if not symbol:
+                    symbol = "BTC-USD"  # Default fallback
+                
+                print(f"📌 Symbol untuk Telegram: {symbol} (dari config: {SYMBOL if SYMBOL else 'None'})")
                 
                 if recommendation:
                     print(format_recommendation_output(
