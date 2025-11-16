@@ -415,14 +415,43 @@ def get_futures_position_risk(api_key: str,
     base_url = FUTURES_TESTNET_URL if testnet else FUTURES_BASE_URL
     url = f"{base_url}/fapi/v2/positionRisk"
     
-    # This is a signed endpoint, requires HMAC signature
-    # For now, return None and note that this needs proper signature implementation
-    print("⚠️  get_futures_position_risk requires signed endpoint (HMAC signature)")
-    print("   This function needs proper signature implementation")
-    print("   Reference: https://developers.binance.com/docs/derivatives/usds-margined-futures")
+    # Prepare parameters for signed endpoint
+    params = {
+        'timestamp': int(time.time() * 1000),
+        'recvWindow': recv_window
+    }
     
-    # TODO: Implement HMAC signature for signed endpoints
-    return None
+    if symbol:
+        params['symbol'] = symbol.upper()
+    
+    # Create query string (without signature)
+    query_string = urllib.parse.urlencode(params)
+    
+    # Generate HMAC SHA256 signature
+    signature = _generate_signature(query_string, api_secret)
+    params['signature'] = signature
+    
+    # Make request with authentication
+    headers = {
+        'X-MBX-APIKEY': api_key
+    }
+    
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            # Return as list (even if single position)
+            return data if isinstance(data, list) else [data]
+        else:
+            print(f"❌ Error getting futures position risk: {response.status_code}")
+            print(f"   Response: {response.text[:200]}")
+            return None
+    except Exception as e:
+        print(f"❌ Exception getting futures position risk: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def convert_futures_symbol_to_yfinance(symbol: str) -> str:
