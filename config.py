@@ -50,12 +50,12 @@ FILTER_YEAR = 2025  # Filter data hanya tahun tertentu (None = tidak filter)
 # KONFIGURASI DATA HISTORICAL
 # ============================================
 DATA_SOURCE = "binance"  # Pilihan: "yfinance", "binance", "coingecko", "indodax", "freecryptoapi"
-SYMBOL = "BTC-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
+SYMBOL = "USD1-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
 # Daftar coin populer: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, BNB-USD, ADA-USD, SOL-USD, DOT-USD, LINK-USD
 # Lihat YFINANCE_COINS.md untuk daftar lengkap coin yang didukung
 # DAYS_BACK akan otomatis disesuaikan berdasarkan TRADING_STYLE
 # Bisa di-override manual jika perlu
-DAYS_BACK = None  # Auto berdasarkan TRADING_STYLE (7 hari)
+DAYS_BACK = None  # Auto berdasarkan TRADING_STYLE (60 hari)
 
 # Mapping DAYS_BACK berdasarkan TRADING_STYLE
 TRADING_STYLE_DAYS_BACK = {
@@ -108,12 +108,12 @@ FREECRYPTOAPI_KEY = os.getenv("FREECRYPTOAPI_KEY", None)  # Load dari .env
 # Format: "BTC", "ETH", "XRP", "DOGE", "BNB", "ADA", "SOL", dll (tanpa "-USD")
 # Cek daftar lengkap di: https://freecryptoapi.com/api/v1/getCryptoList
 # Atau gunakan endpoint: GET https://freecryptoapi.com/api/v1/getCryptoList?api_key=YOUR_KEY
-FREECRYPTOAPI_SYMBOL = "BTC-USD"  # Symbol untuk FreeCryptoAPI (default: BTC)
+FREECRYPTOAPI_SYMBOL = "USD1-USD"  # Symbol untuk FreeCryptoAPI (default: BTC)
 
 # Interval akan otomatis disesuaikan berdasarkan TRADING_STYLE
 # Tapi bisa di-override manual jika perlu
 # Untuk time frame 4H, set: INTERVAL = "4h"
-INTERVAL = None  # None = auto berdasarkan TRADING_STYLE, atau set manual (e.g., "1m", "15m", "1h", "4h", "1d")
+INTERVAL = "4h"  # None = auto berdasarkan TRADING_STYLE, atau set manual (e.g., "1m", "15m", "1h", "4h", "1d")
 
 # Mapping interval berdasarkan TRADING_STYLE
 TRADING_STYLE_INTERVALS = {
@@ -138,7 +138,7 @@ def get_interval():
 # ============================================
 # KONFIGURASI TRADING SETUP
 # ============================================
-TRADING_SYMBOL = "BTC-USD"  # Symbol untuk trading setup (contoh: BTCUSDT, XRPUSDT, DOGEUSDT, ENAUSDT, MAGICUSDT, dll)
+TRADING_SYMBOL = "USD1-USD"  # Symbol untuk trading setup (contoh: BTCUSDT, XRPUSDT, DOGEUSDT, ENAUSDT, MAGICUSDT, dll)
 
 # Konfigurasi Risk & Reward untuk Trading Setup
 # Sesuaikan berdasarkan TRADING_STYLE:

@@ -994,11 +994,20 @@ class TradingBot:
             volume_ratio = coin['volume_ratio']
             rsi = coin['rsi']
             rsi_signal = coin['rsi_signal']
-            ma_signal = coin['ma_signal']
+            trend_signal = coin.get('trend_signal', 'NEUTRAL')
             score = coin['combined_score']
             
-            # Emoji berdasarkan signal
-            signal_emoji = "🟢" if ma_signal == "BUY" else "🔴" if ma_signal == "SELL" else "🟡"
+            # Emoji berdasarkan trend signal
+            if "BULLISH" in trend_signal:
+                signal_emoji = "🟢"
+                signal_text = trend_signal
+            elif "BEARISH" in trend_signal:
+                signal_emoji = "🔴"
+                signal_text = trend_signal
+            else:
+                signal_emoji = "🟡"
+                signal_text = "NEUTRAL"
+            
             change_emoji = "📈" if change_7d > 0 else "📉"
             
             lines.append(f"<b>{i}. {symbol}</b>")
@@ -1006,7 +1015,7 @@ class TradingBot:
             lines.append(f"{change_emoji} Change: 1d: {change_1d:+.2f}% | 7d: {change_7d:+.2f}%")
             lines.append(f"📊 Volume: {volume_ratio:.2f}x")
             lines.append(f"📈 RSI: {rsi:.2f} ({rsi_signal})")
-            lines.append(f"{signal_emoji} Signal: {ma_signal}")
+            lines.append(f"{signal_emoji} Trend: {signal_text}")
             
             # Tampilkan direction dan scores jika ada
             if 'best_direction' in coin:

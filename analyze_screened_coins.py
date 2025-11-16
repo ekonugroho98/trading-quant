@@ -153,20 +153,35 @@ def extract_price_info_from_output(output: str) -> Dict:
     info = {}
     
     try:
-        # Extract Current Price (dengan atau tanpa emoji)
-        price_match = re.search(r'(?:💵\s*)?Current Price:\s*\$?([\d,]+\.?\d*)', output)
+        # Extract Current Price (format baru: "  - Harga: ..." atau format lama: "Current Price: ...")
+        # Pattern lebih fleksibel untuk menangkap berbagai format angka (dengan/tanpa koma, dengan/tanpa desimal)
+        price_match = re.search(r'(?:💵\s*)?(?:Current Price|Harga):\s*\$?\s*([\d,]+\.?\d*)', output, re.IGNORECASE)
         if price_match:
-            info['current_price'] = float(price_match.group(1).replace(',', ''))
+            price_str = price_match.group(1).replace(',', '').strip()
+            try:
+                info['current_price'] = float(price_str)
+            except ValueError:
+                pass
         
-        # Extract Support (dengan atau tanpa emoji)
-        support_match = re.search(r'(?:🟢\s*)?Support:\s*([\d,]+\.?\d*)', output)
+        # Extract Support (format baru: "  5️⃣  Support: ..." atau format lama)
+        # Pattern lebih fleksibel
+        support_match = re.search(r'(?:🟢\s*)?(?:5️⃣\s*)?Support:\s*([\d,]+\.?\d*)', output, re.IGNORECASE)
         if support_match:
-            info['support'] = float(support_match.group(1).replace(',', ''))
+            support_str = support_match.group(1).replace(',', '').strip()
+            try:
+                info['support'] = float(support_str)
+            except ValueError:
+                pass
         
-        # Extract Resistance (dengan atau tanpa emoji)
-        resistance_match = re.search(r'(?:🔴\s*)?Resistance:\s*([\d,]+\.?\d*)', output)
+        # Extract Resistance (format baru: "      Resistance: ..." atau format lama)
+        # Pattern lebih fleksibel
+        resistance_match = re.search(r'(?:🔴\s*)?(?:5️⃣\s*)?Resistance:\s*([\d,]+\.?\d*)', output, re.IGNORECASE)
         if resistance_match:
-            info['resistance'] = float(resistance_match.group(1).replace(',', ''))
+            resistance_str = resistance_match.group(1).replace(',', '').strip()
+            try:
+                info['resistance'] = float(resistance_str)
+            except ValueError:
+                pass
         
         # Extract Timeframe
         timeframe_match = re.search(r'Timeframe:\s*(\w+)', output, re.IGNORECASE)

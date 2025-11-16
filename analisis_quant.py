@@ -540,6 +540,31 @@ if not has_today_data:
 else:
     print(f"\n✅ Data hari ini tersedia")
 
+# 2️⃣ Hitung 5 Indikator Wajib
+# Indikator 1: EMA 20, 50, 200 → trend
+print("\n📊 Menghitung EMA 20, 50, 200...")
+data['EMA_20'] = data['Close'].ewm(span=20, adjust=False).mean()
+if len(data) >= 50:
+    data['EMA_50'] = data['Close'].ewm(span=50, adjust=False).mean()
+else:
+    data['EMA_50'] = data['EMA_20']  # Fallback jika data kurang
+if len(data) >= 200:
+    data['EMA_200'] = data['Close'].ewm(span=200, adjust=False).mean()
+else:
+    data['EMA_200'] = data['EMA_50']  # Fallback jika data kurang
+print("✅ EMA 20, 50, 200 berhasil dihitung")
+
+# Indikator 3: MACD → perubahan arah
+print("\n📊 Menghitung MACD...")
+ema_fast = data['Close'].ewm(span=12, adjust=False).mean()
+ema_slow = data['Close'].ewm(span=26, adjust=False).mean()
+data['MACD'] = ema_fast - ema_slow
+data['MACD_Signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
+data['MACD_Histogram'] = data['MACD'] - data['MACD_Signal']
+print("✅ MACD berhasil dihitung")
+
+# Untuk kompatibilitas dengan kode lama, tetap hitung MA_short dan MA_long
+# Tapi gunakan EMA untuk sinyal utama
 data['MA_short'] = data['Close'].rolling(window=ma_short_window).mean()
 data['MA_long'] = data['Close'].rolling(window=ma_long_window).mean()
 
@@ -651,10 +676,34 @@ except Exception as e:
     data['Support_Pivot'] = data['Support']
     data['Resistance_Pivot'] = data['Resistance']
 
-# 3️⃣ Buat sinyal trading
+# 3️⃣ Buat sinyal trading berdasarkan 5 indikator wajib
+# Sinyal berdasarkan EMA alignment (trend) + MACD + RSI (jika ada)
+print("\n📊 Membuat sinyal trading berdasarkan 5 indikator wajib...")
 data['Signal'] = 0
-data.loc[data['MA_short'] > data['MA_long'], 'Signal'] = 1   # Beli
-data.loc[data['MA_short'] < data['MA_long'], 'Signal'] = -1  # Jual
+
+# Sinyal berdasarkan EMA alignment (Indikator 1: EMA 20, 50, 200 → trend)
+# BULLISH: Price > EMA_20 > EMA_50 > EMA_200
+# BEARISH: Price < EMA_20 < EMA_50 < EMA_200
+ema_bullish = (data['Close'] > data['EMA_20']) & (data['EMA_20'] > data['EMA_50']) & (data['EMA_50'] > data['EMA_200'])
+ema_bearish = (data['Close'] < data['EMA_20']) & (data['EMA_20'] < data['EMA_50']) & (data['EMA_50'] < data['EMA_200'])
+
+# Sinyal MACD (Indikator 3: MACD → perubahan arah)
+# BULLISH: MACD > Signal dan Histogram > 0
+# BEARISH: MACD < Signal dan Histogram < 0
+macd_bullish = (data['MACD'] > data['MACD_Signal']) & (data['MACD_Histogram'] > 0)
+macd_bearish = (data['MACD'] < data['MACD_Signal']) & (data['MACD_Histogram'] < 0)
+
+# Kombinasi sinyal: EMA + MACD harus align
+# LONG: EMA bullish DAN MACD bullish
+# SHORT: EMA bearish DAN MACD bearish
+data.loc[ema_bullish & macd_bullish, 'Signal'] = 1   # Beli (LONG)
+data.loc[ema_bearish & macd_bearish, 'Signal'] = -1  # Jual (SHORT)
+
+# Fallback: jika tidak ada alignment, gunakan EMA saja
+data.loc[(data['Signal'] == 0) & ema_bullish, 'Signal'] = 1   # Beli (LONG) - EMA bullish saja
+data.loc[(data['Signal'] == 0) & ema_bearish, 'Signal'] = -1  # Jual (SHORT) - EMA bearish saja
+
+print("✅ Sinyal trading berhasil dibuat")
 
 # Deteksi perubahan sinyal (crossover)
 # Crossover beli: berubah dari bukan-beli (0 atau -1) menjadi beli (1)
@@ -771,13 +820,75 @@ else:
 print(f"POSISI SAAT INI (Data terakhir - {time_display}):")
 print(f"  - Posisi: {signal_text}")
 print(f"  - Harga: {format_price(last_close)}")
-print(f"  - MA Short: {format_price(float(last_ma_short))}")
-print(f"  - MA Long: {format_price(float(last_ma_long))}")
+print()
+print(f"  📊 5 INDIKATOR WAJIB:")
+# Indikator 1: EMA 20, 50, 200
+try:
+    last_ema_20 = data['EMA_20'].iloc[-1]
+    last_ema_50 = data['EMA_50'].iloc[-1]
+    last_ema_200 = data['EMA_200'].iloc[-1]
+    if pd.notna(last_ema_20):
+        print(f"  1️⃣  EMA 20: {format_price(float(last_ema_20))}")
+    if pd.notna(last_ema_50):
+        print(f"      EMA 50: {format_price(float(last_ema_50))}")
+    if pd.notna(last_ema_200):
+        print(f"      EMA 200: {format_price(float(last_ema_200))}")
+    
+    # Trend signal berdasarkan EMA alignment
+    if pd.notna(last_ema_20) and pd.notna(last_ema_50) and pd.notna(last_ema_200):
+        if last_close > float(last_ema_20) > float(last_ema_50) > float(last_ema_200):
+            trend_signal = "🟢 BULLISH (Uptrend kuat)"
+        elif last_close < float(last_ema_20) < float(last_ema_50) < float(last_ema_200):
+            trend_signal = "🔴 BEARISH (Downtrend kuat)"
+        elif float(last_ema_20) > float(last_ema_50):
+            trend_signal = "🟡 BULLISH_WEAK (Uptrend lemah)"
+        else:
+            trend_signal = "🟡 BEARISH_WEAK (Downtrend lemah)"
+        print(f"      Trend: {trend_signal}")
+except:
+    pass
+
+# Indikator 2: RSI (jika ada di enhanced features)
+try:
+    if 'RSI' in data.columns:
+        last_rsi = data['RSI'].iloc[-1]
+        if pd.notna(last_rsi):
+            rsi_val = float(last_rsi)
+            rsi_signal = "OVERSOLD" if rsi_val < 30 else ("OVERBOUGHT" if rsi_val > 70 else "NEUTRAL")
+            print(f"  2️⃣  RSI: {rsi_val:.2f} ({rsi_signal})")
+except:
+    pass
+
+# Indikator 3: MACD
+try:
+    last_macd = data['MACD'].iloc[-1]
+    last_macd_signal = data['MACD_Signal'].iloc[-1]
+    last_macd_hist = data['MACD_Histogram'].iloc[-1]
+    if pd.notna(last_macd) and pd.notna(last_macd_signal):
+        macd_val = float(last_macd)
+        macd_sig = float(last_macd_signal)
+        macd_hist = float(last_macd_hist) if pd.notna(last_macd_hist) else 0
+        macd_signal_text = "🟢 BULLISH" if macd_val > macd_sig and macd_hist > 0 else ("🔴 BEARISH" if macd_val < macd_sig and macd_hist < 0 else "🟡 NEUTRAL")
+        print(f"  3️⃣  MACD: {macd_val:.4f} | Signal: {macd_sig:.4f} | Hist: {macd_hist:.4f}")
+        print(f"      Signal: {macd_signal_text}")
+except:
+    pass
+
+# Indikator 4: Volume (jika ada)
+try:
+    if 'Volume' in data.columns:
+        last_volume = data['Volume'].iloc[-1]
+        if pd.notna(last_volume):
+            print(f"  4️⃣  Volume: {format_price(float(last_volume))}")
+except:
+    pass
+
+# Indikator 5: Support/Resistance
 if last_support is not None and last_resistance is not None:
     support_dist = ((last_close - last_support) / last_close * 100) if last_close > 0 else 0
     resistance_dist = ((last_resistance - last_close) / last_close * 100) if last_close > 0 else 0
-    print(f"  - Support: {format_price(last_support)} (jarak: {support_dist:.2f}%)")
-    print(f"  - Resistance: {format_price(last_resistance)} (jarak: {resistance_dist:.2f}%)")
+    print(f"  5️⃣  Support: {format_price(last_support)} (jarak: {support_dist:.2f}%)")
+    print(f"      Resistance: {format_price(last_resistance)} (jarak: {resistance_dist:.2f}%)")
     # Tentukan apakah harga mendekati support atau resistance
     dist_to_support = abs(last_close - last_support) / last_close * 100 if last_close > 0 else 0
     dist_to_resistance = abs(last_resistance - last_close) / last_close * 100 if last_close > 0 else 0
@@ -1471,9 +1582,13 @@ if USE_ENHANCED_FEATURES:
     
     # Run time series analysis (ARIMA + GARCH)
     try:
-        from time_series_models import analyze_time_series, print_time_series_results
-        ts_results = analyze_time_series(data)
-        print_time_series_results(ts_results)
+        from config import ENABLE_TIME_SERIES_MODELS
+        if ENABLE_TIME_SERIES_MODELS:
+            from time_series_models import analyze_time_series, print_time_series_results
+            ts_results = analyze_time_series(data)
+            print_time_series_results(ts_results)
+        else:
+            print("ℹ️  Time series models dinonaktifkan di config.py (ENABLE_TIME_SERIES_MODELS = False)")
     except ImportError:
         print("ℹ️  Time series models tidak tersedia")
     except Exception as e:
@@ -1825,74 +1940,74 @@ if RUN_PREDICTION:
                             print("=" * 70)
                             
                             bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
-                            success = bot.send_trading_recommendation(
-                                recommendation=recommendation,
+                            
+                            # Kumpulkan semua data untuk format simplified
+                            trading_setup_data = None
+                            if 'setup' in locals() and setup:
+                                trading_setup_data = setup
+                            
+                            # Ambil ML prediction results jika ada
+                            ml_result = None
+                            try:
+                                from ml_prediction_helper import get_ml_prediction_from_file
+                                # Tunggu sebentar untuk memastikan file JSON sudah ter-write
+                                import time
+                                time.sleep(0.5)
+                                
+                                ml_result = get_ml_prediction_from_file()
+                                if ml_result:
+                                    print("✅ ML prediction results ditemukan")
+                                else:
+                                    print("ℹ️  ML prediction results tidak ditemukan di file JSON")
+                            except ImportError as e:
+                                print(f"ℹ️  ml_prediction_helper tidak tersedia: {e}")
+                            except Exception as e:
+                                print(f"ℹ️  ML prediction results tidak tersedia: {e}")
+                            
+                            # Kirim satu pesan dengan format simplified
+                            print("📤 Mengirim trading signal (format simplified) ke Telegram...")
+                            message = bot.format_simplified_trading_signal(
+                                symbol=symbol,
+                                timeframe=timeframe,
                                 current_price=current_price,
                                 support=support,
                                 resistance=resistance,
-                                timeframe=timeframe,
-                                symbol=symbol
+                                trading_setup=trading_setup_data,
+                                deepseek_recommendation=recommendation,
+                                ml_prediction=ml_result
                             )
                             
+                            success = bot.send_message(message)
+                            
                             if success:
-                                print("✅ Rekomendasi berhasil dikirim ke Telegram")
-                                
-                                # Kirim trading setup ke Telegram jika ada
-                                if 'setup' in locals() and setup:
-                                    print("📋 Mengirim trading setup ke Telegram...")
-                                    setup_success = bot.send_trading_setup(setup, symbol)
-                                    if setup_success:
-                                        print("✅ Trading setup berhasil dikirim ke Telegram")
-                                    else:
-                                        print("⚠️  Gagal mengirim trading setup ke Telegram")
-                                
-                                # Kirim ML prediction results ke Telegram jika ada
-                                try:
-                                    from ml_prediction_helper import get_ml_prediction_from_file
-                                    # Tunggu sebentar untuk memastikan file JSON sudah ter-write
-                                    import time
-                                    time.sleep(0.5)
-                                    
-                                    ml_result = get_ml_prediction_from_file()
-                                    if ml_result:
-                                        print("🤖 Mengirim ML prediction results ke Telegram...")
-                                        ml_success = bot.send_ml_prediction(ml_result)
-                                        if ml_success:
-                                            print("✅ ML prediction results berhasil dikirim ke Telegram")
-                                            # Hapus file temporary
-                                            try:
-                                                os.remove('ml_prediction_result.json')
-                                            except:
-                                                pass
-                                        else:
-                                            print("⚠️  Gagal mengirim ML prediction results ke Telegram")
-                                    else:
-                                        print("ℹ️  ML prediction results tidak ditemukan di file JSON")
-                                except ImportError as e:
-                                    print(f"ℹ️  ml_prediction_helper tidak tersedia: {e}")
-                                except Exception as e:
-                                    print(f"ℹ️  ML prediction results tidak tersedia: {e}")
-                                
-                                # Kirim chart ke Telegram jika ada
-                                if chart_filename and os.path.exists(chart_filename):
-                                    print("📊 Mengirim chart ke Telegram...")
-                                    chart_success = bot.send_photo(
-                                        chart_filename,
-                                        caption=f"📊 Trading Chart - {symbol} ({timeframe})"
-                                    )
-                                    if chart_success:
-                                        print("✅ Chart berhasil dikirim ke Telegram")
-                                    else:
-                                        print("⚠️  Gagal mengirim chart ke Telegram")
-                                    
-                                    # SELALU hapus file chart setelah dikirim (berhasil atau gagal)
+                                print("✅ Trading signal berhasil dikirim ke Telegram (format simplified)")
+                                # Hapus file temporary ML prediction jika ada
+                                if ml_result:
                                     try:
-                                        os.remove(chart_filename)
-                                        print(f"🗑️  File chart dihapus: {chart_filename}")
-                                    except Exception as e:
-                                        print(f"⚠️  Gagal menghapus file chart {chart_filename}: {e}")
+                                        os.remove('ml_prediction_result.json')
+                                    except:
+                                        pass
                             else:
-                                print("⚠️  Gagal mengirim ke Telegram")
+                                print("⚠️  Gagal mengirim trading signal ke Telegram")
+                            
+                            # Kirim chart ke Telegram jika ada (baik success maupun tidak)
+                            if chart_filename and os.path.exists(chart_filename):
+                                print("📊 Mengirim chart ke Telegram...")
+                                chart_success = bot.send_photo(
+                                    chart_filename,
+                                    caption=f"📊 Trading Chart - {symbol} ({timeframe})"
+                                )
+                                if chart_success:
+                                    print("✅ Chart berhasil dikirim ke Telegram")
+                                else:
+                                    print("⚠️  Gagal mengirim chart ke Telegram")
+                                
+                                # SELALU hapus file chart setelah dikirim (berhasil atau gagal)
+                                try:
+                                    os.remove(chart_filename)
+                                    print(f"🗑️  File chart dihapus: {chart_filename}")
+                                except Exception as e:
+                                    print(f"⚠️  Gagal menghapus file chart {chart_filename}: {e}")
                         else:
                             if not ENABLE_TELEGRAM_BOT:
                                 print("ℹ️  Telegram Bot integration dinonaktifkan di config.py")

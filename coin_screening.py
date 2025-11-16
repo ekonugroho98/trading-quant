@@ -218,9 +218,74 @@ def get_coins_snapshot_binance(coins: List[str], days: int = 90,
         return get_coins_snapshot_yfinance(coins, days)
 
 
+def calculate_ema(series: pd.Series, period: int) -> pd.Series:
+    """
+    Hitung Exponential Moving Average (EMA)
+    
+    Args:
+        series: Price series
+        period: Period untuk EMA
+    
+    Returns:
+        EMA series
+    """
+    return series.ewm(span=period, adjust=False).mean()
+
+
+def calculate_macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> Dict:
+    """
+    Hitung MACD (Moving Average Convergence Divergence)
+    
+    Args:
+        series: Price series
+        fast: Fast EMA period (default: 12)
+        slow: Slow EMA period (default: 26)
+        signal: Signal line period (default: 9)
+    
+    Returns:
+        Dictionary dengan MACD, Signal, dan Histogram
+    """
+    ema_fast = calculate_ema(series, fast)
+    ema_slow = calculate_ema(series, slow)
+    macd_line = ema_fast - ema_slow
+    signal_line = calculate_ema(macd_line, signal)
+    histogram = macd_line - signal_line
+    
+    return {
+        'macd': macd_line,
+        'signal': signal_line,
+        'histogram': histogram
+    }
+
+
+def calculate_support_resistance_simple(close_data: pd.Series, window: int = 20) -> Tuple[float, float]:
+    """
+    Hitung Support dan Resistance sederhana menggunakan rolling min/max
+    
+    Args:
+        close_data: Close price series
+        window: Window untuk rolling min/max
+    
+    Returns:
+        Tuple (support, resistance)
+    """
+    if len(close_data) < window:
+        window = len(close_data)
+    
+    support = float(close_data.rolling(window=window, min_periods=1).min().iloc[-1])
+    resistance = float(close_data.rolling(window=window, min_periods=1).max().iloc[-1])
+    
+    return support, resistance
+
+
 def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
     """
-    Hitung quick metrics untuk satu coin
+    Hitung quick metrics untuk satu coin menggunakan 5 indikator wajib:
+    1. EMA 20, 50, 200 → trend
+    2. RSI → momentum
+    3. MACD → perubahan arah
+    4. Volume → validasi
+    5. Support / Resistance → level entry aman
     
     Args:
         data: DataFrame dengan data coin (bisa MultiIndex atau single column)
@@ -320,7 +385,7 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
         else:
             price_change_7d = price_change_1d * 7  # Estimasi
         
-        # Volume metrics
+        # Volume metrics (Indikator 4: Volume → validasi)
         if volume_data is not None and len(volume_data) >= 2:
             current_volume = float(volume_data.iloc[-1])
             avg_volume = float(volume_data.tail(7).mean()) if len(volume_data) >= 7 else float(volume_data.mean())
@@ -329,17 +394,46 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
             volume_ratio = 1.0
             current_volume = 0
         
-        # Simple Moving Averages
-        if len(close_data) >= 10:
-            ma_short = float(close_data.tail(5).mean())  # 5-day MA
-            ma_long = float(close_data.tail(10).mean())  # 10-day MA
-            ma_signal = "BUY" if ma_short > ma_long else "SELL" if ma_short < ma_long else "NEUTRAL"
-        else:
-            ma_short = current_price
-            ma_long = current_price
-            ma_signal = "NEUTRAL"
+        # Indikator 1: EMA 20, 50, 200 → trend
+        ema_20 = None
+        ema_50 = None
+        ema_200 = None
+        trend_signal = "NEUTRAL"
         
-        # RSI (simplified, adaptive period based on available data)
+        if len(close_data) >= 20:
+            ema_20_series = calculate_ema(close_data, 20)
+            ema_20 = float(ema_20_series.iloc[-1]) if pd.notna(ema_20_series.iloc[-1]) else None
+            
+            if len(close_data) >= 50:
+                ema_50_series = calculate_ema(close_data, 50)
+                ema_50 = float(ema_50_series.iloc[-1]) if pd.notna(ema_50_series.iloc[-1]) else None
+                
+                if len(close_data) >= 200:
+                    ema_200_series = calculate_ema(close_data, 200)
+                    ema_200 = float(ema_200_series.iloc[-1]) if pd.notna(ema_200_series.iloc[-1]) else None
+                    
+                    # Trend signal berdasarkan EMA alignment
+                    if ema_20 and ema_50 and ema_200:
+                        if current_price > ema_20 > ema_50 > ema_200:
+                            trend_signal = "BULLISH"  # Uptrend kuat
+                        elif current_price < ema_20 < ema_50 < ema_200:
+                            trend_signal = "BEARISH"  # Downtrend kuat
+                        elif ema_20 > ema_50:
+                            trend_signal = "BULLISH_WEAK"  # Uptrend lemah
+                        elif ema_20 < ema_50:
+                            trend_signal = "BEARISH_WEAK"  # Downtrend lemah
+                elif ema_20 and ema_50:
+                    # Jika tidak cukup data untuk EMA 200, gunakan EMA 20 dan 50
+                    if current_price > ema_20 > ema_50:
+                        trend_signal = "BULLISH"
+                    elif current_price < ema_20 < ema_50:
+                        trend_signal = "BEARISH"
+                    elif ema_20 > ema_50:
+                        trend_signal = "BULLISH_WEAK"
+                    else:
+                        trend_signal = "BEARISH_WEAK"
+        
+        # Indikator 2: RSI → momentum
         if len(close_data) >= 3:
             # Gunakan period yang lebih kecil jika data terbatas
             rsi_period = min(14, len(close_data) - 1)
@@ -357,62 +451,96 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
         else:
             rsi = 50
         
-        # Momentum score (simple)
-        if len(close_data) >= 5:
-            momentum = ((close_data.iloc[-1] - close_data.iloc[-5]) / close_data.iloc[-5] * 100) if close_data.iloc[-5] > 0 else 0
-        else:
-            momentum = price_change_1d
+        # Indikator 3: MACD → perubahan arah
+        macd_value = None
+        macd_signal_value = None
+        macd_histogram = None
+        macd_signal = "NEUTRAL"
         
-        # Volatility (standard deviation of returns)
-        if len(close_data) >= 7:
-            returns = close_data.pct_change().dropna()
-            volatility = float(returns.std() * 100) if len(returns) > 0 else 0
-        else:
-            volatility = 0
+        if len(close_data) >= 26:  # Minimum untuk MACD (slow period)
+            macd_data = calculate_macd(close_data, fast=12, slow=26, signal=9)
+            macd_value = float(macd_data['macd'].iloc[-1]) if pd.notna(macd_data['macd'].iloc[-1]) else None
+            macd_signal_value = float(macd_data['signal'].iloc[-1]) if pd.notna(macd_data['signal'].iloc[-1]) else None
+            macd_histogram = float(macd_data['histogram'].iloc[-1]) if pd.notna(macd_data['histogram'].iloc[-1]) else None
+            
+            # MACD signal: bullish jika MACD > Signal dan histogram > 0
+            if macd_value is not None and macd_signal_value is not None:
+                if macd_value > macd_signal_value and macd_histogram and macd_histogram > 0:
+                    macd_signal = "BULLISH"
+                elif macd_value < macd_signal_value and macd_histogram and macd_histogram < 0:
+                    macd_signal = "BEARISH"
         
-        # Combined score (untuk ranking) - Improved formula
+        # Indikator 5: Support / Resistance → level entry aman
+        support, resistance = calculate_support_resistance_simple(close_data, window=20)
+        
+        # Scoring berdasarkan 5 indikator wajib
         # Normalize semua metrics ke range yang sama untuk akurasi lebih baik
         
-        # 1. Price change score (normalize: -100% to +100% -> -1 to +1)
-        price_score = np.clip(price_change_7d / 100, -1, 1)
+        # 1. EMA Trend Score (Indikator 1: EMA 20, 50, 200 → trend)
+        # BULLISH = 1, BULLISH_WEAK = 0.5, NEUTRAL = 0, BEARISH_WEAK = -0.5, BEARISH = -1
+        if trend_signal == "BULLISH":
+            trend_score = 1.0
+        elif trend_signal == "BULLISH_WEAK":
+            trend_score = 0.5
+        elif trend_signal == "BEARISH":
+            trend_score = -1.0
+        elif trend_signal == "BEARISH_WEAK":
+            trend_score = -0.5
+        else:
+            trend_score = 0.0
         
-        # 2. Volume score (normalize: 0 to 3x -> -0.5 to +1)
+        # 2. RSI Score (Indikator 2: RSI → momentum)
+        # Normalize: 0-100 -> -1 to +1, dengan RSI 50 = 0
+        # Untuk LONG: RSI 50-70 = good (momentum positif tapi tidak overbought)
+        # Untuk SHORT: RSI 30-50 = good (momentum negatif tapi tidak oversold)
+        rsi_score = (rsi - 50) / 50  # -1 to +1
+        
+        # 3. MACD Score (Indikator 3: MACD → perubahan arah)
+        # BULLISH = 1, BEARISH = -1, NEUTRAL = 0
+        if macd_signal == "BULLISH":
+            macd_score = 1.0
+        elif macd_signal == "BEARISH":
+            macd_score = -1.0
+        else:
+            macd_score = 0.0
+        
+        # 4. Volume Score (Indikator 4: Volume → validasi)
         # Volume ratio 1.0 = score 0, >1.0 = positive, <1.0 = negative
         volume_score = np.clip((volume_ratio - 1) / 2, -0.5, 1)
         
-        # 3. Momentum score (normalize: -50% to +50% -> -1 to +1)
-        momentum_score = np.clip(momentum / 50, -1, 1)
+        # 5. Support/Resistance Score (Indikator 5: Support / Resistance → level entry aman)
+        # Hitung jarak dari current price ke support/resistance
+        # Untuk LONG: dekat support = bagus (entry aman), dekat resistance = kurang bagus
+        # Untuk SHORT: dekat resistance = bagus (entry aman), dekat support = kurang bagus
+        price_range = resistance - support if resistance > support else current_price * 0.1
+        if price_range > 0:
+            dist_to_support = ((current_price - support) / price_range) if price_range > 0 else 0.5
+            dist_to_resistance = ((resistance - current_price) / price_range) if price_range > 0 else 0.5
+            # Score: dekat support = positif untuk LONG (inverse: 1 - dist_to_support)
+            #        dekat resistance = positif untuk SHORT (inverse: 1 - dist_to_resistance)
+            sr_score_long = 1.0 - dist_to_support  # 1 (di support) to 0 (di resistance)
+            sr_score_short = 1.0 - dist_to_resistance  # 1 (di resistance) to 0 (di support)
+        else:
+            sr_score_long = 0.5
+            sr_score_short = 0.5
         
-        # 4. RSI score (normalize: 0-100 -> -1 to +1, dengan RSI 50 = 0)
-        rsi_score = (rsi - 50) / 50  # -1 to +1
-        
-        # 5. MA signal score (BUY=1, SELL=-1, NEUTRAL=0)
-        ma_score = 1 if ma_signal == "BUY" else (-1 if ma_signal == "SELL" else 0)
-        
-        # 6. Volatility score (inverse: volatility rendah = score tinggi)
-        # Normalize: 0-10% -> 1 to 0 (volatility rendah = bagus untuk trading)
-        volatility_score = max(0, 1 - (volatility / 10)) if volatility > 0 else 0.5
-        
-        # Combined score dengan weights yang lebih seimbang
+        # Combined score dengan weights yang seimbang untuk 5 indikator
         # Score untuk LONG (bullish)
         long_score = (
-            price_score * 0.25 +           # 25% weight on price change (positive = good)
-            volume_score * 0.20 +          # 20% weight on volume (higher = good)
-            momentum_score * 0.20 +        # 20% weight on momentum (positive = good)
-            rsi_score * 0.15 +             # 15% weight on RSI (50-70 = good for long)
-            ma_score * 0.10 +              # 10% weight on MA signal (BUY = good)
-            volatility_score * 0.10        # 10% weight on volatility (lower = good)
+            trend_score * 0.30 +           # 30% weight on EMA trend (trend adalah yang terpenting)
+            rsi_score * 0.20 +             # 20% weight on RSI momentum
+            macd_score * 0.20 +            # 20% weight on MACD perubahan arah
+            volume_score * 0.15 +          # 15% weight on Volume validasi
+            sr_score_long * 0.15           # 15% weight on Support/Resistance entry level
         )
         
         # Score untuk SHORT (bearish) - inverse logic
-        # Untuk short: price drop = good, negative momentum = good, RSI > 70 = good, MA SELL = good
         short_score = (
-            (-price_score) * 0.25 +        # 25% weight on price change (negative = good for short)
-            volume_score * 0.20 +          # 20% weight on volume (higher = good, same)
-            (-momentum_score) * 0.20 +     # 20% weight on momentum (negative = good for short)
-            (-rsi_score) * 0.15 +          # 15% weight on RSI (70-100 = good for short, inverse)
-            (-ma_score) * 0.10 +           # 10% weight on MA signal (SELL = good for short)
-            volatility_score * 0.10        # 10% weight on volatility (lower = good, same)
+            (-trend_score) * 0.30 +        # 30% weight on EMA trend (inverse)
+            (-rsi_score) * 0.20 +          # 20% weight on RSI momentum (inverse)
+            (-macd_score) * 0.20 +         # 20% weight on MACD perubahan arah (inverse)
+            volume_score * 0.15 +          # 15% weight on Volume validasi (sama)
+            sr_score_short * 0.15          # 15% weight on Support/Resistance entry level (inverse)
         )
         
         # Determine best direction
@@ -431,15 +559,26 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
             'current_price': current_price,
             'price_change_1d': price_change_1d,
             'price_change_7d': price_change_7d,
-            'volume_ratio': volume_ratio,
-            'current_volume': current_volume,
-            'ma_short': ma_short,
-            'ma_long': ma_long,
-            'ma_signal': ma_signal,
+            # Indikator 1: EMA 20, 50, 200 → trend
+            'ema_20': ema_20,
+            'ema_50': ema_50,
+            'ema_200': ema_200,
+            'trend_signal': trend_signal,
+            # Indikator 2: RSI → momentum
             'rsi': rsi,
             'rsi_signal': "OVERSOLD" if rsi < 30 else ("OVERBOUGHT" if rsi > 70 else "NEUTRAL"),
-            'momentum': momentum,
-            'volatility': volatility,
+            # Indikator 3: MACD → perubahan arah
+            'macd': macd_value,
+            'macd_signal_line': macd_signal_value,
+            'macd_histogram': macd_histogram,
+            'macd_signal': macd_signal,
+            # Indikator 4: Volume → validasi
+            'volume_ratio': volume_ratio,
+            'current_volume': current_volume,
+            # Indikator 5: Support / Resistance → level entry aman
+            'support': support,
+            'resistance': resistance,
+            # Scores
             'combined_score': best_score,  # Best score (long or short)
             'long_score': long_score,
             'short_score': short_score,
@@ -608,22 +747,48 @@ def format_screening_results(results: List[Dict]) -> str:
         price = coin['current_price']
         change_1d = coin['price_change_1d']
         change_7d = coin['price_change_7d']
-        volume_ratio = coin['volume_ratio']
-        rsi = coin['rsi']
-        rsi_signal = coin['rsi_signal']
-        ma_signal = coin['ma_signal']
         score = coin['combined_score']
         
+        # Indikator 1: EMA Trend
+        trend_signal = coin.get('trend_signal', 'NEUTRAL')
+        ema_20 = coin.get('ema_20')
+        ema_50 = coin.get('ema_50')
+        ema_200 = coin.get('ema_200')
+        
+        # Indikator 2: RSI
+        rsi = coin['rsi']
+        rsi_signal = coin['rsi_signal']
+        
+        # Indikator 3: MACD
+        macd_signal = coin.get('macd_signal', 'NEUTRAL')
+        macd_histogram = coin.get('macd_histogram')
+        
+        # Indikator 4: Volume
+        volume_ratio = coin['volume_ratio']
+        
+        # Indikator 5: Support/Resistance
+        support = coin.get('support')
+        resistance = coin.get('resistance')
+        
         # Emoji berdasarkan signal
-        signal_emoji = "🟢" if ma_signal == "BUY" else "🔴" if ma_signal == "SELL" else "🟡"
+        trend_emoji = "🟢" if "BULLISH" in trend_signal else "🔴" if "BEARISH" in trend_signal else "🟡"
+        macd_emoji = "🟢" if macd_signal == "BULLISH" else "🔴" if macd_signal == "BEARISH" else "🟡"
         change_emoji = "📈" if change_7d > 0 else "📉"
         
         lines.append(f"{i}. {symbol}")
         lines.append(f"   💵 Price: ${price:,.4f}")
         lines.append(f"   {change_emoji} Change: 1d: {change_1d:+.2f}% | 7d: {change_7d:+.2f}%")
-        lines.append(f"   📊 Volume Ratio: {volume_ratio:.2f}x")
-        lines.append(f"   📈 RSI: {rsi:.2f} ({rsi_signal})")
-        lines.append(f"   {signal_emoji} MA Signal: {ma_signal}")
+        lines.append("")
+        lines.append(f"   📊 5 INDIKATOR WAJIB:")
+        lines.append(f"   1️⃣  EMA Trend: {trend_emoji} {trend_signal}")
+        if ema_20:
+            lines.append(f"       EMA 20: ${ema_20:,.4f}" + (f" | EMA 50: ${ema_50:,.4f}" if ema_50 else "") + (f" | EMA 200: ${ema_200:,.4f}" if ema_200 else ""))
+        lines.append(f"   2️⃣  RSI: {rsi:.2f} ({rsi_signal})")
+        lines.append(f"   3️⃣  MACD: {macd_emoji} {macd_signal}" + (f" (Hist: {macd_histogram:.4f})" if macd_histogram is not None else ""))
+        lines.append(f"   4️⃣  Volume Ratio: {volume_ratio:.2f}x")
+        if support and resistance:
+            lines.append(f"   5️⃣  Support: ${support:,.4f} | Resistance: ${resistance:,.4f}")
+        lines.append("")
         
         # Tampilkan direction dan scores jika ada
         if 'best_direction' in coin:

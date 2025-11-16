@@ -35,13 +35,14 @@ def format_price_no_rounding(price: float) -> str:
         return f"{price:.10f}".rstrip('0').rstrip('.')
 
 
-def format_price_with_comma(price: float, decimals: int = 0) -> str:
+def format_price_with_comma(price: float, decimals: Optional[int] = None) -> str:
     """
     Format harga dengan koma sebagai thousand separator (format internasional)
+    Auto-detect jumlah desimal yang tepat berdasarkan ukuran harga
     
     Args:
         price: Harga yang akan diformat
-        decimals: Jumlah desimal (default: 0 = tanpa desimal)
+        decimals: Jumlah desimal (None = auto-detect berdasarkan ukuran harga)
     
     Returns:
         String dengan harga yang diformat dengan koma sebagai thousand separator
@@ -50,15 +51,45 @@ def format_price_with_comma(price: float, decimals: int = 0) -> str:
         return "None"
     
     try:
+        price = float(price)
+        
+        # Auto-detect decimals jika tidak ditentukan
+        if decimals is None:
+            if price == 0:
+                return "0"
+            elif price < 0.01:
+                # Harga sangat kecil (< 0.01), gunakan 6-8 desimal
+                decimals = 8
+            elif price < 1:
+                # Harga kecil (< 1), gunakan 4-6 desimal
+                decimals = 6
+            elif price < 1000:
+                # Harga sedang, gunakan 2-4 desimal
+                decimals = 4
+            else:
+                # Harga besar, gunakan 0-2 desimal
+                decimals = 2
+        
         if decimals == 0:
             # Format tanpa desimal
             return f"{int(round(price)):,}"
         else:
             # Format dengan desimal
             formatted = f"{price:,.{decimals}f}"
-            # Hapus trailing zeros
+            # Hapus trailing zeros tapi tetap tampilkan minimal 2 desimal untuk harga kecil
             if '.' in formatted:
-                formatted = formatted.rstrip('0').rstrip('.')
+                # Untuk harga < 1, minimal 2 desimal
+                if price < 1:
+                    # Pastikan minimal 2 desimal
+                    parts = formatted.split('.')
+                    if len(parts) == 2:
+                        decimal_part = parts[1].rstrip('0')
+                        if len(decimal_part) < 2:
+                            decimal_part = decimal_part.ljust(2, '0')
+                        formatted = f"{parts[0]}.{decimal_part}"
+                else:
+                    # Untuk harga >= 1, hapus trailing zeros
+                    formatted = formatted.rstrip('0').rstrip('.')
             return formatted
     except (ValueError, TypeError):
         return str(price)
@@ -689,11 +720,20 @@ class TelegramBot:
             volume_ratio = coin['volume_ratio']
             rsi = coin['rsi']
             rsi_signal = coin['rsi_signal']
-            ma_signal = coin['ma_signal']
+            trend_signal = coin.get('trend_signal', 'NEUTRAL')
             score = coin['combined_score']
             
-            # Emoji berdasarkan signal
-            signal_emoji = "🟢" if ma_signal == "BUY" else "🔴" if ma_signal == "SELL" else "🟡"
+            # Emoji berdasarkan trend signal
+            if "BULLISH" in trend_signal:
+                signal_emoji = "🟢"
+                signal_text = trend_signal
+            elif "BEARISH" in trend_signal:
+                signal_emoji = "🔴"
+                signal_text = trend_signal
+            else:
+                signal_emoji = "🟡"
+                signal_text = "NEUTRAL"
+            
             change_emoji = "📈" if change_7d > 0 else "📉"
             
             lines.append(f"<b>{i}. {symbol}</b>")
@@ -701,7 +741,7 @@ class TelegramBot:
             lines.append(f"{change_emoji} Change: 1d: {change_1d:+.2f}% | 7d: {change_7d:+.2f}%")
             lines.append(f"📊 Volume: {volume_ratio:.2f}x")
             lines.append(f"📈 RSI: {rsi:.2f} ({rsi_signal})")
-            lines.append(f"{signal_emoji} Signal: {ma_signal}")
+            lines.append(f"{signal_emoji} Trend: {signal_text}")
             
             # Tampilkan direction dan scores jika ada
             if 'best_direction' in coin:
@@ -766,11 +806,11 @@ class TelegramBot:
         
         # Price & Key Levels (satu baris dengan koma separator)
         price_info = []
-        if current_price is not None:
+        if current_price is not None and current_price > 0:
             price_info.append(f"Price: {format_price_with_comma(current_price)}")
-        if support is not None:
+        if support is not None and support > 0:
             price_info.append(f"Support: {format_price_with_comma(support)}")
-        if resistance is not None:
+        if resistance is not None and resistance > 0:
             price_info.append(f"Resistance: {format_price_with_comma(resistance)}")
         
         if price_info:
@@ -779,12 +819,14 @@ class TelegramBot:
         
         # Deteksi konflik sinyal
         ai_action = None
+        ai_position = None
         ai_confidence = 0
         ml_signal = None
         ml_prob = 0
         
         if deepseek_recommendation:
             ai_action = deepseek_recommendation.get('action', '').upper()
+            ai_position = deepseek_recommendation.get('position', '').upper()
             ai_confidence = deepseek_recommendation.get('confidence', 0)
         
         if ml_prediction:
@@ -803,26 +845,47 @@ class TelegramBot:
         if ai_action and ml_signal and ai_action != "HOLD" and ml_signal != "HOLD":
             if (ai_action == "BUY" and ml_signal == "SELL") or (ai_action == "SELL" and ml_signal == "BUY"):
                 has_conflict = True
+                # Tampilkan dengan position jika ada
+                ai_display = f"{ai_action}"
+                if ai_position and ai_position != "CASH":
+                    ai_display = f"{ai_action} ({ai_position})"
+                
+                ml_display = ml_signal
+                # Infer position dari signal untuk ML
+                if ml_signal == "BUY":
+                    ml_display = f"{ml_signal} (LONG)"
+                elif ml_signal == "SELL":
+                    ml_display = f"{ml_signal} (SHORT)"
+                
                 lines.append("⚠️ <b>KONFLIKT:</b>")
-                lines.append(f"   - AI Strategy: {ai_action} ({ai_confidence}% confidence)")
-                lines.append(f"   - Quant Model: {ml_signal} ({ml_prob:.1f}% probability)")
+                lines.append(f"   - AI Strategy: {ai_display} ({ai_confidence}% confidence)")
+                lines.append(f"   - Quant Model: {ml_display} ({ml_prob:.1f}% probability)")
                 lines.append("")
         
         # Rekomendasi final (prioritas AI Strategy jika ada konflik)
         if has_conflict:
             final_action = ai_action
+            final_position = ai_position if ai_position and ai_position != "CASH" else None
             final_reason = "berdasarkan AI Strategy + Technical Pattern"
         elif ai_action:
             final_action = ai_action
+            final_position = ai_position if ai_position and ai_position != "CASH" else None
             final_reason = "berdasarkan AI Strategy + Technical Pattern"
         elif ml_signal:
             final_action = ml_signal
+            # Infer position dari signal
+            final_position = "LONG" if ml_signal == "BUY" else "SHORT" if ml_signal == "SELL" else None
             final_reason = "berdasarkan Quant Model"
         else:
             final_action = "HOLD"
+            final_position = None
             final_reason = "tidak ada sinyal jelas"
         
-        lines.append(f"📊 <b>REKOMENDASI:</b> {final_action} ({final_reason})")
+        # Format rekomendasi dengan position
+        if final_position:
+            lines.append(f"📊 <b>REKOMENDASI:</b> {final_action} ({final_position}) - {final_reason}")
+        else:
+            lines.append(f"📊 <b>REKOMENDASI:</b> {final_action} ({final_reason})")
         lines.append("")
         
         # Trading Setup (disederhanakan - hanya 2 entry dan 2 TP)
@@ -837,19 +900,20 @@ class TelegramBot:
             entry2 = trading_setup.get('entry2')  # Konservatif (recommended)
             entry3 = trading_setup.get('entry3')  # Sangat Konservatif
             
-            if entry1 and entry2 and entry3:
+            # Hanya tampilkan entry jika nilainya valid (> 0)
+            if entry1 and entry1 > 0 and entry2 and entry2 > 0 and entry3 and entry3 > 0:
                 lines.append(f"   Entry: {format_price_with_comma(entry2)} (konservatif) / {format_price_with_comma(entry1)} (agresif) / {format_price_with_comma(entry3)} (sangat konservatif)")
-            elif entry1 and entry2:
+            elif entry1 and entry1 > 0 and entry2 and entry2 > 0:
                 lines.append(f"   Entry: {format_price_with_comma(entry2)} (konservatif) / {format_price_with_comma(entry1)} (agresif)")
-            elif entry2:
+            elif entry2 and entry2 > 0:
                 lines.append(f"   Entry: {format_price_with_comma(entry2)}")
-            elif entry1:
+            elif entry1 and entry1 > 0:
                 lines.append(f"   Entry: {format_price_with_comma(entry1)}")
             
             # Stop Loss
             stop_loss = trading_setup.get('stop_loss')
             risk_pct = trading_setup.get('risk_pct', 0)
-            if stop_loss:
+            if stop_loss and stop_loss > 0:
                 lines.append(f"   Stop Loss: {format_price_with_comma(stop_loss)} (-{risk_pct:.1f}%)")
             
             # Targets (3 TP dalam satu baris)
@@ -857,7 +921,8 @@ class TelegramBot:
             tp2 = trading_setup.get('tp2')
             tp3 = trading_setup.get('tp3')
             
-            if tp1 and tp2 and tp3:
+            # Hanya tampilkan TP jika nilainya valid (> 0)
+            if tp1 and tp1 > 0 and tp2 and tp2 > 0 and tp3 and tp3 > 0:
                 # Calculate percentage untuk entry konservatif (entry2)
                 if entry2 and isinstance(entry2, (int, float)) and entry2 > 0:
                     if direction == "LONG":
@@ -874,7 +939,7 @@ class TelegramBot:
                     lines.append(f"   TP1: {format_price_with_comma(tp1)} ({tp1_pct:+.2f}%) | TP2: {format_price_with_comma(tp2)} ({tp2_pct:+.2f}%) | TP3: {format_price_with_comma(tp3)} ({tp3_pct:+.2f}%)")
                 else:
                     lines.append(f"   TP1: {format_price_with_comma(tp1)} | TP2: {format_price_with_comma(tp2)} | TP3: {format_price_with_comma(tp3)}")
-            elif tp1 and tp2:
+            elif tp1 and tp1 > 0 and tp2 and tp2 > 0:
                 # Fallback jika hanya ada 2 TP
                 if entry2 and isinstance(entry2, (int, float)) and entry2 > 0:
                     if direction == "LONG":
