@@ -481,8 +481,12 @@ def main():
     if DATA_SOURCE == "yfinance":
         data = get_data_yfinance(SYMBOL, DAYS_BACK, INTERVAL)
     elif DATA_SOURCE == "binance":
-        from src.data.binance_data import get_data_binance
-        data = get_data_binance(SYMBOL, DAYS_BACK, INTERVAL, BINANCE_API_KEY, BINANCE_API_SECRET)
+        # Use helper function that auto-detects Spot or Futures based on BINANCE_API_TYPE
+        from src.data.binance_api_helper import get_binance_data
+        from src.utils.config import BINANCE_API_TYPE
+        api_type = BINANCE_API_TYPE.lower() if BINANCE_API_TYPE else "spot"
+        print(f"📊 Using Binance {api_type.upper()} API")
+        data = get_binance_data(SYMBOL, DAYS_BACK, INTERVAL, BINANCE_API_KEY, BINANCE_API_SECRET)
     elif DATA_SOURCE == "coingecko":
         data = get_data_coingecko(DAYS_BACK, coin_id=COIN_ID, api_key=COINGECKO_API_KEY)
     elif DATA_SOURCE == "freecryptoapi":

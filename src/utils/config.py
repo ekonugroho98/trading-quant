@@ -61,7 +61,7 @@ FILTER_YEAR = 2025  # Filter data hanya tahun tertentu (None = tidak filter)
 # KONFIGURASI DATA HISTORICAL
 # ============================================
 DATA_SOURCE = "binance"  # Pilihan: "yfinance", "binance", "coingecko", "indodax", "freecryptoapi"
-SYMBOL = "BTC-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
+SYMBOL = "DOGE-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
 
 # ============================================
 # KONFIGURASI BINANCE API TYPE
@@ -134,7 +134,7 @@ FREECRYPTOAPI_KEY = os.getenv("FREECRYPTOAPI_KEY", None)  # Load dari .env
 # Format: "BTC", "ETH", "XRP", "DOGE", "BNB", "ADA", "SOL", dll (tanpa "-USD")
 # Cek daftar lengkap di: https://freecryptoapi.com/api/v1/getCryptoList
 # Atau gunakan endpoint: GET https://freecryptoapi.com/api/v1/getCryptoList?api_key=YOUR_KEY
-FREECRYPTOAPI_SYMBOL = "BTC-USD"  # Symbol untuk FreeCryptoAPI (default: BTC)
+FREECRYPTOAPI_SYMBOL = "DOGE-USD"  # Symbol untuk FreeCryptoAPI (default: BTC)
 
 # Interval akan otomatis disesuaikan berdasarkan TRADING_STYLE
 # Tapi bisa di-override manual jika perlu
@@ -164,7 +164,7 @@ def get_interval():
 # ============================================
 # KONFIGURASI TRADING SETUP
 # ============================================
-TRADING_SYMBOL = "BTC-USD"  # Symbol untuk trading setup (contoh: BTCUSDT, XRPUSDT, DOGEUSDT, ENAUSDT, MAGICUSDT, dll)
+TRADING_SYMBOL = "DOGE-USD"  # Symbol untuk trading setup (contoh: BTCUSDT, XRPUSDT, DOGEUSDT, ENAUSDT, MAGICUSDT, dll)
 
 # Konfigurasi Risk & Reward untuk Trading Setup
 # Sesuaikan berdasarkan TRADING_STYLE:

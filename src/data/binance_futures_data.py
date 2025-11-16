@@ -18,6 +18,9 @@ import time
 import os
 import requests
 import json
+import hmac
+import hashlib
+import urllib.parse
 
 try:
     from binance.client import Client
