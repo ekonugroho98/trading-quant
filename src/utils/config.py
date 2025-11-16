@@ -62,6 +62,21 @@ FILTER_YEAR = 2025  # Filter data hanya tahun tertentu (None = tidak filter)
 # ============================================
 DATA_SOURCE = "binance"  # Pilihan: "yfinance", "binance", "coingecko", "indodax", "freecryptoapi"
 SYMBOL = "BTC-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
+
+# ============================================
+# KONFIGURASI BINANCE API TYPE
+# ============================================
+# Pilih jenis Binance API yang ingin digunakan:
+# - "spot": Binance Spot API (default) - untuk trading spot
+# - "futures": Binance USDⓈ-M Futures API - untuk trading futures
+# 
+# Catatan:
+# - Spot API: https://api.binance.com (untuk trading spot)
+# - Futures API: https://fapi.binance.com (untuk trading futures/derivatives)
+# - Keduanya menggunakan API key yang sama, tapi endpoint berbeda
+# - Data format sama (OHLC candles), tapi futures memiliki leverage dan funding rate
+BINANCE_API_TYPE = os.getenv("BINANCE_API_TYPE", "spot")  # Pilihan: "spot", "futures"
+# Load dari .env: BINANCE_API_TYPE=futures atau BINANCE_API_TYPE=spot
 # Daftar coin populer: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, BNB-USD, ADA-USD, SOL-USD, DOT-USD, LINK-USD
 # Lihat YFINANCE_COINS.md untuk daftar lengkap coin yang didukung
 # DAYS_BACK akan otomatis disesuaikan berdasarkan TRADING_STYLE
