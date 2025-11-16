@@ -737,13 +737,40 @@ def screen_coins(
         print("❌ Tidak ada data untuk screening")
         return []
     
-    # Hitung metrics untuk setiap coin
+    # Extract semua symbols yang ada di data (bisa lebih banyak dari list coins)
+    # Data memiliki MultiIndex columns: (Symbol, Price Type)
+    if isinstance(data.columns, pd.MultiIndex):
+        # Ambil semua unique symbols dari level 0 MultiIndex
+        symbols_in_data = data.columns.get_level_values(0).unique().tolist()
+        # Convert dari Binance format ke yfinance format jika perlu
+        symbols_to_process = []
+        for sym in symbols_in_data:
+            if isinstance(sym, tuple):
+                sym = sym[0]  # Ambil symbol dari tuple
+            # Convert dari BTCUSDT ke BTC-USD
+            if sym.endswith('USDT'):
+                base = sym.replace('USDT', '')
+                symbols_to_process.append(f"{base}-USD")
+            elif sym.endswith('USDC'):
+                base = sym.replace('USDC', '')
+                symbols_to_process.append(f"{base}-USD")
+            else:
+                symbols_to_process.append(sym)
+    else:
+        # Jika bukan MultiIndex, gunakan list coins yang diberikan
+        symbols_to_process = coins
+    
+    print(f"📊 Data berisi {len(symbols_to_process)} symbols (dari {len(coins)} yang diminta)")
+    if len(symbols_to_process) > len(coins):
+        print(f"   ℹ️  Menghitung metrics untuk semua {len(symbols_to_process)} symbols di data")
+    
+    # Hitung metrics untuk setiap symbol yang ada di data
     results = []
     metrics_calculated = 0
     metrics_failed = 0
     filtered_out = 0
     
-    for symbol in coins:
+    for symbol in symbols_to_process:
         metrics = calculate_quick_metrics(data, symbol)
         if metrics:
             metrics_calculated += 1
