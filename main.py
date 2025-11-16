@@ -275,23 +275,38 @@ class TradingBot:
                 pass
             
             # Cek apakah perlu mengambil data historical terlebih dahulu
-            # (analisis_quant.py akan otomatis mengambil jika tidak ada CSV, tapi lebih baik kita ambil dulu)
+            # Pastikan file CSV yang ada sesuai dengan symbol yang diminta
             try:
-                # Cek apakah ada file CSV
                 import glob
-                csv_files = glob.glob("*_historical_*.csv")
-                print(f"📁 [run_analysis] Checking for CSV files: found {len(csv_files)} files")
-                if not csv_files:
-                    # Tidak ada file CSV, ambil data historical terlebih dahulu
-                    print(f"📥 [run_analysis] No CSV files found, fetching historical data...")
+                # Cek apakah ada file CSV yang sesuai dengan symbol
+                symbol_lower = symbol.replace("-", "").lower() if symbol else ""
+                symbol_base = symbol.split("-")[0].lower() if symbol and "-" in symbol else ""
+                
+                # Cari file CSV yang sesuai dengan symbol
+                matching_csv_files = []
+                if symbol_lower:
+                    matching_csv_files.extend(glob.glob(f"{symbol_lower}_historical_*.csv"))
+                if symbol_base:
+                    matching_csv_files.extend(glob.glob(f"{symbol_base}_historical_*.csv"))
+                
+                # Cari semua file CSV
+                all_csv_files = glob.glob("*_historical_*.csv")
+                
+                print(f"📁 [run_analysis] Checking for CSV files:")
+                print(f"   Files matching {symbol}: {len(matching_csv_files)}")
+                print(f"   Total CSV files: {len(all_csv_files)}")
+                
+                # Jika tidak ada file yang sesuai dengan symbol, ambil data baru
+                if not matching_csv_files:
+                    print(f"📥 [run_analysis] No matching CSV file for {symbol}, fetching new data...")
                     success = self.send_message(
                         chat_id,
-                        "📥 <b>Mengambil data historical...</b>\n"
+                        f"📥 <b>Mengambil data historical untuk {symbol}...</b>\n"
                         "⏳ Ini mungkin memakan waktu beberapa detik..."
                     )
                     print(f"{'✅' if success else '❌'} [run_analysis] Historical data notification sent: {success}")
                     
-                    print(f"🔄 [run_analysis] Running get_historical_data.py...")
+                    print(f"🔄 [run_analysis] Running get_historical_data.py for {symbol}...")
                     # Get project root directory
                     project_root = os.path.dirname(os.path.abspath(__file__))
                     result_data = subprocess.run(
@@ -304,17 +319,17 @@ class TradingBot:
                     print(f"📊 [run_analysis] get_historical_data.py completed: returncode={result_data.returncode}")
                     
                     if result_data.returncode == 0:
-                        print(f"✅ [run_analysis] Historical data fetched successfully")
+                        print(f"✅ [run_analysis] Historical data fetched successfully for {symbol}")
                         success = self.send_message(
                             chat_id,
-                            "✅ <b>Data historical berhasil diambil</b>\n"
+                            f"✅ <b>Data historical untuk {symbol} berhasil diambil</b>\n"
                             "🔄 Melanjutkan ke analisis..."
                         )
                         print(f"{'✅' if success else '❌'} [run_analysis] Success notification sent: {success}")
                     else:
                         # Data tidak berhasil diambil, tampilkan error detail
                         error_output = result_data.stderr[:500] if result_data.stderr else result_data.stdout[-500:] if result_data.stdout else "Unknown error"
-                        print(f"⚠️  Warning: Gagal mengambil data historical")
+                        print(f"⚠️  Warning: Gagal mengambil data historical untuk {symbol}")
                         print(f"   Return code: {result_data.returncode}")
                         print(f"   Error output: {error_output}")
                         
@@ -325,19 +340,21 @@ class TradingBot:
                                 chat_id,
                                 f"⚠️ <b>Symbol {symbol} tidak ditemukan atau tidak memiliki data</b>\n\n"
                                 f"💡 <b>Kemungkinan penyebab:</b>\n"
-                                f"• Symbol tidak valid di yfinance\n"
+                                f"• Symbol tidak valid\n"
                                 f"• Coin tidak memiliki data historical\n"
                                 f"• Format symbol salah\n\n"
-                                f"🔄 <b>Mencoba fallback ke yfinance langsung...</b>"
+                                f"🔄 <b>Mencoba fallback langsung...</b>"
                             )
                         else:
                             self.send_message(
                                 chat_id,
-                                f"⚠️ <b>Gagal mengambil data historical</b>\n\n"
-                                f"🔄 <b>Mencoba fallback ke yfinance langsung...</b>\n\n"
+                                f"⚠️ <b>Gagal mengambil data historical untuk {symbol}</b>\n\n"
+                                f"🔄 <b>Mencoba fallback langsung...</b>\n\n"
                                 f"<code>{error_output[:200]}</code>"
                             )
-                        print(f"⚠️  Analisis akan menggunakan yfinance langsung")
+                        print(f"⚠️  Analisis akan menggunakan data source langsung")
+                else:
+                    print(f"✅ [run_analysis] Found matching CSV file for {symbol}: {matching_csv_files[0]}")
             except Exception as e:
                 # Error mengambil data, tapi lanjutkan saja
                 print(f"⚠️  Warning: Error saat mengambil data historical: {e}")

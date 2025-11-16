@@ -104,21 +104,54 @@ def load_data_from_csv(csv_file=None):
     global used_csv_file  # Global variable untuk menyimpan nama file yang digunakan
     
     if csv_file is None:
-        # Cari file CSV terbaru (prioritas: historical, lalu data real-time)
-        # Pattern lebih fleksibel: btc_*.csv, btcusd_*.csv, atau *_historical_*.csv
+        # Cari file CSV yang sesuai dengan SYMBOL yang diminta
+        # Prioritaskan file yang sesuai dengan symbol, baru kemudian file terbaru
         csv_files = []
-        # Cari file historical dulu (prioritas)
-        csv_files.extend(glob.glob("*_historical_*.csv"))
-        # Cari file dengan pattern btc
-        csv_files.extend(glob.glob("btc*.csv"))
-        # Cari file dengan pattern umum
+        
+        # Jika SYMBOL tersedia, cari file yang sesuai dengan symbol tersebut
+        if SYMBOL:
+            # Convert SYMBOL ke format filename (DOGE-USD -> doge atau dogeusd)
+            symbol_lower = SYMBOL.replace("-", "").lower()  # DOGE-USD -> dogeusd
+            symbol_base = SYMBOL.split("-")[0].lower()  # DOGE-USD -> doge
+            
+            # Pattern untuk file yang sesuai dengan symbol
+            symbol_patterns = [
+                f"{symbol_lower}_historical_*.csv",  # dogeusd_historical_*.csv
+                f"{symbol_base}_historical_*.csv",  # doge_historical_*.csv
+                f"{symbol_lower}*.csv",  # dogeusd*.csv
+                f"{symbol_base}*.csv",  # doge*.csv
+            ]
+            
+            for pattern in symbol_patterns:
+                csv_files.extend(glob.glob(pattern))
+        
+        # Jika tidak ada file yang sesuai dengan symbol, cari file historical terbaru
         if not csv_files:
-            csv_files.extend(glob.glob("*_*.csv"))  # Fallback: semua file dengan underscore
+            csv_files.extend(glob.glob("*_historical_*.csv"))
+        
+        # Fallback: cari file dengan pattern umum
+        if not csv_files:
+            csv_files.extend(glob.glob("*_*.csv"))
         
         if not csv_files:
             raise FileNotFoundError("Tidak ada file CSV ditemukan. Jalankan get_data.py atau get_historical_data.py terlebih dahulu.")
-        csv_file = max(csv_files, key=os.path.getctime)
-        print(f"Menggunakan file: {csv_file}")
+        
+        # Pilih file yang sesuai dengan symbol jika ada, jika tidak gunakan yang terbaru
+        if SYMBOL:
+            symbol_lower = SYMBOL.replace("-", "").lower()
+            symbol_base = SYMBOL.split("-")[0].lower()
+            # Prioritaskan file yang mengandung symbol
+            matching_files = [f for f in csv_files if symbol_lower in f.lower() or symbol_base in f.lower()]
+            if matching_files:
+                csv_file = max(matching_files, key=os.path.getctime)
+                print(f"✅ Menggunakan file CSV yang sesuai dengan symbol {SYMBOL}: {csv_file}")
+            else:
+                csv_file = max(csv_files, key=os.path.getctime)
+                print(f"⚠️  Tidak ada file CSV untuk {SYMBOL}, menggunakan file terbaru: {csv_file}")
+                print(f"   ⚠️  PERINGATAN: File ini mungkin berisi data untuk coin lain!")
+        else:
+            csv_file = max(csv_files, key=os.path.getctime)
+            print(f"Menggunakan file: {csv_file}")
     
     # Simpan nama file untuk dihapus nanti
     used_csv_file = csv_file
