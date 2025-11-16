@@ -16,7 +16,7 @@ import time
 import json
 import requests
 import subprocess
-from typing import Optional
+from typing import Optional, List, Dict
 from src.utils.config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SYMBOL as DEFAULT_SYMBOL
 
 
@@ -221,6 +221,104 @@ class TradingBot:
             return text
         
         return None
+    
+    def parse_multiple_symbols(self, text: str) -> List[str]:
+        """
+        Parse multiple symbols dari comma-separated text
+        
+        Args:
+            text: Text message dengan multiple symbols dipisahkan koma
+                  Contoh: "BTC,ETH,SOL" atau "GALA,ONT,D,BANANA"
+        
+        Returns:
+            List of valid symbols (format: BTC-USD) atau empty list
+        """
+        if not text:
+            return []
+        
+        # Split by comma
+        symbols_raw = [s.strip().upper() for s in text.split(',') if s.strip()]
+        
+        if len(symbols_raw) <= 1:
+            # Hanya satu symbol atau tidak ada, return empty (akan di-handle oleh parse_symbol)
+            return []
+        
+        # Parse setiap symbol
+        valid_symbols = []
+        for symbol_raw in symbols_raw:
+            # Parse menggunakan logic yang sama dengan parse_symbol
+            symbol = symbol_raw
+            
+            # Normalize
+            if "/" in symbol:
+                symbol = symbol.replace("/", "-")
+            
+            if "-" not in symbol and len(symbol) <= 10:  # Increased limit untuk coin names yang lebih panjang
+                # Format: BTC -> BTC-USD
+                symbol = f"{symbol}-USD"
+            elif "-" not in symbol:
+                # Format: BTCUSD -> BTC-USD
+                if symbol.endswith("USD"):
+                    symbol = symbol[:-3] + "-USD"
+                elif symbol.endswith("USDT"):
+                    symbol = symbol[:-4] + "-USD"
+            
+            # Validasi format akhir: COIN-USD
+            if "-" in symbol and symbol.endswith("-USD"):
+                valid_symbols.append(symbol)
+            else:
+                # Jika tidak valid, coba tambahkan -USD
+                if not symbol.endswith("-USD"):
+                    symbol = f"{symbol}-USD"
+                    valid_symbols.append(symbol)
+        
+        return valid_symbols
+    
+    def run_multiple_analysis(self, symbols: List[str], chat_id: str) -> Dict[str, bool]:
+        """
+        Jalankan analisis untuk multiple symbols
+        
+        Args:
+            symbols: List of trading symbols (format: BTC-USD)
+            chat_id: Chat ID untuk mengirim hasil
+        
+        Returns:
+            Dictionary dengan key=symbol, value=success (True/False)
+        """
+        results = {}
+        
+        print(f"📊 [run_multiple_analysis] Starting analysis for {len(symbols)} coins")
+        
+        for i, symbol in enumerate(symbols, 1):
+            print(f"\n{'='*70}")
+            print(f"📈 [{i}/{len(symbols)}] Processing {symbol}")
+            print(f"{'='*70}")
+            
+            try:
+                result = self.run_analysis(symbol, chat_id)
+                results[symbol] = result
+                
+                if result:
+                    print(f"✅ [{i}/{len(symbols)}] {symbol} - Analysis completed successfully")
+                else:
+                    print(f"❌ [{i}/{len(symbols)}] {symbol} - Analysis failed")
+            except Exception as e:
+                print(f"❌ [{i}/{len(symbols)}] {symbol} - Error: {e}")
+                results[symbol] = False
+                
+                # Kirim error message ke Telegram
+                self.send_message(
+                    chat_id,
+                    f"❌ <b>Error analisis {symbol}</b>\n\n"
+                    f"<code>{str(e)[:200]}</code>"
+                )
+            
+            # Delay kecil antara analisis untuk menghindari rate limit
+            if i < len(symbols):
+                import time
+                time.sleep(2)  # 2 detik delay antara analisis
+        
+        return results
     
     def run_analysis(self, symbol: str, chat_id: str) -> bool:
         """
@@ -675,7 +773,45 @@ class TradingBot:
             print(f"{'✅' if success else '❌'} [handle_message] Send message result: {success}")
             return
         
-        # Parse symbol
+        # Cek apakah ini multiple symbols (comma-separated)
+        multiple_symbols = self.parse_multiple_symbols(text)
+        
+        if len(multiple_symbols) > 1:
+            # Multiple symbols detected
+            print(f"📊 [handle_message] Multiple symbols detected: {len(multiple_symbols)} coins")
+            print(f"   Symbols: {', '.join(multiple_symbols)}")
+            
+            # Kirim notifikasi mulai analisis multiple
+            self.send_message(
+                chat_id,
+                f"🔄 <b>Memproses analisis untuk {len(multiple_symbols)} coins...</b>\n\n"
+                f"📋 Coins: {', '.join([s.replace('-USD', '') for s in multiple_symbols])}\n\n"
+                f"⏳ Mohon tunggu, ini mungkin memakan waktu beberapa menit..."
+            )
+            
+            # Jalankan analisis untuk setiap coin
+            results = self.run_multiple_analysis(multiple_symbols, chat_id)
+            
+            # Kirim summary
+            success_count = sum(1 for r in results.values() if r)
+            failed_count = len(results) - success_count
+            
+            summary_msg = (
+                f"✅ <b>Analisis Multiple Coins Selesai</b>\n\n"
+                f"📊 Total: {len(multiple_symbols)} coins\n"
+                f"✅ Berhasil: {success_count}\n"
+                f"❌ Gagal: {failed_count}\n\n"
+            )
+            
+            if failed_count > 0:
+                failed_symbols = [s for s, r in results.items() if not r]
+                summary_msg += f"❌ Gagal: {', '.join([s.replace('-USD', '') for s in failed_symbols])}\n"
+            
+            self.send_message(chat_id, summary_msg)
+            print(f"✅ [handle_message] Multiple analysis completed: {success_count}/{len(multiple_symbols)} successful")
+            return
+        
+        # Single symbol - parse seperti biasa
         symbol = self.parse_symbol(text)
         print(f"🔍 [handle_message] Parsed symbol: '{text}' -> '{symbol}'")
         
@@ -691,14 +827,15 @@ class TradingBot:
                 "🤖 <b>Trading Quant Bot</b>\n\n"
                 "Kirim symbol coin untuk mendapatkan analisis trading.\n\n"
                 "<b>Format yang didukung:</b>\n"
-                "• BTC-USD\n"
-                "• BTC/USD\n"
-                "• BTCUSD\n"
-                "• BTC\n\n"
-                "<b>Contoh:</b>\n"
+                "• Single coin: <code>BTC</code>, <code>BTC-USD</code>, <code>ETH</code>\n"
+                "• Multiple coins: <code>BTC,ETH,SOL</code> atau <code>GALA,ONT,D,BANANA</code>\n\n"
+                "<b>Contoh Single:</b>\n"
                 "• <code>BTC-USD</code>\n"
                 "• <code>ETH</code>\n"
                 "• <code>SOL-USD</code>\n\n"
+                "<b>Contoh Multiple:</b>\n"
+                "• <code>BTC,ETH,SOL</code>\n"
+                "• <code>GALA,ONT,D,BANANA</code>\n\n"
                 "Bot akan mengirim analisis lengkap termasuk:\n"
                 "• DeepSeek AI Recommendation\n"
                 "• ML Prediction Results\n"
