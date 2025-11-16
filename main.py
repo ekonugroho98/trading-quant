@@ -200,21 +200,29 @@ class TradingBot:
         # - BTC-USD
         # - BTC/USD
         # - BTCUSD
-        # - BTC
+        # - BTC (atau coin name apapun)
         
         # Normalize
         if "/" in text:
             text = text.replace("/", "-")
         
-        if "-" not in text and len(text) <= 6:
-            # Format: BTC -> BTC-USD
-            text = f"{text}-USD"
-        elif "-" not in text:
-            # Format: BTCUSD -> BTC-USD
-            if text.endswith("USD"):
-                text = text[:-3] + "-USD"
-            elif text.endswith("USDT"):
+        # Jika sudah dalam format COIN-USD, return langsung
+        if "-" in text and text.endswith("-USD"):
+            return text
+        
+        # Jika tidak ada "-", berarti format: BTC, BTCUSD, atau coin name
+        if "-" not in text:
+            # Cek apakah sudah berakhir dengan USD/USDT
+            if text.endswith("USDT"):
+                # Format: BTCUSDT -> BTC-USD
                 text = text[:-4] + "-USD"
+            elif text.endswith("USD"):
+                # Format: BTCUSD -> BTC-USD
+                text = text[:-3] + "-USD"
+            else:
+                # Format: BTC atau GRIFFAIN -> COIN-USD
+                # Tidak ada batasan panjang, semua coin name akan ditambahkan -USD
+                text = f"{text}-USD"
         
         # Validasi format akhir: COIN-USD
         if "-" in text and text.endswith("-USD"):
@@ -243,33 +251,26 @@ class TradingBot:
             # Hanya satu symbol atau tidak ada, return empty (akan di-handle oleh parse_symbol)
             return []
         
-        # Parse setiap symbol
+        # Parse setiap symbol menggunakan logic yang sama dengan parse_symbol
         valid_symbols = []
         for symbol_raw in symbols_raw:
-            # Parse menggunakan logic yang sama dengan parse_symbol
-            symbol = symbol_raw
-            
-            # Normalize
-            if "/" in symbol:
-                symbol = symbol.replace("/", "-")
-            
-            if "-" not in symbol and len(symbol) <= 10:  # Increased limit untuk coin names yang lebih panjang
-                # Format: BTC -> BTC-USD
-                symbol = f"{symbol}-USD"
-            elif "-" not in symbol:
-                # Format: BTCUSD -> BTC-USD
-                if symbol.endswith("USD"):
-                    symbol = symbol[:-3] + "-USD"
-                elif symbol.endswith("USDT"):
-                    symbol = symbol[:-4] + "-USD"
-            
-            # Validasi format akhir: COIN-USD
-            if "-" in symbol and symbol.endswith("-USD"):
-                valid_symbols.append(symbol)
+            # Gunakan parse_symbol untuk konsistensi
+            parsed = self.parse_symbol(symbol_raw)
+            if parsed:
+                valid_symbols.append(parsed)
             else:
-                # Jika tidak valid, coba tambahkan -USD
-                if not symbol.endswith("-USD"):
+                # Jika parse_symbol return None, coba tambahkan -USD secara langsung
+                # (untuk coin names yang tidak terdeteksi oleh parse_symbol)
+                symbol = symbol_raw.strip().upper()
+                if "/" in symbol:
+                    symbol = symbol.replace("/", "-")
+                
+                # Jika tidak ada "-", tambahkan -USD
+                if "-" not in symbol:
                     symbol = f"{symbol}-USD"
+                
+                # Validasi dan tambahkan jika valid
+                if "-" in symbol and symbol.endswith("-USD"):
                     valid_symbols.append(symbol)
         
         return valid_symbols
