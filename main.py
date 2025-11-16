@@ -259,8 +259,21 @@ class TradingBot:
                 print(f"ℹ️  [run_analysis] No custom TRADING_STYLE for user, using default")
             
             # Tunggu sebentar untuk memastikan file config.py sudah ter-write
-            print(f"⏳ [run_analysis] Waiting 0.5s for config file to be written...")
-            time.sleep(0.5)
+            print(f"⏳ [run_analysis] Waiting 1.0s for config file to be written...")
+            time.sleep(1.0)  # Increase delay untuk memastikan file ter-write dengan benar
+            
+            # Verifikasi config sudah ter-update dengan membaca file langsung
+            try:
+                config_file = "src/utils/config.py"
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    if f'SYMBOL = "{symbol}"' in content:
+                        print(f"✅ [run_analysis] Config verified: SYMBOL={symbol}")
+                    else:
+                        print(f"⚠️  [run_analysis] Config verification failed, SYMBOL mungkin belum ter-update")
+            except Exception as e:
+                print(f"⚠️  [run_analysis] Error verifying config: {e}")
+            
             print(f"✅ [run_analysis] Config update completed")
             
             # Verifikasi bahwa config sudah ter-update dengan benar
@@ -375,8 +388,64 @@ class TradingBot:
             if result.returncode == 0:
                 # Analisis berhasil, hasil sudah dikirim otomatis oleh analisis_quant.py
                 print(f"✅ [run_analysis] Analysis completed successfully for {symbol}")
+                
+                # Tampilkan bagian penting dari output (ml_result dan Quant Metrics)
                 if result.stdout:
-                    print(f"📝 [run_analysis] stdout (last 200 chars): {result.stdout[-200:]}")
+                    # Cari bagian penting tentang ml_result dan Quant Metrics
+                    stdout_lines = result.stdout.split('\n')
+                    
+                    # Tampilkan bagian ML PREDICTION / QUANT METRICS
+                    ml_section_start = None
+                    ml_section_end = None
+                    for i, line in enumerate(stdout_lines):
+                        if "ML PREDICTION / QUANT METRICS" in line or "PRE-TELEGRAM LOGGING" in line:
+                            ml_section_start = i
+                        elif ml_section_start is not None and ("=" * 70 in line or "Mengirim trading signal" in line):
+                            ml_section_end = i
+                            break
+                    
+                    if ml_section_start is not None:
+                        print(f"\n📊 [run_analysis] ML Result & Quant Metrics Section:")
+                        print("=" * 70)
+                        section_lines = stdout_lines[ml_section_start:ml_section_end] if ml_section_end else stdout_lines[ml_section_start:ml_section_start+30]
+                        for line in section_lines:
+                            if any(keyword in line for keyword in ["ml_result", "Quant Metrics", "accuracy", "sharpe", "expected_value", "TELEGRAM DEBUG", "✅", "❌"]):
+                                print(f"   {line}")
+                        print("=" * 70)
+                    
+                    # Cari bagian PREDICTION CHECK dan RUN_PREDICTION - cari SEMUA occurrence
+                    prediction_check_lines = []
+                    for i, line in enumerate(stdout_lines):
+                        if any(keyword in line for keyword in ["PREDICTION CHECK", "RUN_PREDICTION", "LANJUT KE PREDIKSI", "prediksi_next_day.py", "[PREDICTION]", "WILL EXECUTE PREDICTION", "Prediksi TIDAK dijalankan"]):
+                            # Ambil 3 baris sebelum dan 15 baris setelah
+                            start = max(0, i - 3)
+                            end = min(len(stdout_lines), i + 15)
+                            prediction_check_lines.extend(stdout_lines[start:end])
+                            prediction_check_lines.append("---")  # Separator
+                    
+                    if prediction_check_lines:
+                        print(f"\n🔍 [run_analysis] Prediction Execution Section (ALL occurrences):")
+                        print("=" * 70)
+                        # Remove duplicates while preserving order
+                        seen = set()
+                        unique_lines = []
+                        for line in prediction_check_lines:
+                            if line not in seen:
+                                seen.add(line)
+                                unique_lines.append(line)
+                        for line in unique_lines[:100]:  # Limit to 100 lines
+                            print(f"   {line}")
+                        print("=" * 70)
+                    else:
+                        print(f"\n⚠️  [run_analysis] NO PREDICTION CHECK output found in stdout!")
+                        print("   This means either:")
+                        print("   1. RUN_PREDICTION section was not executed")
+                        print("   2. Output was not captured properly")
+                        print("   3. Exception occurred before prediction section")
+                    
+                    # Tampilkan last 500 chars sebagai fallback
+                    print(f"\n📝 [run_analysis] stdout (last 500 chars):")
+                    print(result.stdout[-500:])
                 return True
             else:
                 # Ada error

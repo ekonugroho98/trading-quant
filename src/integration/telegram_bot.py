@@ -960,52 +960,119 @@ class TelegramBot:
             lines.append("")
         
         # Quant Metrics (ringkas dalam satu baris)
+        # SELALU tambahkan Quant Metrics, bahkan jika ml_prediction adalah None
+        metrics_parts = []
+        
         if ml_prediction:
-            metrics_parts = []
+            print(f"🔍 [TELEGRAM DEBUG] ml_prediction received: type={type(ml_prediction)}")
+            if isinstance(ml_prediction, dict):
+                print(f"   Keys: {list(ml_prediction.keys())}")
+                print(f"   accuracy: {ml_prediction.get('accuracy')} (type: {type(ml_prediction.get('accuracy'))})")
+                print(f"   sharpe_ratio: {ml_prediction.get('sharpe_ratio')} (type: {type(ml_prediction.get('sharpe_ratio'))})")
+                print(f"   expected_value: {ml_prediction.get('expected_value')} (type: {type(ml_prediction.get('expected_value'))})")
             
-            accuracy = ml_prediction.get('accuracy')
-            if accuracy is not None:
+            # SELALU tambahkan metrics jika key ada di ml_prediction, bahkan jika nilainya 0 atau None
+            # Ini memastikan Quant Metrics selalu muncul di Telegram
+            accuracy = ml_prediction.get('accuracy') if isinstance(ml_prediction, dict) else None
+            sharpe = ml_prediction.get('sharpe_ratio') if isinstance(ml_prediction, dict) else None
+            expected_value = ml_prediction.get('expected_value') if isinstance(ml_prediction, dict) else None
+            
+            print(f"🔍 [TELEGRAM DEBUG] Processing metrics:")
+            print(f"   accuracy: {accuracy} (type: {type(accuracy)}, is None: {accuracy is None})")
+            print(f"   sharpe_ratio: {sharpe} (type: {type(sharpe)}, is None: {sharpe is None})")
+            print(f"   expected_value: {expected_value} (type: {type(expected_value)}, is None: {expected_value is None})")
+            
+            # Process accuracy - SELALU tambahkan jika key ada (bahkan jika None, gunakan 0)
+            # Jika key tidak ada, tambahkan "N/A" untuk memastikan Quant Metrics selalu muncul
+            if isinstance(ml_prediction, dict) and 'accuracy' in ml_prediction:
                 try:
-                    # Convert to float if it's a string or other type
-                    if isinstance(accuracy, str):
+                    if accuracy is None:
+                        accuracy = 0
+                    elif isinstance(accuracy, str):
                         accuracy = float(accuracy)
                     elif not isinstance(accuracy, (int, float)):
                         accuracy = float(accuracy)
                     
                     # If accuracy is less than 1, assume it's a decimal (0.85 = 85%)
-                    if isinstance(accuracy, float) and accuracy < 1:
+                    if isinstance(accuracy, (int, float)) and 0 < accuracy < 1:
                         accuracy = accuracy * 100
+                    elif accuracy is None:
+                        accuracy = 0
                     
                     metrics_parts.append(f"Accuracy {accuracy:.0f}%")
-                except (ValueError, TypeError):
-                    # If conversion fails, just use the value as string
-                    metrics_parts.append(f"Accuracy {accuracy}%")
+                    print(f"   ✅ Accuracy added: {accuracy:.0f}%")
+                except (ValueError, TypeError) as e:
+                    print(f"   ⚠️  Error converting accuracy: {e}, using 0")
+                    metrics_parts.append(f"Accuracy 0%")
+            else:
+                # Key tidak ada, tambahkan N/A untuk memastikan Quant Metrics muncul
+                metrics_parts.append("Accuracy N/A")
+                print(f"   ⚠️  Accuracy key tidak ditemukan, menambahkan N/A")
             
-            sharpe = ml_prediction.get('sharpe_ratio')
-            if sharpe is not None:
+            # Process sharpe - SELALU tambahkan jika key ada (bahkan jika None, gunakan 0)
+            # Jika key tidak ada, tambahkan "N/A" untuk memastikan Quant Metrics selalu muncul
+            if isinstance(ml_prediction, dict) and 'sharpe_ratio' in ml_prediction:
                 try:
-                    if isinstance(sharpe, str):
+                    if sharpe is None:
+                        sharpe = 0
+                    elif isinstance(sharpe, str):
                         sharpe = float(sharpe)
                     elif not isinstance(sharpe, (int, float)):
                         sharpe = float(sharpe)
+                    
                     metrics_parts.append(f"Sharpe {sharpe:.2f}")
-                except (ValueError, TypeError):
-                    metrics_parts.append(f"Sharpe {sharpe}")
+                    print(f"   ✅ Sharpe added: {sharpe:.2f}")
+                except (ValueError, TypeError) as e:
+                    print(f"   ⚠️  Error converting sharpe: {e}, using 0")
+                    metrics_parts.append(f"Sharpe 0.00")
+            else:
+                # Key tidak ada, tambahkan N/A untuk memastikan Quant Metrics muncul
+                metrics_parts.append("Sharpe N/A")
+                print(f"   ⚠️  Sharpe ratio key tidak ditemukan, menambahkan N/A")
             
-            expected_value = ml_prediction.get('expected_value')
-            if expected_value is not None:
+            # Process expected_value - SELALU tambahkan jika key ada (bahkan jika None, gunakan 0)
+            # Jika key tidak ada, tambahkan "N/A" untuk memastikan Quant Metrics selalu muncul
+            if isinstance(ml_prediction, dict) and 'expected_value' in ml_prediction:
                 try:
-                    if isinstance(expected_value, str):
+                    if expected_value is None:
+                        expected_value = 0
+                    elif isinstance(expected_value, str):
                         expected_value = float(expected_value)
                     elif not isinstance(expected_value, (int, float)):
                         expected_value = float(expected_value)
+                    
                     metrics_parts.append(f"Expected Value {expected_value:.2f}%")
-                except (ValueError, TypeError):
-                    metrics_parts.append(f"Expected Value {expected_value}%")
+                    print(f"   ✅ Expected Value added: {expected_value:.2f}%")
+                except (ValueError, TypeError) as e:
+                    print(f"   ⚠️  Error converting expected_value: {e}, using 0")
+                    metrics_parts.append(f"Expected Value 0.00%")
+            else:
+                # Key tidak ada, tambahkan N/A untuk memastikan Quant Metrics muncul
+                metrics_parts.append("Expected Value N/A")
+                print(f"   ⚠️  Expected value key tidak ditemukan, menambahkan N/A")
             
-            if metrics_parts:
-                lines.append(f"📈 <b>Quant Metrics:</b> {', '.join(metrics_parts)}")
-                lines.append("")
+        else:
+            # ml_prediction is None - tambahkan placeholder untuk semua metrics
+            print(f"⚠️  [TELEGRAM] ml_prediction is None atau tidak ada, menambahkan placeholder")
+            metrics_parts = ["Accuracy N/A", "Sharpe N/A", "Expected Value N/A"]
+        
+        print(f"🔍 [TELEGRAM DEBUG] metrics_parts: {metrics_parts}")
+        
+        # SELALU tambahkan Quant Metrics (tidak peduli ml_prediction None atau tidak)
+        # metrics_parts tidak akan pernah kosong karena kita selalu menambahkan setidaknya "N/A" untuk setiap metric
+        if metrics_parts:
+            metrics_line = f"📈 <b>Quant Metrics:</b> {', '.join(metrics_parts)}"
+            lines.append(metrics_line)
+            lines.append("")
+            print(f"✅ [TELEGRAM] Quant Metrics akan ditambahkan: {metrics_line}")
+        else:
+            # Fallback: seharusnya tidak pernah terjadi karena kita selalu menambahkan metrics
+            # Tapi tetap ada sebagai safety net
+            print(f"⚠️  [TELEGRAM] ERROR: metrics_parts kosong!")
+            metrics_line = f"📈 <b>Quant Metrics:</b> Accuracy N/A, Sharpe N/A, Expected Value N/A"
+            lines.append(metrics_line)
+            lines.append("")
+            print(f"✅ [TELEGRAM] Quant Metrics placeholder ditambahkan (fallback): {metrics_line}")
         
         return "\n".join(lines)
 

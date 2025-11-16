@@ -34,12 +34,16 @@ def get_binance_data(symbol: str,
     Returns:
         DataFrame dengan kolom: date, Open, High, Low, Close, Volume
     """
-    api_type = BINANCE_API_TYPE.lower()
+    api_type = BINANCE_API_TYPE.lower() if BINANCE_API_TYPE else "spot"
     api_key = api_key or BINANCE_API_KEY
     api_secret = api_secret or BINANCE_API_SECRET
     
+    print(f"📡 [BINANCE API] Using {api_type.upper()} API")
+    print(f"   Symbol: {symbol}, Days back: {days_back}, Interval: {interval}")
+    
     if api_type == "futures":
         # Gunakan Futures API
+        print(f"🔵 [FUTURES API] Routing to Futures API")
         try:
             from src.data.binance_futures_data import get_futures_data
             return get_futures_data(
@@ -56,6 +60,7 @@ def get_binance_data(symbol: str,
     
     if api_type == "spot":
         # Gunakan Spot API
+        print(f"🟢 [SPOT API] Routing to Spot API")
         try:
             from src.data.binance_data import get_data_binance
             return get_data_binance(

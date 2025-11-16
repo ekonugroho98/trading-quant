@@ -53,6 +53,10 @@ try:
         TRADING_SYMBOL, SETUP_RISK_PERCENT, SETUP_TP_MULTIPLIERS,
         RUN_PREDICTION, SYMBOL, DATA_SOURCE
     )
+    # Debug: Print RUN_PREDICTION value immediately after loading
+    print(f"\n🔍 [CONFIG DEBUG] RUN_PREDICTION = {RUN_PREDICTION} (type: {type(RUN_PREDICTION)})")
+    print(f"🔍 [CONFIG DEBUG] SYMBOL = {SYMBOL}")
+    print(f"🔍 [CONFIG DEBUG] DATA_SOURCE = {DATA_SOURCE}")
     # Konversi SYMBOL (format: COIN-USD) ke format trading symbol (COINUSDT)
     # Auto-generate TRADING_SYMBOL dari SYMBOL jika SYMBOL tersedia
     # User bisa override dengan set TRADING_SYMBOL manual di config.py
@@ -219,10 +223,11 @@ def load_data_from_csv(csv_file=None):
     return df_resampled
 
 def load_data_from_binance():
-    """Load data dari Binance API (kompatibel dengan yfinance)"""
+    """Load data dari Binance API (Spot atau Futures berdasarkan BINANCE_API_TYPE)"""
     try:
-        from src.data.binance_data import get_data_binance
-        from src.utils.config import BINANCE_API_KEY, BINANCE_API_SECRET, get_days_back, get_interval
+        # Gunakan helper yang otomatis memilih Spot atau Futures berdasarkan config
+        from src.data.binance_api_helper import get_binance_data
+        from src.utils.config import BINANCE_API_KEY, BINANCE_API_SECRET, get_days_back, get_interval, BINANCE_API_TYPE
         
         print("Mengambil data dari Binance API...")
         days_back = get_days_back()
@@ -230,11 +235,16 @@ def load_data_from_binance():
         
         # Gunakan SYMBOL dari config, fallback ke BTC-USD jika tidak ada
         symbol_to_download = SYMBOL if SYMBOL else "BTC-USD"
+        
+        # Tampilkan info API type yang digunakan
+        api_type = BINANCE_API_TYPE.lower() if BINANCE_API_TYPE else "spot"
+        print(f"📡 Menggunakan Binance {api_type.upper()} API")
         print(f"Symbol: {symbol_to_download}")
         print(f"Periode: {days_back} hari terakhir")
         print(f"Interval: {interval}")
         
-        data = get_data_binance(
+        # get_binance_data() otomatis memilih Spot atau Futures berdasarkan BINANCE_API_TYPE
+        data = get_binance_data(
             symbol_to_download,
             days_back,
             interval,
@@ -263,6 +273,8 @@ def load_data_from_binance():
         return None
     except Exception as e:
         print(f"⚠️  Error mengambil data dari Binance: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def load_data_from_yfinance():
@@ -288,14 +300,41 @@ def load_data_from_yfinance():
     # Gunakan SYMBOL dari config, fallback ke BTC-USD jika tidak ada
     symbol_to_download = SYMBOL if SYMBOL else "BTC-USD"
     print(f"Mengunduh data untuk: {symbol_to_download}")
-    data = yf.download(symbol_to_download, start=start_str, end=end_str, progress=False)
     
-    # Filter tambahan: pastikan hanya data tahun target
-    if not data.empty and FILTER_YEAR is not None:
-        data = data[data.index.year == FILTER_YEAR]
-        print(f"Data setelah filter tahun {FILTER_YEAR}: {len(data)} records")
+    try:
+        # Explicitly set auto_adjust=False to suppress FutureWarning
+        data = yf.download(symbol_to_download, start=start_str, end=end_str, progress=False, auto_adjust=False)
+        
+        # Check if data is empty or None
+        if data is None or data.empty:
+            print(f"⚠️  Tidak ada data untuk {symbol_to_download} pada periode {start_str} sampai {end_str}")
+            print(f"   Symbol mungkin tidak valid atau tidak memiliki data di yfinance")
+            return None
+        
+        # Filter tambahan: pastikan hanya data tahun target
+        if not data.empty and FILTER_YEAR is not None:
+            data = data[data.index.year == FILTER_YEAR]
+            print(f"Data setelah filter tahun {FILTER_YEAR}: {len(data)} records")
+        
+        return data
     
-    return data
+    except Exception as e:
+        error_msg = str(e)
+        error_type = type(e).__name__
+        print(f"❌ Error mengambil data dari yfinance: {error_type}: {error_msg}")
+        
+        # Check for specific yfinance errors
+        if "YFPricesMissingError" in error_type or "no price data found" in error_msg.lower() or "possibly delisted" in error_msg.lower():
+            print(f"💡 Symbol '{symbol_to_download}' mungkin tidak valid, delisted, atau tidak memiliki data di yfinance")
+            print(f"   Coba gunakan symbol lain seperti: BTC-USD, ETH-USD, XRP-USD, dll")
+        elif "not found" in error_msg.lower() or "no data" in error_msg.lower():
+            print(f"💡 Symbol '{symbol_to_download}' tidak ditemukan di yfinance")
+        elif "timeout" in error_msg.lower():
+            print(f"💡 Request timeout - coba lagi nanti")
+        elif "rate limit" in error_msg.lower():
+            print(f"💡 Rate limit tercapai - tunggu beberapa saat")
+        
+        return None
 
 # 1️⃣ Ambil data historis
 data = None
@@ -791,11 +830,56 @@ crossover_sell = data['Sell_Signal'].sum()
 # Posisi saat ini (data terakhir)
 last_idx = data.index[-1]
 last_signal = data['Signal'].iloc[-1]
-last_close = data['Close'].iloc[-1]
+last_close = data['Close'].iloc[-1]  # Fallback price dari klines
 last_ma_short = data['MA_short'].iloc[-1] if pd.notna(data['MA_short'].iloc[-1]) else 0
 last_ma_long = data['MA_long'].iloc[-1] if pd.notna(data['MA_long'].iloc[-1]) else 0
 
 signal_text = "BELI" if last_signal == 1 else ("JUAL" if last_signal == -1 else "NETRAL")
+
+# Get real-time current price dari ticker endpoint (untuk Futures API)
+current_price_realtime = None
+try:
+    # Cek apakah menggunakan Binance Futures API
+    from src.utils.config import BINANCE_API_TYPE, DATA_SOURCE
+    if DATA_SOURCE == "binance" and BINANCE_API_TYPE and BINANCE_API_TYPE.lower() == "futures":
+        from src.data.binance_futures_data import get_futures_ticker_price
+        
+        # Convert symbol format: DOGE-USD -> DOGEUSDT
+        if SYMBOL and SYMBOL.endswith("-USD"):
+            binance_symbol = SYMBOL.replace("-USD", "") + "USDT"
+        elif TRADING_SYMBOL:
+            binance_symbol = TRADING_SYMBOL
+        else:
+            binance_symbol = None
+        
+        if binance_symbol:
+            print(f"💰 [REAL-TIME PRICE] Fetching current price from ticker endpoint for {binance_symbol}...")
+            price_data = get_futures_ticker_price(symbol=binance_symbol)
+            
+            if price_data:
+                if isinstance(price_data, dict) and 'price' in price_data:
+                    current_price_realtime = float(price_data['price'])
+                    print(f"   ✅ Real-time price: {current_price_realtime}")
+                elif isinstance(price_data, list) and len(price_data) > 0:
+                    # Jika return list, cari symbol yang sesuai
+                    for item in price_data:
+                        if isinstance(item, dict) and item.get('symbol') == binance_symbol:
+                            current_price_realtime = float(item.get('price', 0))
+                            print(f"   ✅ Real-time price: {current_price_realtime}")
+                            break
+            
+            if current_price_realtime is None:
+                print(f"   ⚠️  Failed to get real-time price, using klines price as fallback")
+except Exception as e:
+    print(f"   ⚠️  Error fetching real-time price: {e}, using klines price as fallback")
+
+# Gunakan real-time price jika tersedia, fallback ke last_close
+if current_price_realtime is not None and current_price_realtime > 0:
+    current_price = current_price_realtime
+    price_source = "real-time (ticker)"
+else:
+    current_price = last_close
+    price_source = "klines (last close)"
 
 print("POSISI TRADING:")
 print(f"  - Periode dalam posisi BELI: {buy_periods} ({buy_periods/len(data)*100:.1f}%)")
@@ -828,14 +912,17 @@ try:
 except (IndexError, KeyError, TypeError):
     last_resistance = None
 
-# Pastikan last_close juga float
+# Pastikan current_price juga float (gunakan real-time price jika tersedia)
 try:
-    if isinstance(last_close, pd.Series):
-        last_close = float(last_close.iloc[0])
+    if isinstance(current_price, pd.Series):
+        current_price = float(current_price.iloc[0])
     else:
-        last_close = float(last_close)
+        current_price = float(current_price)
 except (TypeError, ValueError):
-    last_close = 0.0
+    current_price = 0.0
+
+# Keep last_close untuk compatibility dengan code lain
+last_close = current_price
 
 # Format waktu dengan timezone info
 if isinstance(last_idx, pd.Timestamp):
@@ -858,7 +945,7 @@ else:
 
 print(f"POSISI SAAT INI (Data terakhir - {time_display}):")
 print(f"  - Posisi: {signal_text}")
-print(f"  - Harga: {format_price(last_close)}")
+print(f"  - Harga: {format_price(current_price)} ({price_source})")
 print()
 print(f"  📊 5 INDIKATOR WAJIB:")
 # Indikator 1: EMA 20, 50, 200
@@ -875,9 +962,9 @@ try:
     
     # Trend signal berdasarkan EMA alignment
     if pd.notna(last_ema_20) and pd.notna(last_ema_50) and pd.notna(last_ema_200):
-        if last_close > float(last_ema_20) > float(last_ema_50) > float(last_ema_200):
+        if current_price > float(last_ema_20) > float(last_ema_50) > float(last_ema_200):
             trend_signal = "🟢 BULLISH (Uptrend kuat)"
-        elif last_close < float(last_ema_20) < float(last_ema_50) < float(last_ema_200):
+        elif current_price < float(last_ema_20) < float(last_ema_50) < float(last_ema_200):
             trend_signal = "🔴 BEARISH (Downtrend kuat)"
         elif float(last_ema_20) > float(last_ema_50):
             trend_signal = "🟡 BULLISH_WEAK (Uptrend lemah)"
@@ -924,13 +1011,13 @@ except:
 
 # Indikator 5: Support/Resistance
 if last_support is not None and last_resistance is not None:
-    support_dist = ((last_close - last_support) / last_close * 100) if last_close > 0 else 0
-    resistance_dist = ((last_resistance - last_close) / last_close * 100) if last_close > 0 else 0
+    support_dist = ((current_price - last_support) / current_price * 100) if current_price > 0 else 0
+    resistance_dist = ((last_resistance - current_price) / current_price * 100) if current_price > 0 else 0
     print(f"  5️⃣  Support: {format_price(last_support)} (jarak: {support_dist:.2f}%)")
     print(f"      Resistance: {format_price(last_resistance)} (jarak: {resistance_dist:.2f}%)")
     # Tentukan apakah harga mendekati support atau resistance
-    dist_to_support = abs(last_close - last_support) / last_close * 100 if last_close > 0 else 0
-    dist_to_resistance = abs(last_resistance - last_close) / last_close * 100 if last_close > 0 else 0
+    dist_to_support = abs(current_price - last_support) / current_price * 100 if current_price > 0 else 0
+    dist_to_resistance = abs(last_resistance - current_price) / current_price * 100 if current_price > 0 else 0
     if dist_to_support < 2:
         print(f"  ⚠️  Harga sangat dekat dengan Support! (kemungkinan bounce atau breakdown)")
     elif dist_to_resistance < 2:
@@ -1228,9 +1315,9 @@ if last_support is not None and last_resistance is not None:
     if last_signal == 0:
         # Jika harga lebih dekat ke support, bias ke LONG
         # Jika harga lebih dekat ke resistance, bias ke SHORT
-        if last_close > 0:
-            dist_to_support = abs(last_close - last_support) / last_close
-            dist_to_resistance = abs(last_resistance - last_close) / last_close
+        if current_price > 0:
+            dist_to_support = abs(current_price - last_support) / current_price
+            dist_to_resistance = abs(last_resistance - current_price) / current_price
         else:
             dist_to_support = float('inf')
             dist_to_resistance = float('inf')
@@ -1271,7 +1358,7 @@ if last_support is not None and last_resistance is not None:
     
     setup = generate_trading_setup(
         symbol=TRADING_SYMBOL,
-        current_price=float(last_close),
+        current_price=float(current_price),  # Gunakan real-time price
         support=float(last_support),
         resistance=float(last_resistance),
         signal=setup_signal,
@@ -1864,11 +1951,29 @@ analysis_data_for_deepseek = None
 # OPSI: Jalankan prediksi SEBELUM menampilkan chart
 # (Karena plt.show() akan memblokir eksekusi)
 # ============================================
+print("\n" + "=" * 70, flush=True)
+print("🔍 [PREDICTION CHECK] Checking RUN_PREDICTION configuration...", flush=True)
+print("=" * 70, flush=True)
+print(f"   RUN_PREDICTION value: {RUN_PREDICTION}", flush=True)
+print(f"   RUN_PREDICTION type: {type(RUN_PREDICTION)}", flush=True)
+print(f"   RUN_PREDICTION is True: {RUN_PREDICTION is True}", flush=True)
+print(f"   RUN_PREDICTION == True: {RUN_PREDICTION == True}", flush=True)
+print(f"   bool(RUN_PREDICTION): {bool(RUN_PREDICTION)}", flush=True)
+print("=" * 70, flush=True)
+
+# Force flush before if statement
+import sys
+sys.stdout.flush()
+
 if RUN_PREDICTION:
-    print("\n" + "=" * 60)
-    print("🚀 LANJUT KE PREDIKSI HARI BERIKUTNYA (MASA DEPAN)")
-    print("=" * 60)
-    print()
+    print("✅ [PREDICTION CHECK] RUN_PREDICTION is True - WILL EXECUTE PREDICTION", flush=True)
+    sys.stdout.flush()
+    
+    print("\n" + "=" * 60, flush=True)
+    print("🚀 LANJUT KE PREDIKSI HARI BERIKUTNYA (MASA DEPAN)", flush=True)
+    print("=" * 60, flush=True)
+    print(flush=True)
+    sys.stdout.flush()
     
     try:
         # Import dan jalankan prediksi secara langsung
@@ -1879,24 +1984,130 @@ if RUN_PREDICTION:
         # (prediksi_next_day.py juga akan menggunakan file CSV yang sama)
         csv_file_for_prediction = used_csv_file if 'used_csv_file' in globals() and used_csv_file else None
         
+        # Debug: Pastikan CSV file masih ada sebelum menjalankan prediksi
+        print(f"🔍 [DEBUG] Before running prediksi_next_day.py:")
+        if csv_file_for_prediction:
+            print(f"   CSV file untuk prediksi: {csv_file_for_prediction}")
+            if os.path.exists(csv_file_for_prediction):
+                print(f"   ✅ CSV file exists: {os.path.getsize(csv_file_for_prediction):,} bytes")
+            else:
+                print(f"   ❌ ERROR: CSV file tidak ditemukan: {csv_file_for_prediction}")
+                # Cari file CSV terbaru sebagai fallback
+                import glob
+                csv_files = glob.glob("*_historical_*.csv")
+                if csv_files:
+                    csv_file_for_prediction = max(csv_files, key=os.path.getmtime)
+                    print(f"   🔄 Fallback: Menggunakan file terbaru: {csv_file_for_prediction}")
+                else:
+                    print(f"   ❌ ERROR: Tidak ada file CSV historical ditemukan!")
+        else:
+            # Cari file CSV terbaru
+            import glob
+            csv_files = glob.glob("*_historical_*.csv")
+            if csv_files:
+                csv_file_for_prediction = max(csv_files, key=os.path.getmtime)
+                print(f"   📁 Found CSV file: {csv_file_for_prediction}")
+            else:
+                print(f"   ⚠️  WARNING: Tidak ada CSV file ditemukan untuk prediksi!")
+        
         # Jalankan dengan output real-time
+        print(f"🚀 [PREDICTION] Running prediksi_next_day.py...", flush=True)
+        print(f"   Working directory: {os.getcwd()}", flush=True)
+        print(f"   CSV file should be: {csv_file_for_prediction}", flush=True)
+        sys.stdout.flush()
+        
+        # Capture output untuk debugging jika error
+        # File prediksi_next_day.py ada di src/, bukan di root
+        prediksi_script = "src/prediksi_next_day.py"
+        if not os.path.exists(prediksi_script):
+            # Fallback: coba cari di current directory
+            if os.path.exists("prediksi_next_day.py"):
+                prediksi_script = "prediksi_next_day.py"
+            else:
+                print(f"❌ [PREDICTION ERROR] File prediksi_next_day.py tidak ditemukan!", flush=True)
+                print(f"   Mencari di: {os.path.abspath(prediksi_script)}", flush=True)
+                print(f"   Current directory: {os.getcwd()}", flush=True)
+                sys.stdout.flush()
+                raise FileNotFoundError(f"prediksi_next_day.py tidak ditemukan di {prediksi_script} atau current directory")
+        
+        print(f"   📄 Using script: {prediksi_script}", flush=True)
+        sys.stdout.flush()
+        
         result = subprocess.run(
-            [sys.executable, "prediksi_next_day.py"],
+            [sys.executable, prediksi_script],
             check=False,
-            stdout=None,  # Tampilkan output langsung
-            stderr=None   # Tampilkan error langsung
+            stdout=subprocess.PIPE,  # Capture stdout untuk debugging
+            stderr=subprocess.PIPE,   # Capture stderr untuk debugging
+            text=True
         )
+        print(f"🔍 [PREDICTION] prediksi_next_day.py completed with returncode: {result.returncode}", flush=True)
+        
+        # Jika error, tampilkan error output
+        if result.returncode != 0:
+            print(f"\n❌ [PREDICTION ERROR] prediksi_next_day.py failed with returncode: {result.returncode}", flush=True)
+            if result.stderr:
+                print(f"   📋 Error output (stderr):", flush=True)
+                error_lines = result.stderr.split('\n')
+                for line in error_lines[-20:]:  # Last 20 lines
+                    if line.strip():
+                        print(f"      {line}", flush=True)
+            if result.stdout:
+                print(f"   📋 Standard output (stdout):", flush=True)
+                stdout_lines = result.stdout.split('\n')
+                for line in stdout_lines[-20:]:  # Last 20 lines
+                    if line.strip():
+                        print(f"      {line}", flush=True)
+            print(f"   💡 File ml_prediction_result.json TIDAK AKAN dibuat karena error di atas", flush=True)
+        else:
+            print(f"✅ [PREDICTION] prediksi_next_day.py completed successfully", flush=True)
+        
+        sys.stdout.flush()
         
         # Tunggu sebentar untuk memastikan file ml_prediction_result.json sudah ter-write
         import time
-        time.sleep(0.5)
+        time.sleep(1.0)  # Increase delay untuk memastikan file ter-write
+        
+        # Verifikasi file JSON sudah terbuat (di project root)
+        # Get project root
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(script_dir))
+        json_file = os.path.join(project_root, "ml_prediction_result.json")
+        json_file_current = "ml_prediction_result.json"  # Fallback: current directory
+        
+        print(f"🔍 [DEBUG] Looking for ml_prediction_result.json:")
+        print(f"   Project root path: {json_file}")
+        print(f"   Current directory path: {json_file_current}")
+        print(f"   Current working directory: {os.getcwd()}")
+        
+        # Cek di project root dulu, lalu current directory
+        json_file_to_check = json_file if os.path.exists(json_file) else (json_file_current if os.path.exists(json_file_current) else None)
+        
+        if json_file_to_check and os.path.exists(json_file_to_check):
+            print(f"✅ File ml_prediction_result.json ditemukan di: {json_file_to_check}")
+            try:
+                import json
+                with open(json_file_to_check, 'r') as f:
+                    ml_data = json.load(f)
+                    print(f"   📊 ML Results: accuracy={ml_data.get('accuracy')}, sharpe={ml_data.get('sharpe_ratio')}, expected_value={ml_data.get('expected_value')}")
+            except Exception as e:
+                print(f"   ⚠️  Error reading JSON: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print(f"⚠️  File ml_prediction_result.json belum terbuat")
+            print(f"   Checked paths:")
+            print(f"   - {json_file} (exists: {os.path.exists(json_file)})")
+            print(f"   - {json_file_current} (exists: {os.path.exists(json_file_current)})")
         
         if result.returncode != 0:
-            print("\n⚠️  Prediksi mengalami error, tapi analisis strategi sudah selesai")
+            print(f"\n⚠️  Prediksi mengalami error (returncode={result.returncode}), tapi analisis strategi sudah selesai")
+            print("   💡 File ml_prediction_result.json mungkin tidak dibuat karena error")
         else:
             print("\n" + "=" * 60)
             print("✅ PREDIKSI SELESAI - Lihat output di atas untuk signal BELI/JUAL masa depan")
             print("=" * 60)
+            print(f"   📊 Returncode: {result.returncode}")
+            print(f"   📁 File JSON seharusnya sudah dibuat di: {json_file} atau {json_file_current}")
         
         # ============================================
         # DEEPSEEK AI INTEGRATION (After ML Prediction)
@@ -2011,19 +2222,154 @@ if RUN_PREDICTION:
                             ml_result = None
                             try:
                                 from src.models.ml_prediction_helper import get_ml_prediction_from_file
-                                # Tunggu sebentar untuk memastikan file JSON sudah ter-write
                                 import time
-                                time.sleep(0.5)
                                 
-                                ml_result = get_ml_prediction_from_file()
+                                # Retry mechanism: coba baca file beberapa kali dengan delay
+                                max_retries = 3
+                                retry_delay = 1.0
+                                
+                                for attempt in range(max_retries):
+                                    if attempt > 0:
+                                        print(f"   🔄 Retry {attempt}/{max_retries-1} membaca file JSON...")
+                                        time.sleep(retry_delay)
+                                    
+                                    print(f"🔍 [DEBUG] Mencoba membaca ml_prediction_result.json (attempt {attempt+1}/{max_retries})...")
+                                    print(f"   Current directory: {os.getcwd()}")
+                                    
+                                    ml_result = get_ml_prediction_from_file()
+                                    if ml_result:
+                                        print("✅ ML prediction results ditemukan")
+                                        break
+                                
                                 if ml_result:
-                                    print("✅ ML prediction results ditemukan")
+                                    # Debug: print metrics yang ditemukan
+                                    print(f"   📊 Metrics found: accuracy={ml_result.get('accuracy')}, sharpe={ml_result.get('sharpe_ratio')}, expected_value={ml_result.get('expected_value')}")
+                                    print(f"   🔍 [DEBUG] ml_result type: {type(ml_result)}")
+                                    print(f"   🔍 [DEBUG] ml_result keys: {list(ml_result.keys()) if isinstance(ml_result, dict) else 'N/A'}")
+                                    
+                                    # Validasi: pastikan key yang diperlukan ada
+                                    if isinstance(ml_result, dict):
+                                        required_keys = ['accuracy', 'sharpe_ratio', 'expected_value']
+                                        missing_keys = [key for key in required_keys if key not in ml_result]
+                                        if missing_keys:
+                                            print(f"   ⚠️  Key yang tidak ditemukan: {missing_keys}")
+                                            # Set default values untuk key yang hilang (None, bukan 0, agar bisa ditampilkan sebagai N/A)
+                                            for key in missing_keys:
+                                                ml_result[key] = None
+                                                print(f"   💡 Set {key} = None sebagai default")
+                                    
+                                    print(f"   🔍 [DEBUG] Full ml_result: {json.dumps(ml_result, indent=2) if isinstance(ml_result, dict) else ml_result}")
                                 else:
-                                    print("ℹ️  ML prediction results tidak ditemukan di file JSON")
+                                    print("⚠️  ML prediction results tidak ditemukan setelah semua retry")
+                                    print("   💡 Kemungkinan penyebab:")
+                                    print("      - prediksi_next_day.py belum dijalankan atau gagal")
+                                    print("      - File ml_prediction_result.json tidak dibuat")
+                                    print("      - File JSON tidak terbaca dengan benar")
+                                    print("      - Timing issue: file belum ter-write saat dibaca")
+                                    
+                                    # Cek apakah file ada di berbagai lokasi
+                                    import glob
+                                    json_files = glob.glob("**/ml_prediction_result.json", recursive=True)
+                                    if json_files:
+                                        print(f"   📁 File ditemukan di lokasi lain: {json_files}")
+                                        print(f"   💡 Coba baca file dari lokasi yang ditemukan...")
+                                        try:
+                                            import json
+                                            with open(json_files[0], 'r') as f:
+                                                ml_result = json.load(f)
+                                                print(f"   ✅ Berhasil membaca file dari: {json_files[0]}")
+                                        except Exception as e:
+                                            print(f"   ⚠️  Gagal membaca file: {e}")
+                                    else:
+                                        print("   📁 File tidak ditemukan di manapun")
+                                    
+                                    # Cek apakah RUN_PREDICTION diaktifkan
+                                    if not RUN_PREDICTION:
+                                        print("   ⚠️  RUN_PREDICTION = False di config.py")
+                                        print("      Set RUN_PREDICTION = True untuk menjalankan prediksi")
+                                    else:
+                                        print("   ⚠️  RUN_PREDICTION = True, tapi file JSON tidak ditemukan")
+                                        print("      Kemungkinan prediksi_next_day.py error atau tidak membuat file JSON")
                             except ImportError as e:
                                 print(f"ℹ️  ml_prediction_helper tidak tersedia: {e}")
                             except Exception as e:
-                                print(f"ℹ️  ML prediction results tidak tersedia: {e}")
+                                print(f"⚠️  ML prediction results tidak tersedia: {e}")
+                                import traceback
+                                traceback.print_exc()
+                            
+                            # ============================================
+                            # LOGGING SEBELUM KIRIM KE TELEGRAM
+                            # ============================================
+                            print("\n" + "=" * 70)
+                            print("📋 PRE-TELEGRAM LOGGING - Verifikasi Data")
+                            print("=" * 70)
+                            print(f"📌 Symbol: {symbol}")
+                            print(f"📌 Timeframe: {timeframe}")
+                            print(f"📌 Current Price: {current_price}")
+                            print(f"📌 Support: {support}")
+                            print(f"📌 Resistance: {resistance}")
+                            print(f"📌 Trading Setup: {trading_setup_data is not None}")
+                            if trading_setup_data:
+                                print(f"   - Direction: {trading_setup_data.get('direction')}")
+                                print(f"   - Entry: {trading_setup_data.get('entry')}")
+                                print(f"   - Stop Loss: {trading_setup_data.get('stop_loss')}")
+                            print(f"📌 DeepSeek Recommendation: {recommendation is not None}")
+                            if recommendation:
+                                print(f"   - Action: {recommendation.get('action')}")
+                                print(f"   - Confidence: {recommendation.get('confidence')}")
+                            
+                            # LOGGING ML PREDICTION / QUANT METRICS
+                            print(f"\n📊 ML PREDICTION / QUANT METRICS:")
+                            print(f"   ml_result is None: {ml_result is None}")
+                            if ml_result:
+                                print(f"   ✅ ml_result ditemukan!")
+                                print(f"   Type: {type(ml_result)}")
+                                if isinstance(ml_result, dict):
+                                    print(f"   Keys: {list(ml_result.keys())}")
+                                    print(f"   📈 Accuracy: {ml_result.get('accuracy')} (type: {type(ml_result.get('accuracy'))})")
+                                    print(f"   📈 Sharpe Ratio: {ml_result.get('sharpe_ratio')} (type: {type(ml_result.get('sharpe_ratio'))})")
+                                    print(f"   📈 Expected Value: {ml_result.get('expected_value')} (type: {type(ml_result.get('expected_value'))})")
+                                    
+                                    # Validasi: pastikan metrics tidak None
+                                    accuracy = ml_result.get('accuracy')
+                                    sharpe = ml_result.get('sharpe_ratio')
+                                    expected_val = ml_result.get('expected_value')
+                                    
+                                    print(f"\n   🔍 Validasi Metrics:")
+                                    print(f"      - accuracy is None: {accuracy is None}")
+                                    print(f"      - sharpe_ratio is None: {sharpe is None}")
+                                    print(f"      - expected_value is None: {expected_val is None}")
+                                    
+                                    if accuracy is not None:
+                                        print(f"      ✅ Accuracy valid: {accuracy}")
+                                    else:
+                                        print(f"      ❌ Accuracy is None!")
+                                    
+                                    if sharpe is not None:
+                                        print(f"      ✅ Sharpe valid: {sharpe}")
+                                    else:
+                                        print(f"      ❌ Sharpe is None!")
+                                    
+                                    if expected_val is not None:
+                                        print(f"      ✅ Expected Value valid: {expected_val}")
+                                    else:
+                                        print(f"      ❌ Expected Value is None!")
+                                    
+                                    # Full dump untuk debugging
+                                    import json
+                                    print(f"\n   📄 Full ml_result JSON:")
+                                    print(f"   {json.dumps(ml_result, indent=2, default=str)}")
+                                else:
+                                    print(f"   ⚠️  ml_result bukan dict: {ml_result}")
+                            else:
+                                print(f"   ❌ ml_result is None - Quant Metrics TIDAK AKAN muncul di Telegram!")
+                                print(f"   💡 Kemungkinan penyebab:")
+                                print(f"      - File ml_prediction_result.json tidak ditemukan")
+                                print(f"      - File JSON kosong atau corrupt")
+                                print(f"      - get_ml_prediction_from_file() return None")
+                            
+                            print("=" * 70)
+                            print()
                             
                             # Kirim satu pesan dengan format simplified
                             print("📤 Mengirim trading signal (format simplified) ke Telegram...")
@@ -2037,6 +2383,18 @@ if RUN_PREDICTION:
                                 deepseek_recommendation=recommendation,
                                 ml_prediction=ml_result
                             )
+                            
+                            # Log message sebelum kirim
+                            print("🔍 [DEBUG] Message yang akan dikirim ke Telegram:")
+                            print("=" * 70)
+                            # Tampilkan preview message (max 500 chars untuk tidak spam)
+                            message_preview = message[:500] + "..." if len(message) > 500 else message
+                            print(message_preview)
+                            if "Quant Metrics" in message:
+                                print("✅ Quant Metrics DITEMUKAN di message!")
+                            else:
+                                print("❌ Quant Metrics TIDAK DITEMUKAN di message!")
+                            print("=" * 70)
                             
                             success = bot.send_message(message)
                             
@@ -2095,38 +2453,59 @@ if RUN_PREDICTION:
             print(f"📋 Traceback:")
             traceback.print_exc()
     except Exception as e:
-        print(f"\n⚠️  Error menjalankan prediksi: {e}")
+        print(f"\n❌ ERROR menjalankan prediksi: {e}")
         print("   Analisis strategi sudah selesai, jalankan prediksi secara manual jika perlu")
+        import traceback
+        print("   📋 Traceback:")
+        traceback.print_exc()
+        print(f"   ⚠️  File ml_prediction_result.json TIDAK AKAN dibuat karena error di atas")
+else:
+    print(f"\n❌ [PREDICTION CHECK] RUN_PREDICTION = {RUN_PREDICTION} - Prediksi TIDAK dijalankan", flush=True)
+    print("   💡 Set RUN_PREDICTION = True di config.py untuk menjalankan prediksi", flush=True)
+    print("   ⚠️  File ml_prediction_result.json TIDAK AKAN dibuat karena RUN_PREDICTION = False", flush=True)
+    sys.stdout.flush()
+
+# SELALU hapus semua file trading_chart_*.png yang mungkin masih ada (cleanup)
+# Ini dieksekusi baik jika RUN_PREDICTION = True maupun False
+try:
+    chart_files = glob.glob("trading_chart_*.png")
+    for chart_file in chart_files:
+        try:
+            if os.path.exists(chart_file):
+                os.remove(chart_file)
+                print(f"🗑️  File chart dihapus (cleanup): {chart_file}")
+        except Exception as e:
+            print(f"⚠️  Gagal menghapus file chart {chart_file}: {e}")
+except Exception as e:
+    print(f"⚠️  Error saat cleanup chart files: {e}")
+
+# Hapus file CSV setelah SEMUA proses selesai (termasuk prediksi dan DeepSeek)
+# Ini SELALU dieksekusi setelah semua proses selesai, baik jika RUN_PREDICTION = True maupun False
+# TAPI: Jangan hapus jika script ini dipanggil dari run_all_analysis.py
+# (run_all_analysis.py akan menghapus file setelah semua step selesai)
+if os.environ.get('RUN_FROM_MASTER_SCRIPT') != '1':
+    # Tunggu sebentar untuk memastikan semua subprocess sudah selesai menggunakan file
+    import time
+    time.sleep(2)  # Increase delay untuk memastikan prediksi_next_day.py dan semua proses sudah selesai
     
-    # Chart sudah dikirim ke Telegram, tidak perlu ditampilkan di terminal
-    # plt.show()  # Disabled - chart hanya dikirim ke Telegram
-    
-    # SELALU hapus semua file trading_chart_*.png yang mungkin masih ada (cleanup)
-    try:
-        chart_files = glob.glob("trading_chart_*.png")
-        for chart_file in chart_files:
-            try:
-                if os.path.exists(chart_file):
-                    os.remove(chart_file)
-                    print(f"🗑️  File chart dihapus (cleanup): {chart_file}")
-            except Exception as e:
-                print(f"⚠️  Gagal menghapus file chart {chart_file}: {e}")
-    except Exception as e:
-        print(f"⚠️  Error saat cleanup chart files: {e}")
-    
-    # Hapus file CSV setelah SEMUA proses selesai (termasuk prediksi dan DeepSeek)
-    # TAPI: Jangan hapus jika script ini dipanggil dari run_all_analysis.py
-    # (run_all_analysis.py akan menghapus file setelah semua step selesai)
-    if os.environ.get('RUN_FROM_MASTER_SCRIPT') != '1':
-        # Tunggu sebentar untuk memastikan semua subprocess sudah selesai menggunakan file
-        import time
-        time.sleep(1)  # Tunggu 1 detik untuk memastikan prediksi_next_day.py sudah selesai
-        
-        if 'used_csv_file' in globals() and used_csv_file and os.path.exists(used_csv_file):
-            try:
-                os.remove(used_csv_file)
-                print(f"\n🗑️  File CSV dihapus: {used_csv_file}")
-            except Exception as e:
-                print(f"\n⚠️  Gagal menghapus file CSV {used_csv_file}: {e}")
+    if 'used_csv_file' in globals() and used_csv_file and os.path.exists(used_csv_file):
+        try:
+            os.remove(used_csv_file)
+            print(f"\n🗑️  File CSV dihapus: {used_csv_file}")
+        except Exception as e:
+            print(f"\n⚠️  Gagal menghapus file CSV {used_csv_file}: {e}")
     else:
-        print(f"\n💡 File CSV akan dihapus setelah semua proses selesai (dipanggil dari run_all_analysis.py)")
+        # Coba cari file CSV terbaru jika used_csv_file tidak ada
+        try:
+            import glob
+            csv_files = glob.glob("*_historical_*.csv")
+            if csv_files:
+                # Hapus file CSV terbaru yang dibuat
+                latest_csv = max(csv_files, key=os.path.getmtime)
+                if os.path.exists(latest_csv):
+                    os.remove(latest_csv)
+                    print(f"\n🗑️  File CSV dihapus (auto-detect): {latest_csv}")
+        except Exception as e:
+            print(f"\n⚠️  Gagal menghapus file CSV (auto-detect): {e}")
+else:
+    print(f"\n💡 File CSV akan dihapus setelah semua proses selesai (dipanggil dari run_all_analysis.py)")
