@@ -926,14 +926,16 @@ class TelegramBot:
                 # Calculate percentage untuk entry konservatif (entry2)
                 if entry2 and isinstance(entry2, (int, float)) and entry2 > 0:
                     if direction == "LONG":
+                        # Untuk LONG: TP lebih tinggi dari entry = profit positif
                         tp1_pct = ((tp1 - entry2) / entry2) * 100
                         tp2_pct = ((tp2 - entry2) / entry2) * 100
                         tp3_pct = ((tp3 - entry2) / entry2) * 100
                     else:  # SHORT
-                        # Untuk SHORT, TP lebih rendah dari entry, jadi persentase negatif
-                        tp1_pct = ((tp1 - entry2) / entry2) * 100
-                        tp2_pct = ((tp2 - entry2) / entry2) * 100
-                        tp3_pct = ((tp3 - entry2) / entry2) * 100
+                        # Untuk SHORT: TP lebih rendah dari entry = profit positif
+                        # Inverse calculation: (entry - tp) / entry * 100
+                        tp1_pct = ((entry2 - tp1) / entry2) * 100
+                        tp2_pct = ((entry2 - tp2) / entry2) * 100
+                        tp3_pct = ((entry2 - tp3) / entry2) * 100
                     
                     # Format persentase dengan 2 desimal, selalu tampilkan tanda
                     lines.append(f"   TP1: {format_price_with_comma(tp1)} ({tp1_pct:+.2f}%) | TP2: {format_price_with_comma(tp2)} ({tp2_pct:+.2f}%) | TP3: {format_price_with_comma(tp3)} ({tp3_pct:+.2f}%)")
@@ -943,11 +945,13 @@ class TelegramBot:
                 # Fallback jika hanya ada 2 TP
                 if entry2 and isinstance(entry2, (int, float)) and entry2 > 0:
                     if direction == "LONG":
+                        # Untuk LONG: TP lebih tinggi dari entry = profit positif
                         tp1_pct = ((tp1 - entry2) / entry2) * 100
                         tp2_pct = ((tp2 - entry2) / entry2) * 100
                     else:  # SHORT
-                        tp1_pct = ((tp1 - entry2) / entry2) * 100
-                        tp2_pct = ((tp2 - entry2) / entry2) * 100
+                        # Untuk SHORT: TP lebih rendah dari entry = profit positif
+                        tp1_pct = ((entry2 - tp1) / entry2) * 100
+                        tp2_pct = ((entry2 - tp2) / entry2) * 100
                     
                     lines.append(f"   TP1: {format_price_with_comma(tp1)} ({tp1_pct:+.2f}%) | TP2: {format_price_with_comma(tp2)} ({tp2_pct:+.2f}%)")
                 else:
@@ -961,17 +965,43 @@ class TelegramBot:
             
             accuracy = ml_prediction.get('accuracy')
             if accuracy is not None:
-                if isinstance(accuracy, float) and accuracy < 1:
-                    accuracy = accuracy * 100
-                metrics_parts.append(f"Accuracy {accuracy:.0f}%")
+                try:
+                    # Convert to float if it's a string or other type
+                    if isinstance(accuracy, str):
+                        accuracy = float(accuracy)
+                    elif not isinstance(accuracy, (int, float)):
+                        accuracy = float(accuracy)
+                    
+                    # If accuracy is less than 1, assume it's a decimal (0.85 = 85%)
+                    if isinstance(accuracy, float) and accuracy < 1:
+                        accuracy = accuracy * 100
+                    
+                    metrics_parts.append(f"Accuracy {accuracy:.0f}%")
+                except (ValueError, TypeError):
+                    # If conversion fails, just use the value as string
+                    metrics_parts.append(f"Accuracy {accuracy}%")
             
             sharpe = ml_prediction.get('sharpe_ratio')
             if sharpe is not None:
-                metrics_parts.append(f"Sharpe {sharpe:.2f}")
+                try:
+                    if isinstance(sharpe, str):
+                        sharpe = float(sharpe)
+                    elif not isinstance(sharpe, (int, float)):
+                        sharpe = float(sharpe)
+                    metrics_parts.append(f"Sharpe {sharpe:.2f}")
+                except (ValueError, TypeError):
+                    metrics_parts.append(f"Sharpe {sharpe}")
             
             expected_value = ml_prediction.get('expected_value')
             if expected_value is not None:
-                metrics_parts.append(f"Expected Value {expected_value:.2f}%")
+                try:
+                    if isinstance(expected_value, str):
+                        expected_value = float(expected_value)
+                    elif not isinstance(expected_value, (int, float)):
+                        expected_value = float(expected_value)
+                    metrics_parts.append(f"Expected Value {expected_value:.2f}%")
+                except (ValueError, TypeError):
+                    metrics_parts.append(f"Expected Value {expected_value}%")
             
             if metrics_parts:
                 lines.append(f"📈 <b>Quant Metrics:</b> {', '.join(metrics_parts)}")

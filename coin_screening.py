@@ -13,11 +13,13 @@ from datetime import datetime, timedelta
 
 # Import config untuk data source
 try:
-    from config import DATA_SOURCE, BINANCE_API_KEY, BINANCE_API_SECRET
+    from config import DATA_SOURCE, BINANCE_API_KEY, BINANCE_API_SECRET, get_interval
 except ImportError:
     DATA_SOURCE = "yfinance"
     BINANCE_API_KEY = None
     BINANCE_API_SECRET = None
+    def get_interval():
+        return "4h"  # Default fallback
 
 
 # Load coins dari Binance (top 200) jika file tersedia
@@ -117,7 +119,8 @@ DEFAULT_COINS = [
 def get_coins_snapshot(coins: List[str], days: int = 90, 
                        data_source: Optional[str] = None,
                        api_key: Optional[str] = None,
-                       api_secret: Optional[str] = None) -> pd.DataFrame:
+                       api_secret: Optional[str] = None,
+                       interval: Optional[str] = None) -> pd.DataFrame:
     """
     Ambil data snapshot untuk multiple coins sekaligus
     
@@ -127,6 +130,7 @@ def get_coins_snapshot(coins: List[str], days: int = 90,
         data_source: "yfinance" atau "binance" (default: dari config.py)
         api_key: Binance API key (optional, default: dari config.py)
         api_secret: Binance API secret (optional, default: dari config.py)
+        interval: Interval/timeframe (default: dari config.py via get_interval())
     
     Returns:
         DataFrame dengan MultiIndex (Ticker, Price) untuk kompatibilitas
@@ -134,23 +138,36 @@ def get_coins_snapshot(coins: List[str], days: int = 90,
     # Gunakan data_source dari parameter atau config
     source = data_source or DATA_SOURCE
     
+    # Gunakan interval dari parameter atau config
+    if interval is None:
+        try:
+            interval = get_interval()
+        except:
+            interval = "4h"  # Fallback default
+    
     if source == "binance":
-        return get_coins_snapshot_binance(coins, days, api_key, api_secret)
+        return get_coins_snapshot_binance(coins, days, api_key, api_secret, interval)
     else:
-        return get_coins_snapshot_yfinance(coins, days)
+        return get_coins_snapshot_yfinance(coins, days, interval)
 
 
-def get_coins_snapshot_yfinance(coins: List[str], days: int = 90) -> pd.DataFrame:
+def get_coins_snapshot_yfinance(coins: List[str], days: int = 90, interval: str = "4h") -> pd.DataFrame:
     """
     Ambil data snapshot dari yfinance
+    
+    Args:
+        coins: List of coin symbols
+        days: Jumlah hari data
+        interval: Interval/timeframe (default: "1d")
     """
     try:
         print(f"📊 Mengambil data snapshot dari yfinance untuk {len(coins)} coins...")
+        print(f"   Interval: {interval}")
         # group_by='ticker' akan membuat struktur (Ticker, Price) bukan (Price, Ticker)
         data = yf.download(
             coins,
             period=f"{days}d",
-            interval="1d",
+            interval=interval,
             progress=False,
             group_by='ticker',
             auto_adjust=True
@@ -170,10 +187,18 @@ def get_coins_snapshot_yfinance(coins: List[str], days: int = 90) -> pd.DataFram
 
 def get_coins_snapshot_binance(coins: List[str], days: int = 90,
                                api_key: Optional[str] = None,
-                               api_secret: Optional[str] = None) -> pd.DataFrame:
+                               api_secret: Optional[str] = None,
+                               interval: str = "4h") -> pd.DataFrame:
     """
     Ambil data snapshot dari Binance API untuk multiple coins
     Menggunakan binance_data.download_multiple_symbols untuk batch processing
+    
+    Args:
+        coins: List of coin symbols
+        days: Jumlah hari data
+        api_key: Binance API key (optional)
+        api_secret: Binance API secret (optional)
+        interval: Interval/timeframe (default: "1d")
     """
     try:
         from binance_data import download_multiple_symbols
@@ -184,6 +209,7 @@ def get_coins_snapshot_binance(coins: List[str], days: int = 90,
         
         print(f"📊 Mengambil data snapshot dari Binance API untuk {len(coins)} coins...")
         print(f"   Periode: {days} hari")
+        print(f"   Interval: {interval}")
         
         # Convert days ke period string
         period_map = {
@@ -196,7 +222,7 @@ def get_coins_snapshot_binance(coins: List[str], days: int = 90,
         data = download_multiple_symbols(
             symbols=coins,
             period=period,
-            interval="1d",
+            interval=interval,  # Gunakan interval dari parameter, bukan hardcoded "1d"
             api_key=api_key,
             api_secret=api_secret
         )
@@ -211,11 +237,11 @@ def get_coins_snapshot_binance(coins: List[str], days: int = 90,
     except ImportError as e:
         print(f"❌ Binance data module tidak tersedia: {e}")
         print("   Fallback ke yfinance...")
-        return get_coins_snapshot_yfinance(coins, days)
+        return get_coins_snapshot_yfinance(coins, days, interval)
     except Exception as e:
         print(f"❌ Error mengambil data snapshot dari Binance: {e}")
         print("   Fallback ke yfinance...")
-        return get_coins_snapshot_yfinance(coins, days)
+        return get_coins_snapshot_yfinance(coins, days, interval)
 
 
 def calculate_ema(series: pd.Series, period: int) -> pd.Series:
@@ -395,24 +421,35 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
             current_volume = 0
         
         # Indikator 1: EMA 20, 50, 200 → trend
+        # Adaptif: gunakan periode yang lebih kecil jika data terbatas
         ema_20 = None
         ema_50 = None
         ema_200 = None
         trend_signal = "NEUTRAL"
         
-        if len(close_data) >= 20:
-            ema_20_series = calculate_ema(close_data, 20)
+        # Adaptif: sesuaikan periode EMA berdasarkan jumlah data yang tersedia
+        data_length = len(close_data)
+        
+        # EMA 20 (minimum 10 data points untuk EMA yang reliable)
+        if data_length >= 10:
+            # Gunakan periode yang lebih kecil jika data terbatas
+            ema_period_20 = min(20, max(5, data_length // 2))
+            ema_20_series = calculate_ema(close_data, ema_period_20)
             ema_20 = float(ema_20_series.iloc[-1]) if pd.notna(ema_20_series.iloc[-1]) else None
             
-            if len(close_data) >= 50:
-                ema_50_series = calculate_ema(close_data, 50)
+            # EMA 50 (minimum 25 data points)
+            if data_length >= 25:
+                ema_period_50 = min(50, max(10, data_length // 2))
+                ema_50_series = calculate_ema(close_data, ema_period_50)
                 ema_50 = float(ema_50_series.iloc[-1]) if pd.notna(ema_50_series.iloc[-1]) else None
                 
-                if len(close_data) >= 200:
-                    ema_200_series = calculate_ema(close_data, 200)
+                # EMA 200 (minimum 100 data points)
+                if data_length >= 100:
+                    ema_period_200 = min(200, max(50, data_length // 2))
+                    ema_200_series = calculate_ema(close_data, ema_period_200)
                     ema_200 = float(ema_200_series.iloc[-1]) if pd.notna(ema_200_series.iloc[-1]) else None
                     
-                    # Trend signal berdasarkan EMA alignment
+                    # Trend signal berdasarkan EMA alignment (3 EMA)
                     if ema_20 and ema_50 and ema_200:
                         if current_price > ema_20 > ema_50 > ema_200:
                             trend_signal = "BULLISH"  # Uptrend kuat
@@ -432,6 +469,12 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
                         trend_signal = "BULLISH_WEAK"
                     else:
                         trend_signal = "BEARISH_WEAK"
+            elif ema_20:
+                # Jika hanya ada EMA 20, gunakan price vs EMA 20
+                if current_price > ema_20:
+                    trend_signal = "BULLISH_WEAK"
+                else:
+                    trend_signal = "BEARISH_WEAK"
         
         # Indikator 2: RSI → momentum
         if len(close_data) >= 3:
@@ -640,8 +683,15 @@ def screen_coins(
         print(f"📈 RSI range: {rsi_range[0]} - {rsi_range[1]}")
     print()
     
+    # Ambil interval dari config
+    try:
+        from config import get_interval
+        interval = get_interval()
+    except:
+        interval = "4h"  # Fallback default
+    
     # Ambil data snapshot untuk semua coins
-    data = get_coins_snapshot(coins, days, data_source, api_key, api_secret)
+    data = get_coins_snapshot(coins, days, data_source, api_key, api_secret, interval)
     
     if data.empty:
         print("❌ Tidak ada data untuk screening")
@@ -649,34 +699,54 @@ def screen_coins(
     
     # Hitung metrics untuk setiap coin
     results = []
+    metrics_calculated = 0
+    metrics_failed = 0
+    filtered_out = 0
+    
     for symbol in coins:
         metrics = calculate_quick_metrics(data, symbol)
         if metrics:
+            metrics_calculated += 1
             # Apply filters
             if metrics['volume_ratio'] < min_volume_ratio:
+                filtered_out += 1
                 continue
             if metrics['price_change_7d'] < min_price_change or metrics['price_change_7d'] > max_price_change:
+                filtered_out += 1
                 continue
             if rsi_range:
                 if metrics['rsi'] < rsi_range[0] or metrics['rsi'] > rsi_range[1]:
+                    filtered_out += 1
                     continue
             
             # Filter berdasarkan trade_direction
             if trade_direction == "long":
                 # Hanya ambil coin dengan long_score lebih tinggi
                 if metrics['long_score'] <= metrics['short_score']:
+                    filtered_out += 1
                     continue
                 # Update combined_score untuk long only
                 metrics['combined_score'] = metrics['long_score']
             elif trade_direction == "short":
                 # Hanya ambil coin dengan short_score lebih tinggi
                 if metrics['short_score'] <= metrics['long_score']:
+                    filtered_out += 1
                     continue
                 # Update combined_score untuk short only
                 metrics['combined_score'] = metrics['short_score']
             # else: "both" - tidak ada filter, gunakan best_score yang sudah dihitung
             
             results.append(metrics)
+        else:
+            metrics_failed += 1
+    
+    # Log statistik
+    print(f"📊 Statistik Screening:")
+    print(f"   ✅ Metrics berhasil dihitung: {metrics_calculated} coins")
+    print(f"   ❌ Metrics gagal dihitung: {metrics_failed} coins")
+    print(f"   🚫 Terfilter: {filtered_out} coins")
+    print(f"   ✅ Lolos filter: {len(results)} coins")
+    print()
     
     # Adaptive filtering: jika tidak ada hasil, relax filters
     if use_adaptive_filtering and len(results) == 0:
