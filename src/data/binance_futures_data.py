@@ -375,10 +375,29 @@ def get_futures_orderbook(symbol: str,
         return None
 
 
+def _generate_signature(query_string: str, api_secret: str) -> str:
+    """
+    Generate HMAC SHA256 signature for Binance API
+    
+    Args:
+        query_string: Query string parameters
+        api_secret: Binance API Secret
+    
+    Returns:
+        Signature string (hexadecimal)
+    """
+    return hmac.new(
+        api_secret.encode('utf-8'),
+        query_string.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+
+
 def get_futures_position_risk(api_key: str,
-                              api_secret: str,
-                              symbol: Optional[str] = None,
-                              testnet: bool = False) -> Optional[List[Dict]]:
+                             api_secret: str,
+                             symbol: Optional[str] = None,
+                             testnet: bool = False,
+                             recv_window: int = 5000) -> Optional[List[Dict]]:
     """
     Get position risk information (signed endpoint)
     

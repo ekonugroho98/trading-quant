@@ -160,7 +160,13 @@ def get_coins_snapshot(coins: List[str], days: int = 90,
             interval = "4h"  # Fallback default
     
     if source == "binance":
-        return get_coins_snapshot_binance(coins, days, api_key, api_secret, interval)
+        # Use helper function that auto-detects Spot or Futures
+        try:
+            from src.data.binance_api_helper import get_binance_coins_snapshot
+            return get_binance_coins_snapshot(coins, days, interval, api_key, api_secret)
+        except ImportError:
+            # Fallback to direct binance_data if helper not available
+            return get_coins_snapshot_binance(coins, days, api_key, api_secret, interval)
     else:
         return get_coins_snapshot_yfinance(coins, days, interval)
 
