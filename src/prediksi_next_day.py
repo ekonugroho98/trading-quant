@@ -1,3 +1,11 @@
+import os
+import sys
+
+# Add project root to Python path to enable src imports
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
@@ -7,7 +15,6 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, accuracy_sc
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import glob
-import os
 
 # ============================================
 # QUANT MODEL: PREDICTIVE MACHINE LEARNING
@@ -21,7 +28,7 @@ import os
 
 # Import konfigurasi dari config.py
 try:
-    from config import (
+    from src.utils.config import (
         PREDICTION_METHOD, USE_CLASSIFICATION, ML_MODELS_CONFIG,
         USE_CSV_DATA, CSV_FILE
     )

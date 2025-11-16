@@ -1,10 +1,16 @@
+import os
+import sys
+
+# Add project root to Python path to enable src imports
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
 import glob
-import os
-import sys
 from datetime import datetime, timedelta
 
 # Global variable untuk menyimpan nama file CSV yang digunakan
@@ -39,10 +45,10 @@ except ImportError:
 # Force reload config untuk memastikan menggunakan nilai terbaru
 try:
     import importlib
-    import config
+    import src.utils.config as config
     # Reload config module untuk memastikan menggunakan nilai terbaru dari file
     importlib.reload(config)
-    from config import (
+    from src.utils.config import (
         TRADING_STYLE, USE_CSV_DATA, CSV_FILE, FILTER_YEAR,
         TRADING_SYMBOL, SETUP_RISK_PERCENT, SETUP_TP_MULTIPLIERS,
         RUN_PREDICTION, SYMBOL, DATA_SOURCE
@@ -75,7 +81,7 @@ except Exception as e:
     # Jika reload gagal, coba import normal
     print(f"⚠️  Warning: Gagal reload config, menggunakan import normal: {e}")
     try:
-        from config import (
+        from src.utils.config import (
             TRADING_STYLE, USE_CSV_DATA, CSV_FILE, FILTER_YEAR,
             TRADING_SYMBOL, SETUP_RISK_PERCENT, SETUP_TP_MULTIPLIERS,
             RUN_PREDICTION, SYMBOL, DATA_SOURCE
@@ -182,8 +188,8 @@ def load_data_from_csv(csv_file=None):
 def load_data_from_binance():
     """Load data dari Binance API (kompatibel dengan yfinance)"""
     try:
-        from binance_data import get_data_binance
-        from config import BINANCE_API_KEY, BINANCE_API_SECRET, get_days_back, get_interval
+        from src.data.binance_data import get_data_binance
+        from src.utils.config import BINANCE_API_KEY, BINANCE_API_SECRET, get_days_back, get_interval
         
         print("Mengambil data dari Binance API...")
         days_back = get_days_back()
@@ -398,7 +404,7 @@ data['Return'] = data['Close'].pct_change()
 # ENHANCED FEATURES - Volume, Market Context, Advanced Features
 # ============================================
 try:
-    from enhanced_analysis import (
+    from src.analysis.enhanced_analysis import (
         enhance_data_with_volume_analysis,
         enhance_data_with_market_context,
         enhance_data_with_advanced_features,
@@ -1572,7 +1578,7 @@ if USE_ENHANCED_FEATURES:
     
     # Run enhanced backtesting (Monte Carlo + Transaction Costs)
     try:
-        from enhanced_backtesting import run_enhanced_backtest, print_backtest_results
+        from src.backtesting.enhanced_backtesting import run_enhanced_backtest, print_backtest_results
         backtest_results = run_enhanced_backtest(data, commission_pct=0.001, slippage_pct=0.0005, num_simulations=1000)
         print_backtest_results(backtest_results)
     except ImportError:
@@ -1582,9 +1588,9 @@ if USE_ENHANCED_FEATURES:
     
     # Run time series analysis (ARIMA + GARCH)
     try:
-        from config import ENABLE_TIME_SERIES_MODELS
+        from src.utils.config import ENABLE_TIME_SERIES_MODELS
         if ENABLE_TIME_SERIES_MODELS:
-            from time_series_models import analyze_time_series, print_time_series_results
+            from src.models.time_series_models import analyze_time_series, print_time_series_results
             ts_results = analyze_time_series(data)
             print_time_series_results(ts_results)
         else:
@@ -1598,7 +1604,7 @@ if USE_ENHANCED_FEATURES:
     # ADVANCED TRADING STRATEGIES
     # ============================================
     try:
-        from config import (
+        from src.utils.config import (
             ENABLE_PAIRS_TRADING, ENABLE_STATISTICAL_ARBITRAGE,
             ENABLE_GRID_TRADING, ENABLE_DCA,
             ENABLE_MULTI_STRATEGY_PORTFOLIO,
@@ -1615,8 +1621,8 @@ if USE_ENHANCED_FEATURES:
         # Pairs Trading (requires 2 assets - skip if only 1 asset available)
         if ENABLE_PAIRS_TRADING:
             try:
-                from advanced_strategies import pairs_trading_strategy, print_strategy_results
-                from config import PAIRS_LONG_ONLY
+                from src.strategies.advanced_strategies import pairs_trading_strategy, print_strategy_results
+                from src.utils.config import PAIRS_LONG_ONLY
                 # Note: Pairs trading requires 2 assets, so we'll skip for now
                 # In production, you would load data for a second asset
                 print(f"ℹ️  Pairs Trading: Requires 2 assets. Skipping for single-asset analysis.")
@@ -1629,8 +1635,8 @@ if USE_ENHANCED_FEATURES:
         # Statistical Arbitrage (requires multiple assets - skip if only 1 asset)
         if ENABLE_STATISTICAL_ARBITRAGE:
             try:
-                from advanced_strategies import statistical_arbitrage_strategy, print_strategy_results
-                from config import STAT_ARB_LONG_ONLY
+                from src.strategies.advanced_strategies import statistical_arbitrage_strategy, print_strategy_results
+                from src.utils.config import STAT_ARB_LONG_ONLY
                 # Note: Statistical arbitrage requires multiple assets
                 print(f"ℹ️  Statistical Arbitrage: Requires multiple assets. Skipping for single-asset analysis.")
                 print(f"   Mode: {'Long-Only (Spot Trading)' if STAT_ARB_LONG_ONLY else 'Long-Short (Futures)'}")
@@ -1642,7 +1648,7 @@ if USE_ENHANCED_FEATURES:
         # Grid Trading
         if ENABLE_GRID_TRADING:
             try:
-                from advanced_strategies import grid_trading_strategy, print_strategy_results
+                from src.strategies.advanced_strategies import grid_trading_strategy, print_strategy_results
                 grid_results = grid_trading_strategy(
                     data['Close'],
                     grid_levels=GRID_LEVELS,
@@ -1659,7 +1665,7 @@ if USE_ENHANCED_FEATURES:
         # Dollar Cost Averaging (DCA)
         if ENABLE_DCA:
             try:
-                from advanced_strategies import dca_strategy, print_strategy_results
+                from src.strategies.advanced_strategies import dca_strategy, print_strategy_results
                 dca_results = dca_strategy(
                     data['Close'],
                     investment_amount=DCA_INVESTMENT_AMOUNT,
@@ -1676,7 +1682,7 @@ if USE_ENHANCED_FEATURES:
         # Multi-Strategy Portfolio
         if ENABLE_MULTI_STRATEGY_PORTFOLIO and len(strategy_results) > 0:
             try:
-                from strategy_portfolio import (
+                from src.strategies.strategy_portfolio import (
                     dynamic_strategy_selection,
                     calculate_strategy_weights,
                     combine_strategies,
@@ -1728,14 +1734,14 @@ if USE_ENHANCED_FEATURES:
     # DERIVATIVES MODELING (Optional)
     # ============================================
     try:
-        from config import (
+        from src.utils.config import (
             ENABLE_DERIVATIVES_MODELING, ENABLE_OPTIONS_STRATEGIES,
             RISK_FREE_RATE, DEFAULT_VOLATILITY, OPTIONS_CONTRACTS
         )
         
         if ENABLE_DERIVATIVES_MODELING:
             try:
-                from derivatives_modeling import (
+                from src.models.derivatives_modeling import (
                     black_scholes_price, calculate_greeks,
                     covered_call_strategy, protective_put_strategy,
                     straddle_strategy, print_derivatives_results
@@ -1863,9 +1869,9 @@ if RUN_PREDICTION:
         # DEEPSEEK AI INTEGRATION (After ML Prediction)
         # ============================================
         try:
-            from config import ENABLE_DEEPSEEK_AI, DEEPSEEK_API_KEY, DEEPSEEK_MODEL
-            from deepseek_integration import DeepSeekTradingAdvisor, format_recommendation_output
-            from collect_analysis_data import collect_analysis_data, add_trading_setup_to_analysis
+            from src.utils.config import ENABLE_DEEPSEEK_AI, DEEPSEEK_API_KEY, DEEPSEEK_MODEL
+            from src.integration.deepseek_integration import DeepSeekTradingAdvisor, format_recommendation_output
+            from src.data.collect_analysis_data import collect_analysis_data, add_trading_setup_to_analysis
             
             if ENABLE_DEEPSEEK_AI and DEEPSEEK_API_KEY:
                 print("\n" + "=" * 70)
@@ -1931,8 +1937,8 @@ if RUN_PREDICTION:
                     # TELEGRAM BOT INTEGRATION
                     # ============================================
                     try:
-                        from config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-                        from telegram_bot import TelegramBot
+                        from src.utils.config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+                        from src.integration.telegram_bot import TelegramBot
                         
                         if ENABLE_TELEGRAM_BOT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
                             print("\n" + "=" * 70)
@@ -1949,7 +1955,7 @@ if RUN_PREDICTION:
                             # Ambil ML prediction results jika ada
                             ml_result = None
                             try:
-                                from ml_prediction_helper import get_ml_prediction_from_file
+                                from src.models.ml_prediction_helper import get_ml_prediction_from_file
                                 # Tunggu sebentar untuk memastikan file JSON sudah ter-write
                                 import time
                                 time.sleep(0.5)

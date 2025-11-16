@@ -11,7 +11,7 @@ import time
 
 # Import konfigurasi terpusat
 try:
-    from config import (
+    from src.utils.config import (
         DATA_SOURCE, SYMBOL, TRADING_STYLE, get_interval, get_days_back,
         COINGECKO_API_KEY, COIN_ID, FREECRYPTOAPI_KEY, FREECRYPTOAPI_SYMBOL,
         BINANCE_API_KEY, BINANCE_API_SECRET
@@ -481,7 +481,7 @@ def main():
     if DATA_SOURCE == "yfinance":
         data = get_data_yfinance(SYMBOL, DAYS_BACK, INTERVAL)
     elif DATA_SOURCE == "binance":
-        from binance_data import get_data_binance
+        from src.data.binance_data import get_data_binance
         data = get_data_binance(SYMBOL, DAYS_BACK, INTERVAL, BINANCE_API_KEY, BINANCE_API_SECRET)
     elif DATA_SOURCE == "coingecko":
         data = get_data_coingecko(DAYS_BACK, coin_id=COIN_ID, api_key=COINGECKO_API_KEY)

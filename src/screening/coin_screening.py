@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 # Import config untuk data source
 try:
-    from config import DATA_SOURCE, BINANCE_API_KEY, BINANCE_API_SECRET, get_interval
+    from src.utils.config import DATA_SOURCE, BINANCE_API_KEY, BINANCE_API_SECRET, get_interval
 except ImportError:
     DATA_SOURCE = "yfinance"
     BINANCE_API_KEY = None
@@ -23,7 +23,7 @@ except ImportError:
 
 
 # Load coins dari Binance (top 200) jika file tersedia
-def load_binance_coins(filename: str = "binance_top_coins.json") -> List[str]:
+def load_binance_coins(filename: str = "data/binance_top_coins.json") -> List[str]:
     """
     Load list coins dari file JSON yang dihasilkan get_binance_coins.py
     
@@ -201,11 +201,32 @@ def get_coins_snapshot_binance(coins: List[str], days: int = 90,
         interval: Interval/timeframe (default: "1d")
     """
     try:
-        from binance_data import download_multiple_symbols
+        # Check if Client is available before importing
+        try:
+            from binance.client import Client as BinanceClient
+            client_available = True
+        except ImportError:
+            client_available = False
+            print("⚠️  Library python-binance tidak ditemukan!")
+            print("📦 Install dengan: pip install python-binance")
+        
+        from src.data.binance_data import download_multiple_symbols, Client as BinanceDataClient
+        
+        # Debug: Check Client status
+        print(f"🔍 Debug: BinanceDataClient is None: {BinanceDataClient is None}")
+        print(f"🔍 Debug: client_available (direct import): {client_available}")
+        
+        if BinanceDataClient is None:
+            print("❌ PROBLEM: Client is None in binance_data module!")
+            print("   This will cause download_multiple_symbols to return empty DataFrame")
+            print("   Falling back to yfinance...")
+            return get_coins_snapshot_yfinance(coins, days, interval)
         
         # Gunakan API key dari parameter atau config
         api_key = api_key or BINANCE_API_KEY
         api_secret = api_secret or BINANCE_API_SECRET
+        
+        print(f"🔍 Debug: API Key: {'Set' if api_key else 'Not set'}, API Secret: {'Set' if api_secret else 'Not set'}")
         
         print(f"📊 Mengambil data snapshot dari Binance API untuk {len(coins)} coins...")
         print(f"   Periode: {days} hari")
@@ -219,20 +240,39 @@ def get_coins_snapshot_binance(coins: List[str], days: int = 90,
         period = period_map.get(days, "90d")
         
         # Download multiple symbols sekaligus
-        data = download_multiple_symbols(
-            symbols=coins,
-            period=period,
-            interval=interval,  # Gunakan interval dari parameter, bukan hardcoded "1d"
-            api_key=api_key,
-            api_secret=api_secret
-        )
+        print(f"📥 Memanggil download_multiple_symbols dengan {len(coins)} symbols...")
+        print(f"   Period: {period}, Interval: {interval}")
+        print(f"   API Key: {'Set' if api_key else 'Not set'}, API Secret: {'Set' if api_secret else 'Not set'}")
         
-        if data.empty:
-            print("⚠️  Data kosong dari Binance")
+        try:
+            data = download_multiple_symbols(
+                symbols=coins,
+                period=period,
+                interval=interval,  # Gunakan interval dari parameter, bukan hardcoded "1d"
+                api_key=api_key,
+                api_secret=api_secret
+            )
+            
+            print(f"📊 Hasil download_multiple_symbols:")
+            print(f"   Type: {type(data)}")
+            print(f"   Empty: {data.empty if hasattr(data, 'empty') else 'N/A'}")
+            print(f"   Shape: {data.shape if hasattr(data, 'shape') else 'N/A'}")
+            
+            if data.empty:
+                print("⚠️  Data kosong dari Binance")
+                print("   Kemungkinan penyebab:")
+                print("   - Semua symbols gagal di-download")
+                print("   - Format symbols tidak valid")
+                print("   - API rate limit atau error")
+                return pd.DataFrame()
+            
+            print(f"✅ Data berhasil diambil dari Binance: {len(data)} records, {len(data.columns)} columns")
+            return data
+        except Exception as e:
+            print(f"❌ Exception saat download_multiple_symbols: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
             return pd.DataFrame()
-        
-        print(f"✅ Data berhasil diambil dari Binance: {len(data)} records")
-        return data
         
     except ImportError as e:
         print(f"❌ Binance data module tidak tersedia: {e}")
@@ -328,7 +368,7 @@ def calculate_quick_metrics(data: pd.DataFrame, symbol: str) -> Optional[Dict]:
             # Cek apakah ini format Binance (BTCUSDT) atau yfinance (BTC-USD)
             # Coba convert symbol ke Binance format
             try:
-                from binance_data import convert_symbol_to_binance
+                from src.data.binance_data import convert_symbol_to_binance
                 binance_symbol = convert_symbol_to_binance(symbol)
             except:
                 binance_symbol = symbol.replace("-", "").upper()  # Fallback: BTC-USD -> BTCUSD
@@ -685,7 +725,7 @@ def screen_coins(
     
     # Ambil interval dari config
     try:
-        from config import get_interval
+        from src.utils.config import get_interval
         interval = get_interval()
     except:
         interval = "4h"  # Fallback default

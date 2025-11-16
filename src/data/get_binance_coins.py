@@ -4,6 +4,14 @@ Get Top Coins from Binance
 Mengambil top coins dari Binance berdasarkan 24h volume atau market cap
 """
 
+import os
+import sys
+
+# Add project root to Python path to enable src imports
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import pandas as pd
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -18,7 +26,7 @@ except ImportError:
     Client = None
 
 try:
-    from config import BINANCE_API_KEY, BINANCE_API_SECRET
+    from src.utils.config import BINANCE_API_KEY, BINANCE_API_SECRET
 except ImportError:
     BINANCE_API_KEY = None
     BINANCE_API_SECRET = None
@@ -231,7 +239,7 @@ def get_top_coins_from_binance(top_n: int = 200,
     return result_symbols
 
 
-def save_coins_to_file(symbols: List[str], filename: str = "binance_top_coins.json"):
+def save_coins_to_file(symbols: List[str], filename: str = "data/binance_top_coins.json"):
     """
     Simpan list symbols ke file JSON
     
@@ -253,7 +261,7 @@ def save_coins_to_file(symbols: List[str], filename: str = "binance_top_coins.js
     print(f"   Last updated: {data['last_updated']}")
 
 
-def load_coins_from_file(filename: str = "binance_top_coins.json") -> List[str]:
+def load_coins_from_file(filename: str = "data/binance_top_coins.json") -> List[str]:
     """
     Load list symbols dari file JSON
     
@@ -292,7 +300,7 @@ if __name__ == "__main__":
     
     if top_coins:
         # Save ke file
-        save_coins_to_file(top_coins, "binance_top_coins.json")
+        save_coins_to_file(top_coins, "data/binance_top_coins.json")
         
         # Print sample
         print(f"\n📋 Sample top 20 coins:")

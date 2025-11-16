@@ -9,6 +9,12 @@ Menganalisis hasil screening coin dan menghasilkan:
 
 import os
 import sys
+
+# Add project root to Python path to enable src imports
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import subprocess
 import json
 import time
@@ -18,15 +24,15 @@ from typing import List, Dict, Optional
 
 # Import modules
 try:
-    from config import (
+    from src.utils.config import (
         TRADING_STYLE, DATA_SOURCE, get_days_back, get_interval,
         BINANCE_API_KEY, BINANCE_API_SECRET,
         ENABLE_DEEPSEEK_AI, DEEPSEEK_API_KEY, DEEPSEEK_MODEL,
         ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
     )
-    from coin_screening import screen_coins
-    from ml_prediction_helper import get_ml_prediction_from_file
-    from telegram_bot import TelegramBot
+    from src.screening.coin_screening import screen_coins
+    from src.models.ml_prediction_helper import get_ml_prediction_from_file
+    from src.integration.telegram_bot import TelegramBot
 except ImportError as e:
     print(f"⚠️  Error importing modules: {e}")
     sys.exit(1)

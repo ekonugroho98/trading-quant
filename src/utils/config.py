@@ -12,18 +12,29 @@
 # - FREECRYPTOAPI_KEY (optional)
 
 # Load environment variables dari .env file
+import os
+
+# Determine project root directory (2 levels up from this file: src/utils/config.py -> project root)
+_config_file_path = os.path.abspath(__file__)
+_config_dir = os.path.dirname(_config_file_path)
+_project_root = os.path.dirname(os.path.dirname(_config_dir))  # Go up 2 levels: utils -> src -> root
+_env_path = os.path.join(_project_root, '.env')
+
 try:
     from dotenv import load_dotenv
-    import os
-    load_dotenv()  # Load .env file
+    # Load .env file from project root
+    if os.path.exists(_env_path):
+        load_dotenv(_env_path)
+    else:
+        # Fallback: try to find .env in current directory or parent directories
+        load_dotenv()
 except ImportError:
     # Jika python-dotenv tidak terinstall, gunakan os.environ langsung
-    import os
     print("⚠️  python-dotenv tidak terinstall. Install dengan: pip install python-dotenv")
     print("   Atau set environment variables secara manual")
 except Exception as e:
-    import os
     print(f"⚠️  Error loading .env file: {e}")
+    print(f"   Mencari .env di: {_env_path}")
     print("   Menggunakan environment variables atau nilai default")
 
 # ============================================

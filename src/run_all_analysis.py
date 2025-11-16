@@ -9,6 +9,12 @@ Menjalankan:
 import subprocess
 import sys
 import os
+
+# Add project root to Python path to enable src imports
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import time
 import glob
 
@@ -44,7 +50,7 @@ def main():
     
     # Baca konfigurasi untuk menampilkan info
     try:
-        from config import TRADING_STYLE, get_interval
+        from src.utils.config import TRADING_STYLE, get_interval
         interval = get_interval()
         print(f"📋 Konfigurasi: TRADING_STYLE = {TRADING_STYLE}, INTERVAL = {interval}")
     except ImportError:
@@ -61,9 +67,9 @@ def main():
     
     # Cek apakah file ada
     scripts = {
-        "get_historical_data.py": "Ambil Data Historical",
-        "analisis_quant.py": "Analisis Strategi Trading",
-        "prediksi_next_day.py": "Prediksi Hari Berikutnya"
+        "src/data/get_historical_data.py": "Ambil Data Historical",
+        "src/analysis/analisis_quant.py": "Analisis Strategi Trading",
+        "src/prediksi_next_day.py": "Prediksi Hari Berikutnya"
     }
     
     missing_files = []
@@ -84,7 +90,7 @@ def main():
     # Simpan timestamp sebelum mengambil data untuk mencari file terbaru
     csv_files_before = set(glob.glob("*_historical_*.csv"))
     
-    success0 = run_script("get_historical_data.py", "Ambil Data Historical")
+    success0 = run_script("src/data/get_historical_data.py", "Ambil Data Historical")
     
     # Tunggu sebentar untuk memastikan file sudah ditulis
     time.sleep(1)
@@ -118,7 +124,7 @@ def main():
     print("=" * 70)
     # Set environment variable untuk memberitahu analisis_quant.py bahwa ini dipanggil dari run_all_analysis.py
     # Environment variable akan diteruskan ke subprocess
-    success1 = run_script("analisis_quant.py", "Analisis Strategi Trading", 
+    success1 = run_script("src/analysis/analisis_quant.py", "Analisis Strategi Trading", 
                         env={'RUN_FROM_MASTER_SCRIPT': '1'})
     
     if not success1:
@@ -132,7 +138,7 @@ def main():
     print("\n" + "=" * 70)
     print("STEP 2: PREDIKSI HARI BERIKUTNYA")
     print("=" * 70)
-    success2 = run_script("prediksi_next_day.py", "Prediksi Hari Berikutnya")
+    success2 = run_script("src/prediksi_next_day.py", "Prediksi Hari Berikutnya")
     
     # Ringkasan
     print("\n" + "=" * 70)

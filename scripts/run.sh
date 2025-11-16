@@ -48,16 +48,16 @@ echo -e "${GREEN}✅ Setup selesai!${NC}"
 echo ""
 echo "Untuk menjalankan aplikasi:"
 echo "  1. Aktifkan venv: source venv/bin/activate"
-echo "  2. Jalankan script: python run_all_analysis.py"
+echo "  2. Jalankan script: python src/run_all_analysis.py"
 echo ""
 echo "Atau jalankan langsung:"
-echo "  ./run.sh --run"
+echo "  ./scripts/run.sh --run"
 echo ""
 
 # Jika ada flag --run, langsung jalankan aplikasi
 if [ "$1" == "--run" ]; then
     echo -e "${GREEN}🚀 Menjalankan aplikasi...${NC}"
     echo ""
-    python run_all_analysis.py
+    python src/run_all_analysis.py
 fi
 

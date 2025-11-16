@@ -31,7 +31,7 @@ def pairs_trading_strategy(price1: pd.Series,
         Dictionary dengan strategy results
     """
     try:
-        from cointegration_analysis import calculate_cointegration, calculate_spread_signals
+        from src.analysis.cointegration_analysis import calculate_cointegration, calculate_spread_signals
     except ImportError:
         print("⚠️  cointegration_analysis tidak tersedia")
         return {}

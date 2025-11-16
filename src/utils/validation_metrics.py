@@ -393,7 +393,7 @@ def get_all_validation_metrics(df: pd.DataFrame,
             metrics['risk_metrics'] = calculate_risk_metrics(strategy_returns)
             
             # Additional risk-adjusted metrics
-            from enhanced_backtesting import calculate_sharpe_ratio, calculate_sortino_ratio
+            from src.backtesting.enhanced_backtesting import calculate_sharpe_ratio, calculate_sortino_ratio
             metrics['sharpe_ratio'] = calculate_sharpe_ratio(strategy_returns)
             metrics['sortino_ratio'] = calculate_sortino_ratio(strategy_returns)
     

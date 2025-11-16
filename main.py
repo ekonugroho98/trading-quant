@@ -6,12 +6,18 @@ Menerima input dari Telegram dan menjalankan analisis untuk coin yang diminta
 
 import os
 import sys
+
+# Add project root to Python path to enable src imports
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import time
 import json
 import requests
 import subprocess
 from typing import Optional
-from config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SYMBOL as DEFAULT_SYMBOL
+from src.utils.config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SYMBOL as DEFAULT_SYMBOL
 
 
 class TradingBot:
@@ -47,15 +53,57 @@ class TradingBot:
                 url = f"{self.api_url}/getUpdates"
                 params = {
                     "offset": self.offset,
-                    "timeout": 10
+                    "timeout": 10,
+                    "allowed_updates": ["message"]  # Hanya ambil message updates untuk mengurangi konflik
                 }
                 # Increase timeout untuk koneksi yang lambat
                 response = requests.get(url, params=params, timeout=30)
                 
                 if response.status_code == 200:
                     return response.json()
+                elif response.status_code == 409:
+                    # Conflict: biasanya karena offset tidak valid atau bot lain sedang polling
+                    # Coba dapatkan update terbaru untuk sinkronisasi offset
+                    print(f"⚠️  Conflict (409): Mencoba sinkronisasi offset...")
+                    try:
+                        # Coba get updates tanpa offset untuk mendapatkan update_id terbaru
+                        sync_url = f"{self.api_url}/getUpdates"
+                        sync_params = {"limit": 1, "timeout": 1, "allowed_updates": ["message"]}
+                        sync_response = requests.get(sync_url, params=sync_params, timeout=10)
+                        if sync_response.status_code == 200:
+                            sync_data = sync_response.json()
+                            if sync_data.get('ok') and sync_data.get('result'):
+                                # Update offset ke update_id terbaru + 1
+                                latest_update_id = sync_data['result'][-1].get('update_id', 0)
+                                self.offset = latest_update_id + 1
+                                print(f"   ✅ Offset disinkronkan ke: {self.offset}")
+                            else:
+                                # Tidak ada update, reset ke 0
+                                self.offset = 0
+                                print(f"   ✅ Offset direset ke: 0")
+                        else:
+                            # Gagal sinkronisasi, reset offset
+                            self.offset = 0
+                            print(f"   ⚠️  Gagal sinkronisasi, offset direset")
+                    except Exception as e:
+                        # Jika sinkronisasi gagal, reset offset
+                        self.offset = 0
+                        print(f"   ⚠️  Error sinkronisasi: {e}, offset direset")
+                    
+                    # Tunggu lebih lama sebelum retry untuk menghindari konflik
+                    wait_time = 5 + (attempt * 2)
+                    if attempt < max_retries - 1:
+                        print(f"   ⏳ Menunggu {wait_time}s sebelum retry...")
+                        time.sleep(wait_time)
+                        continue
+                    return None
                 else:
                     print(f"❌ Error mendapatkan updates: {response.status_code}")
+                    if response.status_code == 401:
+                        print("   ⚠️  Bot token mungkin tidak valid")
+                    elif response.status_code == 429:
+                        print("   ⚠️  Rate limit exceeded, tunggu sebentar...")
+                        time.sleep(60)  # Wait 1 minute for rate limit
                     if attempt < max_retries - 1:
                         time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
                         continue
@@ -219,7 +267,9 @@ class TradingBot:
             try:
                 import importlib
                 # Force reload config module jika sudah di-import sebelumnya
-                if 'config' in sys.modules:
+                if 'src.utils.config' in sys.modules:
+                    importlib.reload(sys.modules['src.utils.config'])
+                elif 'config' in sys.modules:
                     importlib.reload(sys.modules['config'])
             except:
                 pass
@@ -242,11 +292,14 @@ class TradingBot:
                     print(f"{'✅' if success else '❌'} [run_analysis] Historical data notification sent: {success}")
                     
                     print(f"🔄 [run_analysis] Running get_historical_data.py...")
+                    # Get project root directory
+                    project_root = os.path.dirname(os.path.abspath(__file__))
                     result_data = subprocess.run(
-                        [sys.executable, "get_historical_data.py"],
+                        [sys.executable, "src/data/get_historical_data.py"],
                         capture_output=True,
                         text=True,
-                        timeout=120  # 2 menit timeout
+                        timeout=120,  # 2 menit timeout
+                        cwd=project_root  # Ensure we're in project root
                     )
                     print(f"📊 [run_analysis] get_historical_data.py completed: returncode={result_data.returncode}")
                     
@@ -291,11 +344,14 @@ class TradingBot:
             
             # Jalankan analisis_quant.py
             print(f"🚀 [run_analysis] Running analisis_quant.py...")
+            # Get project root directory
+            project_root = os.path.dirname(os.path.abspath(__file__))
             result = subprocess.run(
-                [sys.executable, "analisis_quant.py"],
+                [sys.executable, "src/analysis/analisis_quant.py"],
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 menit timeout
+                timeout=300,  # 5 menit timeout
+                cwd=project_root  # Ensure we're in project root
             )
             print(f"📊 [run_analysis] analisis_quant.py completed: returncode={result.returncode}")
             
@@ -347,7 +403,7 @@ class TradingBot:
             symbol: Symbol baru (format: BTC-USD)
         """
         try:
-            config_file = "config.py"
+            config_file = "src/utils/config.py"
             with open(config_file, 'r', encoding='utf-8') as f:
                 content = f.read()
             
@@ -381,7 +437,7 @@ class TradingBot:
             chat_id: Chat ID baru
         """
         try:
-            config_file = "config.py"
+            config_file = "src/utils/config.py"
             with open(config_file, 'r', encoding='utf-8') as f:
                 content = f.read()
             
@@ -414,7 +470,7 @@ class TradingBot:
             trading_style: Trading style baru (SCALPING, DAY_TRADING, SWING_TRADING, POSITION_TRADING)
         """
         try:
-            config_file = "config.py"
+            config_file = "src/utils/config.py"
             with open(config_file, 'r', encoding='utf-8') as f:
                 content = f.read()
             
@@ -689,7 +745,7 @@ class TradingBot:
         
         # Baca config untuk mendapatkan setting lainnya
         try:
-            from config import TRADING_STYLE, SYMBOL, get_days_back
+            from src.utils.config import TRADING_STYLE, SYMBOL, get_days_back
             config_style = TRADING_STYLE
             config_symbol = SYMBOL
             current_days_back = get_days_back()
@@ -748,9 +804,9 @@ class TradingBot:
                           /screen 7 15 -> days=7, top_n=15
         """
         try:
-            from coin_screening import screen_coins, DEFAULT_COINS
-            from telegram_bot import TelegramBot
-            from config import (ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
+            from src.screening.coin_screening import screen_coins, DEFAULT_COINS
+            from src.integration.telegram_bot import TelegramBot
+            from src.utils.config import (ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
                               DATA_SOURCE, BINANCE_API_KEY, BINANCE_API_SECRET)
             
             parts = text.split()
@@ -859,8 +915,8 @@ class TradingBot:
                           /analyze 7 10 3 -> days=7, top_n=10, max_coins=3
         """
         try:
-            from analyze_screened_coins import analyze_screened_coins
-            from config import (DATA_SOURCE, BINANCE_API_KEY, BINANCE_API_SECRET)
+            from src.analysis.analyze_screened_coins import analyze_screened_coins
+            from src.utils.config import (DATA_SOURCE, BINANCE_API_KEY, BINANCE_API_SECRET)
             
             parts = text.split()
             
@@ -1034,25 +1090,94 @@ class TradingBot:
     def start_polling(self):
         """Mulai polling untuk menerima pesan dari Telegram"""
         print("🤖 Starting Trading Quant Bot...")
+        
+        # Check if another instance is already running
+        import subprocess
+        try:
+            result = subprocess.run(
+                ['pgrep', '-f', 'python.*main.py'],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                pids = result.stdout.strip().split('\n')
+                current_pid = str(os.getpid())
+                other_pids = [pid for pid in pids if pid != current_pid and pid]
+                if other_pids:
+                    print(f"⚠️  Warning: Found other bot instances running (PIDs: {', '.join(other_pids)})")
+                    print(f"   This may cause 409 conflicts. Consider stopping other instances first.")
+                    print(f"   Kill with: pkill -f 'python.*main.py'")
+                    print()
+        except Exception:
+            pass  # Ignore if pgrep not available
+        
         print(f"📡 Listening for messages...")
         print(f"💬 Bot siap menerima command!")
         print()
         
+        # Sinkronisasi offset awal untuk menghindari konflik
+        try:
+            sync_url = f"{self.api_url}/getUpdates"
+            sync_params = {"limit": 1, "timeout": 1, "allowed_updates": ["message"]}
+            sync_response = requests.get(sync_url, params=sync_params, timeout=10)
+            if sync_response.status_code == 200:
+                sync_data = sync_response.json()
+                if sync_data.get('ok') and sync_data.get('result'):
+                    latest_update_id = sync_data['result'][-1].get('update_id', 0)
+                    self.offset = latest_update_id + 1
+                    print(f"📌 Offset awal disinkronkan: {self.offset}")
+                else:
+                    self.offset = 0
+                    print(f"📌 Offset awal: 0 (tidak ada update sebelumnya)")
+        except Exception as e:
+            print(f"⚠️  Warning: Gagal sinkronisasi offset awal: {e}")
+            self.offset = 0
+        
+        print()
         self.running = True
+        
+        consecutive_errors = 0
+        max_consecutive_errors = 5
         
         while self.running:
             try:
                 updates = self.get_updates()
                 
                 if updates and updates.get('ok'):
-                    for update in updates.get('result', []):
-                        # Update offset
-                        self.offset = update.get('update_id', 0) + 1
-                        
-                        # Handle message
-                        if 'message' in update:
-                            message = update['message']
-                            self.handle_message(message)
+                    consecutive_errors = 0  # Reset error counter on success
+                    result = updates.get('result', [])
+                    if result:
+                        for update in result:
+                            # Update offset ke update_id terbaru + 1
+                            update_id = update.get('update_id', 0)
+                            self.offset = update_id + 1
+                            
+                            # Handle message
+                            if 'message' in update:
+                                message = update['message']
+                                self.handle_message(message)
+                    else:
+                        # No new updates, continue polling
+                        pass
+                elif updates and not updates.get('ok'):
+                    # API returned error in response
+                    error_description = updates.get('description', 'Unknown error')
+                    print(f"⚠️  Telegram API error: {error_description}")
+                    consecutive_errors += 1
+                    if "conflict" in error_description.lower() or "409" in str(updates):
+                        # Reset offset on conflict
+                        self.offset = 0
+                        time.sleep(5)  # Wait longer on conflict
+                    elif consecutive_errors >= max_consecutive_errors:
+                        print(f"❌ Terlalu banyak error berturut-turut ({consecutive_errors}). Berhenti polling.")
+                        break
+                elif updates is None:
+                    # get_updates() returned None (error occurred)
+                    consecutive_errors += 1
+                    if consecutive_errors >= max_consecutive_errors:
+                        print(f"❌ Terlalu banyak error berturut-turut ({consecutive_errors}). Berhenti polling.")
+                        break
+                    time.sleep(3)  # Wait before retry
                 
                 # Sleep sebentar sebelum polling lagi
                 time.sleep(1)

@@ -30,7 +30,7 @@ print(f"   ✅ Sample data generated: {len(df)} rows")
 # Test 1: Risk Metrics
 print("\n2️⃣ Testing Risk Metrics (VaR, CVaR, Expected Shortfall)...")
 try:
-    from validation_metrics import calculate_var, calculate_cvar, calculate_expected_shortfall, calculate_risk_metrics
+    from src.utils.validation_metrics import calculate_var, calculate_cvar, calculate_expected_shortfall, calculate_risk_metrics
     
     var_95 = calculate_var(returns, 0.95)
     cvar_95 = calculate_cvar(returns, 0.95)
@@ -49,7 +49,7 @@ except Exception as e:
 # Test 2: Enhanced Backtesting
 print("\n3️⃣ Testing Enhanced Backtesting (Monte Carlo + Transaction Costs)...")
 try:
-    from enhanced_backtesting import (
+    from src.backtesting.enhanced_backtesting import (
         calculate_transaction_costs, 
         monte_carlo_simulation,
         calculate_sharpe_ratio,
@@ -84,7 +84,7 @@ except Exception as e:
 # Test 3: Time Series Models
 print("\n4️⃣ Testing Time Series Models (ARIMA + GARCH)...")
 try:
-    from time_series_models import fit_arima_model, fit_garch_model, auto_arima
+    from src.models.time_series_models import fit_arima_model, fit_garch_model, auto_arima
     
     # ARIMA
     print("   📈 Testing ARIMA...")
@@ -119,7 +119,7 @@ except Exception as e:
 # Test 4: Integration with validation_metrics
 print("\n5️⃣ Testing Integration with validation_metrics...")
 try:
-    from validation_metrics import get_all_validation_metrics
+    from src.utils.validation_metrics import get_all_validation_metrics
     
     all_metrics = get_all_validation_metrics(df)
     

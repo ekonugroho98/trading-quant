@@ -27,7 +27,7 @@ def collect_analysis_data(data: pd.DataFrame,
     
     # Basic Info
     try:
-        from config import TRADING_STYLE, SYMBOL, get_interval
+        from src.utils.config import TRADING_STYLE, SYMBOL, get_interval
         analysis_results['basic_info'] = {
             'symbol': SYMBOL,
             'trading_style': TRADING_STYLE,

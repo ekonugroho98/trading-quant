@@ -15,14 +15,19 @@ import os
 try:
     from binance.client import Client
     from binance.exceptions import BinanceAPIException, BinanceRequestException
-except ImportError:
+    print(f"✅ Binance Client imported successfully: {Client}")
+except ImportError as e:
     print("⚠️  Library python-binance tidak ditemukan!")
     print("📦 Install dengan: pip install python-binance")
+    print(f"🔍 Debug: ImportError details: {e}")
+    Client = None
+except Exception as e:
+    print(f"⚠️  Unexpected error importing binance.client: {type(e).__name__}: {e}")
     Client = None
 
 # Import config
 try:
-    from config import BINANCE_API_KEY, BINANCE_API_SECRET, ENABLE_BINANCE_API
+    from src.utils.config import BINANCE_API_KEY, BINANCE_API_SECRET, ENABLE_BINANCE_API
 except ImportError:
     BINANCE_API_KEY = None
     BINANCE_API_SECRET = None
@@ -146,6 +151,14 @@ def get_data_binance(symbol: str, days_back: int, interval: str,
     if Client is None:
         print("❌ Library python-binance tidak terinstall")
         print("📦 Install dengan: pip install python-binance")
+        print(f"🔍 Debug: Client variable is None in get_data_binance")
+        # Try to import directly to see if it's an import path issue
+        try:
+            from binance.client import Client as DirectClient
+            print(f"🔍 Debug: Direct import works! Client type: {type(DirectClient)}")
+            print("   ⚠️  This suggests an import path issue in binance_data.py")
+        except ImportError as e:
+            print(f"🔍 Debug: Direct import also fails: {e}")
         return None
     
     # Gunakan API key dari parameter atau config
@@ -356,7 +369,17 @@ def download_multiple_symbols(symbols: List[str], period: str = "90d",
     Returns:
         DataFrame dengan MultiIndex (Ticker, Price Type) seperti yfinance.download
     """
+    print(f"🔍 Debug download_multiple_symbols: Client is None = {Client is None}")
     if Client is None:
+        print("❌ Client is None in download_multiple_symbols - returning empty DataFrame")
+        print("   This means python-binance library was not imported successfully")
+        # Try to re-import to see if it's a module loading issue
+        try:
+            from binance.client import Client as RetryClient
+            print(f"🔍 Debug: Re-import successful! RetryClient: {RetryClient}")
+            print("   ⚠️  This suggests Client variable was not set correctly on first import")
+        except ImportError as e:
+            print(f"🔍 Debug: Re-import also fails: {e}")
         return pd.DataFrame()
     
     # Convert period string ke days
@@ -367,11 +390,19 @@ def download_multiple_symbols(symbols: List[str], period: str = "90d",
     days_back = period_map.get(period.lower(), 90)
     
     all_data = {}
+    successful_downloads = 0
+    failed_downloads = 0
     
-    for symbol in symbols:
+    print(f"📥 Downloading {len(symbols)} symbols...")
+    
+    for idx, symbol in enumerate(symbols, 1):
         try:
+            if idx % 50 == 0 or idx == len(symbols):
+                print(f"   Progress: {idx}/{len(symbols)} symbols processed ({successful_downloads} successful, {failed_downloads} failed)")
+            
             df = get_data_binance(symbol, days_back, interval, api_key, api_secret)
             if df is not None and not df.empty:
+                successful_downloads += 1
                 # Convert ke format MultiIndex seperti yfinance
                 binance_symbol = convert_symbol_to_binance(symbol)
                 
@@ -394,11 +425,20 @@ def download_multiple_symbols(symbols: List[str], period: str = "90d",
                 }, index=df_indexed.index)
                 
                 all_data[binance_symbol] = df_multi
+            else:
+                failed_downloads += 1
+                if idx <= 5:  # Print first 5 failures for debugging
+                    print(f"⚠️  Data kosong untuk {symbol} (returned None or empty)")
         except Exception as e:
-            print(f"⚠️  Error downloading {symbol}: {e}")
+            failed_downloads += 1
+            if idx <= 5:  # Print first 5 errors for debugging
+                print(f"⚠️  Error downloading {symbol}: {type(e).__name__}: {e}")
             continue
     
+    print(f"📊 Download summary: {successful_downloads} successful, {failed_downloads} failed out of {len(symbols)} symbols")
+    
     if not all_data:
+        print("❌ Tidak ada data yang berhasil di-download")
         return pd.DataFrame()
     
     # Combine all dataframes

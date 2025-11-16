@@ -7,4 +7,6 @@ scipy>=1.10.0
 requests>=2.31.0
 statsmodels>=0.14.0
 arch>=6.2.0
+python-dotenv>=1.0.0
+python-binance>=1.0.0
 
