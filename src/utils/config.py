@@ -83,6 +83,17 @@ BINANCE_API_TYPE = os.getenv("BINANCE_API_TYPE", "spot")  # Pilihan: "spot", "fu
 # Bisa di-override manual jika perlu
 DAYS_BACK = None  # Auto berdasarkan TRADING_STYLE (60 hari)
 
+# ============================================
+# AUTO-CONFIGURATION BERDASARKAN BINANCE_API_TYPE
+# ============================================
+# Auto-enable derivatives modeling dan set strategies untuk Futures
+# Jika BINANCE_API_TYPE = "futures", sistem akan otomatis:
+# 1. Enable derivatives modeling (untuk options/futures analysis)
+# 2. Set pairs trading dan statistical arbitrage ke long-short mode
+# 
+# Catatan: Auto-config akan dijalankan di akhir file setelah semua konfigurasi didefinisikan
+# Jika ingin manual override, set nilai setelah section AUTO-CONFIGURATION EXECUTION
+
 # Mapping DAYS_BACK berdasarkan TRADING_STYLE
 TRADING_STYLE_DAYS_BACK = {
     "SCALPING": 7,           # 7 hari untuk scalping
@@ -134,7 +145,7 @@ FREECRYPTOAPI_KEY = os.getenv("FREECRYPTOAPI_KEY", None)  # Load dari .env
 # Format: "BTC", "ETH", "XRP", "DOGE", "BNB", "ADA", "SOL", dll (tanpa "-USD")
 # Cek daftar lengkap di: https://freecryptoapi.com/api/v1/getCryptoList
 # Atau gunakan endpoint: GET https://freecryptoapi.com/api/v1/getCryptoList?api_key=YOUR_KEY
-FREECRYPTOAPI_SYMBOL = "FXS-USD"  # Symbol untuk FreeCryptoAPI (default: BTC)
+FREECRYPTOAPI_SYMBOL = "GRIFFAIN-USD"  # Symbol untuk FreeCryptoAPI (default: BTC)
 
 # Interval akan otomatis disesuaikan berdasarkan TRADING_STYLE
 # Tapi bisa di-override manual jika perlu
@@ -164,7 +175,7 @@ def get_interval():
 # ============================================
 # KONFIGURASI TRADING SETUP
 # ============================================
-TRADING_SYMBOL = "FXS-USD"  # Symbol untuk trading setup (contoh: BTCUSDT, XRPUSDT, DOGEUSDT, ENAUSDT, MAGICUSDT, dll)
+TRADING_SYMBOL = "GRIFFAIN-USD"  # Symbol untuk trading setup (contoh: BTCUSDT, XRPUSDT, DOGEUSDT, ENAUSDT, MAGICUSDT, dll)
 
 # Konfigurasi Risk & Reward untuk Trading Setup
 # Sesuaikan berdasarkan TRADING_STYLE:
@@ -247,6 +258,39 @@ COMMISSION_PCT = 0.001  # Commission 0.1%
 SLIPPAGE_PCT = 0.0005  # Slippage 0.05%
 MONTE_CARLO_SIMULATIONS = 1000  # Number of Monte Carlo simulations
 
+# ============================================
+# CONSTANTS (Magic Numbers)
+# ============================================
+# Constants untuk digunakan di seluruh codebase, bukan hardcoded values
+
+# Z-Score thresholds
+ZSCORE_ENTRY_THRESHOLD = 2.0  # Default entry threshold untuk mean reversion
+ZSCORE_EXIT_THRESHOLD = 0.5   # Default exit threshold untuk mean reversion
+
+# RSI thresholds
+RSI_OVERSOLD = 30.0  # RSI oversold level
+RSI_OVERBOUGHT = 70.0  # RSI overbought level
+
+# Volume thresholds
+VOLUME_SPIKE_THRESHOLD = 2.0  # Volume spike detection threshold (2x average)
+MIN_VOLUME_RATIO = 0.8  # Minimum volume ratio untuk signal validation
+
+# Correlation thresholds
+MIN_CORRELATION = 0.7  # Minimum correlation untuk pairs trading/arbitrage
+
+# Confidence levels
+DEFAULT_CONFIDENCE_LEVEL = 0.95  # Default confidence level untuk risk metrics
+MIN_SIGNAL_CONFIDENCE = 0.5  # Minimum confidence untuk signal filtering
+
+# Grid spacing
+DEFAULT_GRID_SPACING_PCT = 1.0  # Default grid spacing percentage
+
+# IQR multiplier untuk outlier detection
+IQR_MULTIPLIER = 1.5  # IQR multiplier untuk outlier detection
+
+# Z-score threshold untuk outlier detection
+OUTLIER_ZSCORE_THRESHOLD = 3.0  # Z-score threshold untuk outlier detection
+
 # Time Series Models
 ENABLE_TIME_SERIES_MODELS = True  # ARIMA + GARCH
 ARIMA_MAX_ORDER = (2, 1, 2)  # Maximum ARIMA order (p, d, q)
@@ -260,14 +304,20 @@ ENABLE_PAIRS_TRADING = True  # Aktifkan pairs trading strategy
 PAIRS_ENTRY_THRESHOLD = 2.0  # Z-score threshold untuk entry
 PAIRS_EXIT_THRESHOLD = 0.5   # Z-score threshold untuk exit
 PAIRS_STOP_LOSS_PCT = 3.0    # Stop loss percentage
-PAIRS_LONG_ONLY = True       # True = long-only (spot trading), False = long-short (futures)
+# PAIRS_LONG_ONLY akan di-set otomatis berdasarkan BINANCE_API_TYPE
+# True = long-only (spot trading), False = long-short (futures)
+# Default: True (untuk spot), akan auto-set ke False jika BINANCE_API_TYPE = "futures"
+PAIRS_LONG_ONLY = True
 
 # Statistical Arbitrage
 ENABLE_STATISTICAL_ARBITRAGE = True  # Aktifkan statistical arbitrage
 STAT_ARB_ENTRY_THRESHOLD = 2.0  # Z-score threshold untuk entry
 STAT_ARB_EXIT_THRESHOLD = 0.5    # Z-score threshold untuk exit
 STAT_ARB_MIN_CORRELATION = 0.7   # Minimum correlation untuk inclusion
-STAT_ARB_LONG_ONLY = True        # True = long-only (spot trading), False = long-short (futures)
+# STAT_ARB_LONG_ONLY akan di-set otomatis berdasarkan BINANCE_API_TYPE
+# True = long-only (spot trading), False = long-short (futures)
+# Default: True (untuk spot), akan auto-set ke False jika BINANCE_API_TYPE = "futures"
+STAT_ARB_LONG_ONLY = True
 
 # Grid Trading
 ENABLE_GRID_TRADING = True  # Aktifkan grid trading strategy
@@ -289,16 +339,52 @@ PORTFOLIO_PERFORMANCE_WINDOW = 30  # Window untuk performance calculation
 # ============================================
 # KONFIGURASI DERIVATIVES MODELING
 # ============================================
-ENABLE_DERIVATIVES_MODELING = True  # Aktifkan derivatives modeling (opsional)
-# Catatan: Derivatives modeling hanya diperlukan jika expand ke options/futures trading
+# ENABLE_DERIVATIVES_MODELING akan di-set otomatis berdasarkan BINANCE_API_TYPE
+# Default: True (untuk futures), akan auto-enable jika BINANCE_API_TYPE = "futures"
+# Catatan: Derivatives modeling berguna untuk options/futures trading analysis
+ENABLE_DERIVATIVES_MODELING = True
 
 # Black-Scholes Parameters
 RISK_FREE_RATE = 0.05  # Risk-free rate (5% annual)
 DEFAULT_VOLATILITY = 0.30  # Default volatility (30% annual)
 
 # Options Strategies
-ENABLE_OPTIONS_STRATEGIES = False  # Aktifkan options strategies
+# ENABLE_OPTIONS_STRATEGIES akan di-set otomatis berdasarkan BINANCE_API_TYPE
+# Default: True (untuk futures), akan auto-enable jika BINANCE_API_TYPE = "futures"
+ENABLE_OPTIONS_STRATEGIES = True
 OPTIONS_CONTRACTS = 1  # Number of contracts (each = 100 shares)
+
+# ============================================
+# AUTO-CONFIGURATION EXECUTION
+# ============================================
+# Auto-configure berdasarkan BINANCE_API_TYPE
+# Eksekusi setelah semua konfigurasi didefinisikan
+# 
+# Catatan: Jika ingin manual override auto-config, set nilai setelah section ini
+# Contoh: ENABLE_DERIVATIVES_MODELING = False  # Override auto-config
+
+if BINANCE_API_TYPE and BINANCE_API_TYPE.lower() == "futures":
+    # Auto-enable derivatives modeling untuk futures
+    ENABLE_DERIVATIVES_MODELING = True
+    ENABLE_OPTIONS_STRATEGIES = True
+    
+    # Auto-set strategies ke long-short mode untuk futures
+    PAIRS_LONG_ONLY = False
+    STAT_ARB_LONG_ONLY = False
+    
+    print("🔵 [AUTO-CONFIG] Binance Futures detected - Auto-configuring:")
+    print("   ✅ Derivatives modeling: ENABLED")
+    print("   ✅ Options strategies: ENABLED")
+    print("   ✅ Pairs trading: Long-Short mode")
+    print("   ✅ Statistical arbitrage: Long-Short mode")
+    print("✅ [AUTO-CONFIG] Konfigurasi Futures selesai")
+elif BINANCE_API_TYPE and BINANCE_API_TYPE.lower() == "spot":
+    # Spot trading: default long-only (sudah di-set di atas)
+    # Derivatives modeling tetap bisa di-enable manual jika diperlukan
+    print("🟢 [AUTO-CONFIG] Binance Spot detected - Long-only mode aktif")
+    print("   ℹ️  Derivatives modeling: Manual (set ENABLE_DERIVATIVES_MODELING untuk enable)")
+    print("   ✅ Pairs trading: Long-only mode")
+    print("   ✅ Statistical arbitrage: Long-only mode")
 
 # ============================================
 # KONFIGURASI DEEPSEEK AI INTEGRATION

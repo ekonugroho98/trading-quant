@@ -902,9 +902,14 @@ class TelegramBot:
             
             # Hanya tampilkan entry jika nilainya valid (> 0)
             if entry1 and entry1 > 0 and entry2 and entry2 > 0 and entry3 and entry3 > 0:
-                lines.append(f"   Entry: {format_price_with_comma(entry2)} (konservatif) / {format_price_with_comma(entry1)} (agresif) / {format_price_with_comma(entry3)} (sangat konservatif)")
+                lines.append(f"   Entry:")
+                lines.append(f"      - {format_price_with_comma(entry1)} (agresif)")
+                lines.append(f"      - {format_price_with_comma(entry2)} (konservatif)")
+                lines.append(f"      - {format_price_with_comma(entry3)} (sangat konservatif)")
             elif entry1 and entry1 > 0 and entry2 and entry2 > 0:
-                lines.append(f"   Entry: {format_price_with_comma(entry2)} (konservatif) / {format_price_with_comma(entry1)} (agresif)")
+                lines.append(f"   Entry:")
+                lines.append(f"      - {format_price_with_comma(entry1)} (agresif)")
+                lines.append(f"      - {format_price_with_comma(entry2)} (konservatif)")
             elif entry2 and entry2 > 0:
                 lines.append(f"   Entry: {format_price_with_comma(entry2)}")
             elif entry1 and entry1 > 0:
@@ -922,6 +927,9 @@ class TelegramBot:
             tp3 = trading_setup.get('tp3')
             
             # Hanya tampilkan TP jika nilainya valid (> 0)
+            # Take Profit dengan format list
+            lines.append(f"   Take Profit:")
+            
             if tp1 and tp1 > 0 and tp2 and tp2 > 0 and tp3 and tp3 > 0:
                 # Calculate percentage untuk entry konservatif (entry2)
                 if entry2 and isinstance(entry2, (int, float)) and entry2 > 0:
@@ -938,9 +946,13 @@ class TelegramBot:
                         tp3_pct = ((entry2 - tp3) / entry2) * 100
                     
                     # Format persentase dengan 2 desimal, selalu tampilkan tanda
-                    lines.append(f"   TP1: {format_price_with_comma(tp1)} ({tp1_pct:+.2f}%) | TP2: {format_price_with_comma(tp2)} ({tp2_pct:+.2f}%) | TP3: {format_price_with_comma(tp3)} ({tp3_pct:+.2f}%)")
+                    lines.append(f"      - TP1: {format_price_with_comma(tp1)} ({tp1_pct:+.2f}%)")
+                    lines.append(f"      - TP2: {format_price_with_comma(tp2)} ({tp2_pct:+.2f}%)")
+                    lines.append(f"      - TP3: {format_price_with_comma(tp3)} ({tp3_pct:+.2f}%)")
                 else:
-                    lines.append(f"   TP1: {format_price_with_comma(tp1)} | TP2: {format_price_with_comma(tp2)} | TP3: {format_price_with_comma(tp3)}")
+                    lines.append(f"      - TP1: {format_price_with_comma(tp1)}")
+                    lines.append(f"      - TP2: {format_price_with_comma(tp2)}")
+                    lines.append(f"      - TP3: {format_price_with_comma(tp3)}")
             elif tp1 and tp1 > 0 and tp2 and tp2 > 0:
                 # Fallback jika hanya ada 2 TP
                 if entry2 and isinstance(entry2, (int, float)) and entry2 > 0:
@@ -953,9 +965,21 @@ class TelegramBot:
                         tp1_pct = ((entry2 - tp1) / entry2) * 100
                         tp2_pct = ((entry2 - tp2) / entry2) * 100
                     
-                    lines.append(f"   TP1: {format_price_with_comma(tp1)} ({tp1_pct:+.2f}%) | TP2: {format_price_with_comma(tp2)} ({tp2_pct:+.2f}%)")
+                    lines.append(f"      - TP1: {format_price_with_comma(tp1)} ({tp1_pct:+.2f}%)")
+                    lines.append(f"      - TP2: {format_price_with_comma(tp2)} ({tp2_pct:+.2f}%)")
                 else:
-                    lines.append(f"   TP1: {format_price_with_comma(tp1)} | TP2: {format_price_with_comma(tp2)}")
+                    lines.append(f"      - TP1: {format_price_with_comma(tp1)}")
+                    lines.append(f"      - TP2: {format_price_with_comma(tp2)}")
+            elif tp1 and tp1 > 0:
+                # Fallback jika hanya ada 1 TP
+                if entry2 and isinstance(entry2, (int, float)) and entry2 > 0:
+                    if direction == "LONG":
+                        tp1_pct = ((tp1 - entry2) / entry2) * 100
+                    else:  # SHORT
+                        tp1_pct = ((entry2 - tp1) / entry2) * 100
+                    lines.append(f"      - TP1: {format_price_with_comma(tp1)} ({tp1_pct:+.2f}%)")
+                else:
+                    lines.append(f"      - TP1: {format_price_with_comma(tp1)}")
             
             lines.append("")
         
@@ -1055,6 +1079,11 @@ class TelegramBot:
             # ml_prediction is None - tambahkan placeholder untuk semua metrics
             print(f"⚠️  [TELEGRAM] ml_prediction is None atau tidak ada, menambahkan placeholder")
             metrics_parts = ["Accuracy N/A", "Sharpe N/A", "Expected Value N/A"]
+        
+        # Tambahkan AI Confidence dari DeepSeek jika ada
+        if deepseek_recommendation and ai_confidence > 0:
+            metrics_parts.append(f"AI Confidence {ai_confidence}%")
+            print(f"   ✅ AI Confidence added: {ai_confidence}%")
         
         print(f"🔍 [TELEGRAM DEBUG] metrics_parts: {metrics_parts}")
         

@@ -1189,13 +1189,21 @@ def generate_trading_setup(symbol, current_price, support, resistance, signal,
         # ============================================
         # MULTIPLE ENTRY LEVELS untuk SHORT
         # ============================================
+        # Untuk SHORT: Semua entry harus DI ATAS current price (kita jual di harga tinggi)
+        # Entry 1 (Agresif): Paling dekat dengan current price atau di resistance
+        # Entry 2 (Konservatif): Di resistance atau sedikit di atas
+        # Entry 3 (Sangat Konservatif): Di atas resistance (menunggu pullback)
         if support is not None and resistance is not None:
-            # Entry 1: Paling agresif - dekat current price atau sedikit di bawah resistance
-            # Gunakan jika harga sudah di bawah resistance dan momentum kuat
-            if current_price <= resistance * 0.998:  # Harga sudah di bawah resistance
-                entry1 = current_price * 0.999  # 0.1% di bawah current (agresif)
-            else:
-                entry1 = resistance * 0.998  # 0.2% di bawah resistance (agresif)
+            # Entry 1: Paling agresif - sedikit di atas current price (dekat dengan current)
+            # Untuk SHORT agresif, entry harus dekat dengan current price (bukan di resistance)
+            # Gunakan current price + 0.2% sampai 0.5% sebagai entry agresif
+            entry1_agresif = current_price * 1.002  # 0.2% di atas current (agresif)
+            entry1_resistance = resistance * 0.999  # Di resistance
+            # Ambil yang lebih RENDAH (agresif = lebih dekat dengan current price)
+            entry1 = min(entry1_agresif, entry1_resistance)
+            # Pastikan entry1 >= current_price
+            if entry1 < current_price:
+                entry1 = current_price * 1.002
             
             # Entry 2: Konservatif - di resistance atau Fibonacci 0.382 (dari atas)
             if fib_levels:
@@ -1205,9 +1213,14 @@ def generate_trading_setup(symbol, current_price, support, resistance, signal,
                 fib_382_from_top = resistance - (price_range * 0.382)
                 entry2_option1 = resistance * 0.999  # 0.1% di bawah resistance
                 entry2_option2 = fib_382_from_top
-                entry2 = min(entry2_option1, entry2_option2)  # Ambil yang lebih rendah (lebih konservatif)
+                # Ambil yang lebih TINGGI (lebih konservatif untuk SHORT = lebih tinggi)
+                entry2 = max(entry2_option1, entry2_option2)
             else:
                 entry2 = resistance * 0.999  # 0.1% di bawah resistance
+            
+            # Pastikan entry2 > entry1 (konservatif harus lebih tinggi dari agresif)
+            if entry2 <= entry1:
+                entry2 = max(entry1 * 1.001, resistance * 0.999)
             
             # Entry 3: Sangat konservatif - di atas resistance atau Fibonacci 0.236 dari atas (wait for pullback)
             if fib_levels:
@@ -1216,14 +1229,29 @@ def generate_trading_setup(symbol, current_price, support, resistance, signal,
                 fib_236_from_top = resistance - (price_range * 0.236)
                 entry3_option1 = resistance * 1.002  # 0.2% di atas resistance (sangat konservatif)
                 entry3_option2 = fib_236_from_top
-                entry3 = max(entry3_option1, entry3_option2)  # Ambil yang lebih tinggi (sangat konservatif)
+                # Ambil yang lebih TINGGI (sangat konservatif untuk SHORT = lebih tinggi)
+                entry3 = max(entry3_option1, entry3_option2)
             else:
                 entry3 = resistance * 1.002  # 0.2% di atas resistance (sangat konservatif)
+            
+            # Validasi: Pastikan semua entry DI ATAS current price untuk SHORT
+            # Entry 1 harus >= current price (agresif = dekat current)
+            if entry1 < current_price:
+                entry1 = current_price * 1.001  # Force di atas current price
+            
+            # Entry 2 harus >= entry1 (konservatif = lebih tinggi dari agresif)
+            if entry2 < entry1:
+                entry2 = entry1 * 1.001  # Force lebih tinggi dari entry1
+            
+            # Entry 3 harus >= entry2 (sangat konservatif = paling tinggi)
+            if entry3 < entry2:
+                entry3 = entry2 * 1.001  # Force lebih tinggi dari entry2
         else:
             # Fallback jika tidak ada support/resistance
-            entry1 = current_price * 0.999  # 0.1% di bawah current
-            entry2 = current_price * 1.002  # 0.2% di atas current
-            entry3 = current_price * 1.005  # 0.5% di atas current
+            # Untuk SHORT: semua entry harus DI ATAS current price
+            entry1 = current_price * 1.001  # 0.1% di atas current (agresif)
+            entry2 = current_price * 1.002  # 0.2% di atas current (konservatif)
+            entry3 = current_price * 1.005  # 0.5% di atas current (sangat konservatif)
         
         # Gunakan entry2 sebagai entry utama (konservatif)
         entry_price = entry2
@@ -1245,12 +1273,14 @@ def generate_trading_setup(symbol, current_price, support, resistance, signal,
         entry_min = min(entry1, entry2, entry3)
         
         # Take Profit levels (berdasarkan support atau R:R ratio)
+        # Untuk SHORT: TP harus lebih RENDAH dari entry (harga turun = profit)
         if support is not None:
             # TP1: Target pertama (berdasarkan multiplier atau 50% ke support)
             # Hitung TP berdasarkan entry_price (entry2) untuk konsistensi
             tp1_option1 = entry_price - (risk * tp_multipliers[0])
             tp1_option2 = entry_price - ((entry_price - support) * 0.5)
-            tp1 = max(tp1_option1, tp1_option2)
+            # Untuk SHORT: ambil yang lebih RENDAH (lebih konservatif untuk TP)
+            tp1 = min(tp1_option1, tp1_option2)
             # Validasi: TP1 harus < entry terendah (entry1) untuk memastikan semua entry profit
             if tp1 >= entry_min:
                 # Jika TP1 >= entry_min, gunakan entry_min - margin kecil
@@ -1259,14 +1289,16 @@ def generate_trading_setup(symbol, current_price, support, resistance, signal,
             # TP2: Target kedua (berdasarkan multiplier atau 75% ke support)
             tp2_option1 = entry_price - (risk * tp_multipliers[1])
             tp2_option2 = entry_price - ((entry_price - support) * 0.75)
-            tp2 = max(tp2_option1, tp2_option2)
+            # Untuk SHORT: ambil yang lebih RENDAH
+            tp2 = min(tp2_option1, tp2_option2)
             # Validasi: TP2 harus < TP1 dan < entry terendah
             if tp2 >= tp1 or tp2 >= entry_min:
                 tp2 = min(tp1 * 0.998, entry_min * 0.995)  # Lebih rendah dari TP1
             
             # TP3: Target ketiga (berdasarkan multiplier atau support)
             tp3_option1 = entry_price - (risk * tp_multipliers[2])
-            tp3 = max(tp3_option1, support)
+            # Untuk SHORT: TP3 bisa di support atau lebih rendah
+            tp3 = min(tp3_option1, support)
             # Validasi: TP3 harus < TP2 dan < entry terendah
             if tp3 >= tp2 or tp3 >= entry_min:
                 tp3 = min(tp2 * 0.998, entry_min * 0.992)  # Lebih rendah dari TP2
