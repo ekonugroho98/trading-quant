@@ -6,6 +6,12 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+# Change working directory to project root to ensure CSV files are found
+# CSV files are created in project root, not in src/ directory
+if os.getcwd() != project_root:
+    os.chdir(project_root)
+    print(f"🔍 [DEBUG] Changed working directory to project root: {project_root}")
+
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
@@ -67,18 +73,51 @@ def load_data(csv_file=None):
         # Cari file CSV terbaru (prioritas: historical, lalu data real-time)
         # Pattern lebih fleksibel: btc_*.csv, btcusd_*.csv, atau *_historical_*.csv
         csv_files = []
+        
+        print(f"🔍 [DEBUG] Searching for CSV files...")
+        print(f"   Current directory: {os.getcwd()}")
+        print(f"   Project root: {project_root}")
+        
+        # Pastikan kita mencari di project root
+        # Change to project root directory untuk mencari CSV files
+        original_cwd = os.getcwd()
+        search_dir = project_root if project_root else os.getcwd()
+        
+        if os.getcwd() != search_dir:
+            os.chdir(search_dir)
+            print(f"   Changed to search directory: {search_dir}")
+        
+        print(f"   Searching in: {os.getcwd()}")
+        
         # Cari file historical dulu (prioritas)
-        csv_files.extend(glob.glob("*_historical_*.csv"))
-        # Cari file dengan pattern btc
-        csv_files.extend(glob.glob("btc*.csv"))
-        # Cari file dengan pattern umum
+        historical_files = glob.glob("*_historical_*.csv")
+        csv_files.extend(historical_files)
+        print(f"   Found {len(historical_files)} historical CSV files: {historical_files}")
+        
+        # Cari file dengan pattern umum (tanpa underscore requirement)
         if not csv_files:
-            csv_files.extend(glob.glob("*_*.csv"))  # Fallback: semua file dengan underscore
+            all_csv = glob.glob("*.csv")
+            # Filter out common non-data files
+            all_csv = [f for f in all_csv if not f.startswith('.') and 'test' not in f.lower()]
+            csv_files.extend(all_csv)
+            print(f"   Found {len(all_csv)} CSV files (all): {all_csv}")
+        
+        # Restore original directory jika berbeda
+        if original_cwd != os.getcwd():
+            os.chdir(original_cwd)
         
         if not csv_files:
+            # List all files in current directory for debugging
+            all_files = os.listdir('.')
+            csv_in_dir = [f for f in all_files if f.endswith('.csv')]
+            print(f"   ⚠️  No CSV files found with patterns!")
+            print(f"   All CSV files in directory: {csv_in_dir}")
             raise FileNotFoundError("Tidak ada file CSV ditemukan. Jalankan get_data.py atau get_historical_data.py terlebih dahulu.")
+        
         csv_file = max(csv_files, key=os.path.getctime)
-        print(f"Menggunakan file: {csv_file}")
+        print(f"✅ Menggunakan file CSV terbaru: {csv_file}")
+        print(f"   File size: {os.path.getsize(csv_file):,} bytes")
+        print(f"   Modified time: {datetime.fromtimestamp(os.path.getmtime(csv_file))}")
     
     # Simpan nama file untuk dihapus nanti
     used_csv_file_prediction = csv_file
@@ -383,9 +422,17 @@ def predict_ensemble(features, df, use_classification=True, models_config=None):
             rf_result = results['rf']
             rf_weight = next((m['weight'] for m in enabled_models if m['model'] == 'random_forest'), 0.5)
             
+            # Debug: cek apakah accuracy ada
+            if 'accuracy' not in rf_result:
+                print(f"⚠️  [DEBUG] rf_result tidak memiliki 'accuracy' key!")
+                print(f"   rf_result keys: {list(rf_result.keys())}")
+                print(f"   rf_result content: {rf_result}")
+                # Set default accuracy = 0
+                rf_result['accuracy'] = 0
+            
             # Jika hanya RandomForest, return langsung
             if len(results) == 1:
-                return {
+                result = {
                     'signal': rf_result['signal'],
                     'buy_probability': rf_result['buy_probability'],
                     'sell_probability': rf_result['sell_probability'],
@@ -394,6 +441,8 @@ def predict_ensemble(features, df, use_classification=True, models_config=None):
                     'model_type': 'RandomForestClassifier',
                     'ensemble_models': ['random_forest']
                 }
+                print(f"🔍 [DEBUG] predict_ensemble returning (single RF): accuracy={result.get('accuracy')}")
+                return result
             
             # Jika ada multiple models, combine probabilities
             # Untuk classification, kita bisa combine buy_probability
@@ -418,16 +467,26 @@ def predict_ensemble(features, df, use_classification=True, models_config=None):
             # Determine signal
             signal = "BELI" if combined_buy_prob > 50 else "JUAL"
             
-            return {
+            # Debug: cek accuracy
+            accuracy_val = rf_result.get('accuracy', 0) if 'rf' in results else 0
+            if accuracy_val == 0 and 'rf' in results:
+                print(f"⚠️  [DEBUG] rf_result accuracy = 0 atau tidak ada!")
+                print(f"   rf_result keys: {list(rf_result.keys()) if isinstance(rf_result, dict) else 'N/A'}")
+                if isinstance(rf_result, dict):
+                    print(f"   rf_result['accuracy']: {rf_result.get('accuracy', 'KEY NOT FOUND')}")
+            
+            result = {
                 'signal': signal,
                 'buy_probability': combined_buy_prob,
                 'sell_probability': combined_sell_prob,
-                'accuracy': rf_result.get('accuracy', 0) if 'rf' in results else 0,
+                'accuracy': accuracy_val,
                 'current_price': rf_result['current_price'],
                 'model_type': 'Ensemble (Weighted)',
                 'ensemble_models': [m['model'] for m in enabled_models if m['model'] in model_results],
                 'model_weights': {m['model']: m['weight'] for m in enabled_models if m['model'] in model_results}
             }
+            print(f"🔍 [DEBUG] predict_ensemble returning (multiple models): accuracy={result.get('accuracy')}")
+            return result
         else:
             # Jika tidak ada RandomForest, tidak bisa classification
             raise ValueError("RandomForest diperlukan untuk classification mode")
@@ -488,9 +547,15 @@ def backtest_strategy(features, df, model_result, use_classification=True):
     print("=" * 60)
     print("Mengukur apakah strategi ini menguntungkan...")
     
+    # Default values (akan di-overwrite jika perhitungan berhasil)
+    accuracy_val = 0
+    expected_val = 0
+    sharpe_val = 0
+    
     if use_classification and 'accuracy' in model_result:
         # Classification backtesting
         accuracy = model_result['accuracy']
+        accuracy_val = accuracy  # Simpan untuk return
         print(f"✅ Accuracy Score: {accuracy*100:.2f}%")
         print(f"   (Menggunakan accuracy_score dari sklearn)")
         
@@ -501,18 +566,22 @@ def backtest_strategy(features, df, model_result, use_classification=True):
         # Simulasi return jika ikuti sinyal berdasarkan probabilitas
         returns = df['Close'].pct_change().dropna()
         
+        print(f"   📊 Data returns: {len(returns)} records")
+        
         if len(returns) > 10:
             # Hitung expected return berdasarkan probabilitas
             # Expected return = (buy_prob * avg_positive_return) - (sell_prob * avg_negative_return)
             positive_returns = returns[returns > 0]
             negative_returns = returns[returns < 0]
             
+            print(f"   📊 Positive returns: {len(positive_returns)}, Negative returns: {len(negative_returns)}")
+            
             if len(positive_returns) > 0 and len(negative_returns) > 0:
                 avg_positive = positive_returns.mean()
                 avg_negative = abs(negative_returns.mean())
                 
                 expected_return = (buy_prob * avg_positive) - (sell_prob * avg_negative)
-                expected_value = expected_return * 100
+                expected_val = expected_return * 100
                 
                 # Sharpe Ratio
                 strategy_returns = []
@@ -523,20 +592,20 @@ def backtest_strategy(features, df, model_result, use_classification=True):
                         strategy_returns.append(-ret)  # Ikuti sinyal JUAL
                 
                 if len(strategy_returns) > 0 and np.std(strategy_returns) > 0:
-                    sharpe_ratio = (np.mean(strategy_returns) / np.std(strategy_returns)) * np.sqrt(252)
+                    sharpe_val = (np.mean(strategy_returns) / np.std(strategy_returns)) * np.sqrt(252)
                 else:
-                    sharpe_ratio = 0
+                    sharpe_val = 0
                 
-                print(f"📈 Expected Value: {expected_value:.2f}%")
+                print(f"📈 Expected Value: {expected_val:.2f}%")
                 print(f"   (Berdasarkan probabilitas dan historical returns)")
-                print(f"📊 Sharpe Ratio: {sharpe_ratio:.2f}")
+                print(f"📊 Sharpe Ratio: {sharpe_val:.2f}")
                 print(f"   (Sharpe > 1 = bagus, > 2 = sangat bagus)")
-                
-                return {
-                    'accuracy': accuracy,
-                    'expected_value': expected_value,
-                    'sharpe_ratio': sharpe_ratio
-                }
+            else:
+                print(f"⚠️  Tidak cukup positive/negative returns untuk menghitung expected value")
+                print(f"   Menggunakan default values: expected_value=0, sharpe_ratio=0")
+        else:
+            print(f"⚠️  Tidak cukup data returns (perlu >10, dapat {len(returns)})")
+            print(f"   Menggunakan default values: expected_value=0, sharpe_ratio=0")
     else:
         # Regression backtesting
         if 'lr_mae' in model_result and model_result['lr_mae']:
@@ -547,6 +616,7 @@ def backtest_strategy(features, df, model_result, use_classification=True):
             current_price = model_result['current_price']
             predicted_price = model_result['prediction']
             expected_return = ((predicted_price - current_price) / current_price) * 100
+            expected_val = expected_return  # Untuk regression, expected_value = expected_return
             
             print(f"📈 Expected Return: {expected_return:.2f}%")
             print(f"   (Berdasarkan prediksi harga)")
@@ -557,19 +627,59 @@ def backtest_strategy(features, df, model_result, use_classification=True):
                 avg_return = returns.mean() * 100
                 print(f"📊 Average Historical Return: {avg_return:.2f}%")
             
+            # Untuk regression, return dengan key yang berbeda
             return {
                 'mae': model_result['lr_mae'],
                 'rmse': model_result['lr_rmse'],
-                'expected_return': expected_return
+                'expected_value': expected_val,  # Tambahkan expected_value untuk konsistensi
+                'expected_return': expected_return,
+                'accuracy': 0,  # Regression tidak punya accuracy
+                'sharpe_ratio': 0  # Belum dihitung untuk regression
             }
+        else:
+            print("⚠️  Regression backtesting tidak bisa dilakukan (tidak ada lr_mae)")
+            # Tetap set expected_val = 0 untuk konsistensi
+            expected_val = 0
     
-    print("⚠️  Backtesting tidak bisa dilakukan dengan data yang tersedia")
-    return {}
+    # SELALU return dict dengan key yang konsisten, bahkan jika nilainya 0
+    result = {
+        'accuracy': accuracy_val,
+        'expected_value': expected_val,
+        'sharpe_ratio': sharpe_val
+    }
+    
+    print(f"✅ Backtest result: accuracy={result['accuracy']}, expected_value={result['expected_value']}, sharpe_ratio={result['sharpe_ratio']}")
+    
+    # Debug: cek kenapa nilai 0
+    if result['accuracy'] == 0 and result['expected_value'] == 0 and result['sharpe_ratio'] == 0:
+        print(f"⚠️  [DEBUG] Semua metrics = 0, cek kondisi:")
+        print(f"   - use_classification: {use_classification}")
+        print(f"   - 'accuracy' in model_result: {'accuracy' in model_result if isinstance(model_result, dict) else 'model_result bukan dict'}")
+        if isinstance(model_result, dict):
+            print(f"   - model_result keys: {list(model_result.keys())}")
+            print(f"   - model_result content: {model_result}")
+        print(f"   - len(df): {len(df) if df is not None else 'df is None'}")
+        if df is not None and len(df) > 0:
+            returns = df['Close'].pct_change().dropna()
+            print(f"   - len(returns): {len(returns)}")
+            if len(returns) > 0:
+                positive_returns = returns[returns > 0]
+                negative_returns = returns[returns < 0]
+                print(f"   - len(positive_returns): {len(positive_returns)}")
+                print(f"   - len(negative_returns): {len(negative_returns)}")
+    
+    return result
 
 def main():
     print("=" * 60)
     print("⚙️  QUANT MODEL: PREDICTIVE MACHINE LEARNING")
     print("=" * 60)
+    
+    # Debug: Log environment info
+    print(f"🔍 [DEBUG] Environment check:")
+    print(f"   - Python version: {sys.version}")
+    print(f"   - Working directory: {os.getcwd()}")
+    print(f"   - Script location: {__file__}")
     print()
     
     # ============================================
@@ -577,13 +687,64 @@ def main():
     # ============================================
     print("📊 [1] DATA HISTORIS")
     print("-" * 60)
+    
+    # Debug: Validasi data sebelum diproses
+    print(f"🔍 [DEBUG] Checking data source...")
+    try:
+        if USE_CSV_DATA and CSV_FILE:
+            print(f"   - Using CSV file: {CSV_FILE}")
+            if not os.path.exists(CSV_FILE):
+                print(f"   ❌ ERROR: CSV file not found: {CSV_FILE}")
+        else:
+            print(f"   - Using data from get_historical_data.py")
+    except Exception as e:
+        print(f"   ⚠️  Error checking data source: {e}")
+    
     try:
         data = load_data(CSV_FILE)
         print(f"✅ Data dimuat: {len(data)} records")
         print(f"   Periode: {data.index.min()} sampai {data.index.max()}")
         print(f"   Sumber: {'CSV' if USE_CSV_DATA else 'yfinance'}")
+        
+        # Debug: Validasi data yang dimuat
+        print(f"   🔍 [DEBUG] Data validation after load:")
+        print(f"      - Data shape: {data.shape}")
+        print(f"      - Data columns: {list(data.columns)}")
+        print(f"      - Index type: {type(data.index)}")
+        print(f"      - Index name: {data.index.name}")
+        print(f"      - Data types: {data.dtypes.to_dict()}")
+        print(f"      - Null values: {data.isnull().sum().to_dict()}")
+        if 'Close' in data.columns:
+            print(f"      - Close price stats: min={data['Close'].min():.8f}, max={data['Close'].max():.8f}, mean={data['Close'].mean():.8f}")
+            print(f"      - Close price sample (first 5): {data['Close'].head(5).tolist()}")
+        else:
+            print(f"      ⚠️  WARNING: 'Close' column not found in data!")
+            print(f"      - Available columns: {list(data.columns)}")
+        
+        # Validasi: pastikan data tidak kosong
+        if len(data) == 0:
+            print(f"   ❌ ERROR: Data is empty after loading!")
+            return
+        
+        # Validasi: pastikan ada kolom Close
+        if 'Close' not in data.columns:
+            print(f"   ❌ ERROR: 'Close' column is required but not found!")
+            return
+        
+        # Validasi: pastikan tidak ada null values di Close
+        if data['Close'].isnull().any():
+            print(f"   ⚠️  WARNING: Found null values in Close column, dropping...")
+            data = data.dropna(subset=['Close'])
+            print(f"      After dropna: {len(data)} rows")
+            if len(data) == 0:
+                print(f"   ❌ ERROR: Data is empty after dropping null values!")
+                return
+        
+        print(f"   ✅ Data validation passed: {len(data)} valid rows ready for processing")
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         return
     
     # ============================================
@@ -744,25 +905,83 @@ def main():
     # Simpan hasil ke file JSON untuk digunakan oleh analisis_quant.py
     try:
         import json
+        
+        # Extract metrics dari backtest_result (pastikan selalu ada nilai, bahkan jika 0)
+        # backtest_result sekarang SELALU return dict dengan key yang konsisten
+        if backtest_result and isinstance(backtest_result, dict):
+            accuracy_val = backtest_result.get('accuracy', 0)
+            expected_val = backtest_result.get('expected_value', 0)
+            sharpe_val = backtest_result.get('sharpe_ratio', 0)
+            # Pastikan semua nilai adalah number, bukan None
+            if accuracy_val is None:
+                accuracy_val = 0
+            if expected_val is None:
+                expected_val = 0
+            if sharpe_val is None:
+                sharpe_val = 0
+        else:
+            accuracy_val = 0
+            expected_val = 0
+            sharpe_val = 0
+        
+        print(f"🔍 [DEBUG] Extracting metrics from backtest_result:")
+        print(f"   backtest_result type: {type(backtest_result)}")
+        print(f"   backtest_result content: {backtest_result}")
+        print(f"   accuracy_val (before conversion): {accuracy_val}")
+        print(f"   expected_val: {expected_val}")
+        print(f"   sharpe_val: {sharpe_val}")
+        
+        # Convert accuracy dari decimal ke persen jika perlu (0.49 -> 49)
+        if isinstance(accuracy_val, (int, float)) and 0 < accuracy_val < 1:
+            accuracy_val = accuracy_val * 100
+            print(f"   accuracy_val (after conversion): {accuracy_val}")
+        
+        print(f"✅ Final metrics: accuracy={accuracy_val}, expected_value={expected_val}, sharpe_ratio={sharpe_val}")
+        
         ml_result = {
             'model': PREDICTION_METHOD,
             'model_type': result.get('model_type', 'Unknown'),
             'signal': result.get('signal', 'HOLD'),
             'buy_probability': result.get('buy_probability', 0),
             'sell_probability': result.get('sell_probability', 0),
-            'accuracy': backtest_result.get('accuracy', 0) if backtest_result else 0,
-            'expected_value': backtest_result.get('expected_value', 0) if backtest_result else 0,
-            'sharpe_ratio': backtest_result.get('sharpe_ratio', 0) if backtest_result else 0,
+            'accuracy': accuracy_val,  # Sudah dalam format persen jika perlu
+            'expected_value': expected_val,
+            'sharpe_ratio': sharpe_val,
             'data_records': len(data),
             'features_count': len(features.columns),
             'current_price': result.get('current_price', data['Close'].iloc[-1])
         }
         
-        with open('ml_prediction_result.json', 'w') as f:
+        # Pastikan file disimpan di project root (bukan di src/)
+        json_file_path = os.path.join(project_root, 'ml_prediction_result.json')
+        print(f"🔍 [DEBUG] Saving ml_prediction_result.json to: {json_file_path}")
+        print(f"   Current directory: {os.getcwd()}")
+        print(f"   Project root: {project_root}")
+        
+        with open(json_file_path, 'w') as f:
             json.dump(ml_result, f, indent=2)
+        
+        # Verifikasi file terbuat
+        if os.path.exists(json_file_path):
+            file_size = os.path.getsize(json_file_path)
+            print(f"✅ ML prediction results disimpan ke {json_file_path}")
+            print(f"   File size: {file_size} bytes")
+            print(f"   📊 Saved metrics: accuracy={ml_result.get('accuracy')}, sharpe={ml_result.get('sharpe_ratio')}, expected_value={ml_result.get('expected_value')}")
+            
+            # Debug: baca kembali untuk verifikasi
+            try:
+                with open(json_file_path, 'r') as f:
+                    verify_data = json.load(f)
+                    print(f"   ✅ Verification: File dapat dibaca, keys: {list(verify_data.keys())}")
+            except Exception as e:
+                print(f"   ⚠️  Verification failed: {e}")
+        else:
+            print(f"❌ ERROR: File tidak terbuat di {json_file_path}")
     except Exception as e:
-        # Silent fail, tidak critical
-        pass
+        # Log error untuk debugging
+        print(f"⚠️  Error saving ML prediction results: {e}")
+        import traceback
+        traceback.print_exc()
     
     # JANGAN hapus file CSV di sini - biarkan analisis_quant.py yang menghapusnya
     # setelah semua proses selesai (termasuk prediksi dan DeepSeek)

@@ -3,11 +3,20 @@ import yfinance as yf
 import requests
 from datetime import datetime, timedelta
 import time
+import sys
+import os
 
 # ============================================
 # SCRIPT UNTUK MENGAMBIL DATA HISTORICAL
 # Tidak perlu menunggu, langsung dapat data historis
 # ============================================
+
+# Setup path untuk memastikan import bekerja ketika dijalankan sebagai subprocess
+# Dapatkan project root directory (parent dari src/)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(script_dir))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # Import konfigurasi terpusat
 try:
@@ -476,25 +485,90 @@ def main():
     print("=" * 60)
     print()
     
+    # Baca config langsung dari file untuk mendapatkan nilai terbaru (fix: issue dengan module caching)
+    import importlib
+    import re
+    config_module = None
+    current_symbol = SYMBOL
+    current_data_source = DATA_SOURCE
+    current_days_back = DAYS_BACK
+    current_interval = INTERVAL
+    
+    try:
+        # Baca langsung dari file config.py untuk memastikan nilai terbaru
+        # Gunakan project_root yang sudah didefinisikan di level module
+        config_file_path = os.path.join(project_root, 'src', 'utils', 'config.py')
+        if not os.path.exists(config_file_path):
+            # Fallback: coba dari current directory
+            config_file_path = 'src/utils/config.py'
+        
+        if os.path.exists(config_file_path):
+            with open(config_file_path, 'r', encoding='utf-8') as f:
+                config_content = f.read()
+            
+            # Extract SYMBOL dari file
+            symbol_match = re.search(r'^SYMBOL\s*=\s*["\']([^"\']+)["\']', config_content, re.MULTILINE)
+            if symbol_match:
+                current_symbol = symbol_match.group(1)
+            
+            # Extract DATA_SOURCE dari file
+            data_source_match = re.search(r'^DATA_SOURCE\s*=\s*["\']([^"\']+)["\']', config_content, re.MULTILINE)
+            if data_source_match:
+                current_data_source = data_source_match.group(1)
+            
+            # Reload module untuk mendapatkan fungsi get_days_back dan get_interval
+            import src.utils.config as config_module
+            importlib.reload(config_module)
+            current_days_back = config_module.get_days_back()
+            current_interval = config_module.get_interval()
+            
+            print(f"📋 Menggunakan konfigurasi terbaru dari file:")
+            print(f"   SYMBOL: {current_symbol}")
+            print(f"   DATA_SOURCE: {current_data_source}")
+            print(f"   DAYS_BACK: {current_days_back}")
+            print(f"   INTERVAL: {current_interval}")
+        else:
+            print(f"⚠️  Config file tidak ditemukan di {config_file_path}, menggunakan nilai yang sudah di-import")
+            print(f"   SYMBOL: {current_symbol}, DATA_SOURCE: {current_data_source}")
+    except Exception as e:
+        print(f"⚠️  Error membaca config file, menggunakan nilai yang sudah di-import: {e}")
+        print(f"   SYMBOL: {current_symbol}, DATA_SOURCE: {current_data_source}")
+    
     data = None
     
-    if DATA_SOURCE == "yfinance":
-        data = get_data_yfinance(SYMBOL, DAYS_BACK, INTERVAL)
-    elif DATA_SOURCE == "binance":
+    if current_data_source == "yfinance":
+        data = get_data_yfinance(current_symbol, current_days_back, current_interval)
+    elif current_data_source == "binance":
         # Use helper function that auto-detects Spot or Futures based on BINANCE_API_TYPE
-        from src.data.binance_api_helper import get_binance_data
-        from src.utils.config import BINANCE_API_TYPE
-        api_type = BINANCE_API_TYPE.lower() if BINANCE_API_TYPE else "spot"
-        print(f"📊 Using Binance {api_type.upper()} API")
-        data = get_binance_data(SYMBOL, DAYS_BACK, INTERVAL, BINANCE_API_KEY, BINANCE_API_SECRET)
-    elif DATA_SOURCE == "coingecko":
-        data = get_data_coingecko(DAYS_BACK, coin_id=COIN_ID, api_key=COINGECKO_API_KEY)
-    elif DATA_SOURCE == "freecryptoapi":
-        data = get_data_freecryptoapi(DAYS_BACK, symbol=FREECRYPTOAPI_SYMBOL, api_key=FREECRYPTOAPI_KEY)
-    elif DATA_SOURCE == "indodax":
-        data = get_data_indodax(DAYS_BACK)
+        try:
+            from src.data.binance_api_helper import get_binance_data
+            # Reload config untuk mendapatkan BINANCE_API_TYPE terbaru
+            if config_module:
+                importlib.reload(config_module)
+            from src.utils.config import BINANCE_API_TYPE, BINANCE_API_KEY, BINANCE_API_SECRET
+            api_type = BINANCE_API_TYPE.lower() if BINANCE_API_TYPE else "spot"
+            print(f"📊 [get_historical_data] Using Binance {api_type.upper()} API")
+            print(f"   Symbol: {current_symbol}, Days: {current_days_back}, Interval: {current_interval}")
+            data = get_binance_data(current_symbol, current_days_back, current_interval, BINANCE_API_KEY, BINANCE_API_SECRET)
+            if data is not None and not data.empty:
+                print(f"✅ [get_historical_data] Successfully fetched {len(data)} records from Binance {api_type.upper()} API")
+        except ImportError as e:
+            print(f"❌ Error importing binance_api_helper: {e}")
+            print(f"   Project root: {project_root}")
+            print(f"   sys.path: {sys.path[:3]}")
+            raise
+    elif current_data_source == "coingecko":
+        coin_id = config_module.COIN_ID if config_module else COIN_ID
+        api_key = config_module.COINGECKO_API_KEY if config_module else COINGECKO_API_KEY
+        data = get_data_coingecko(current_days_back, coin_id=coin_id, api_key=api_key)
+    elif current_data_source == "freecryptoapi":
+        freecrypto_symbol = config_module.FREECRYPTOAPI_SYMBOL if config_module else FREECRYPTOAPI_SYMBOL
+        api_key = config_module.FREECRYPTOAPI_KEY if config_module else FREECRYPTOAPI_KEY
+        data = get_data_freecryptoapi(current_days_back, symbol=freecrypto_symbol, api_key=api_key)
+    elif current_data_source == "indodax":
+        data = get_data_indodax(current_days_back)
     else:
-        print(f"❌ Data source tidak dikenal: {DATA_SOURCE}")
+        print(f"❌ Data source tidak dikenal: {current_data_source}")
         print(f"   Pilihan yang tersedia: yfinance, binance, coingecko, freecryptoapi, indodax")
         return
     
@@ -502,33 +576,65 @@ def main():
         print("\n❌ Gagal mengambil data")
         return
     
+    # Normalize DataFrame: pastikan 'date' adalah kolom, bukan index
+    if 'date' not in data.columns and 'date' in data.index.names:
+        # Jika date adalah index, reset menjadi kolom
+        data = data.reset_index()
+    elif 'date' not in data.columns and data.index.name == 'date':
+        # Jika index name adalah 'date', reset menjadi kolom
+        data = data.reset_index()
+    elif 'date' not in data.columns and isinstance(data.index, pd.DatetimeIndex):
+        # Jika index adalah DatetimeIndex tapi tidak ada kolom 'date', buat kolom 'date'
+        data = data.reset_index()
+        # Cari kolom yang berisi datetime dan rename ke 'date'
+        for col in data.columns:
+            if pd.api.types.is_datetime64_any_dtype(data[col]):
+                data = data.rename(columns={col: 'date'})
+                break
+    
+    # Pastikan kolom yang diperlukan ada
+    required_columns = ['date', 'Open', 'High', 'Low', 'Close', 'Volume']
+    missing_columns = [col for col in required_columns if col not in data.columns]
+    if missing_columns:
+        print(f"⚠️  Kolom yang hilang: {missing_columns}")
+        print(f"   Kolom yang tersedia: {list(data.columns)}")
+        if 'date' not in data.columns:
+            print("❌ Kolom 'date' tidak ditemukan, tidak dapat melanjutkan")
+            return
+    
     # Statistik
     print("\n" + "=" * 60)
     print("STATISTIK DATA")
     print("=" * 60)
     print(f"Total records: {len(data)}")
-    print(f"Periode: {data['date'].min()} sampai {data['date'].max()}")
+    print(f"Kolom: {list(data.columns)}")
+    
+    if 'date' in data.columns:
+        print(f"Periode: {data['date'].min()} sampai {data['date'].max()}")
     
     if 'Close' in data.columns:
         print(f"Harga tertinggi: {data['Close'].max():,.2f}")
         print(f"Harga terendah: {data['Close'].min():,.2f}")
         print(f"Harga rata-rata: {data['Close'].mean():,.2f}")
-        print(f"Perubahan: {((data['Close'].iloc[-1] / data['Close'].iloc[0]) - 1) * 100:.2f}%")
+        if len(data) > 0:
+            print(f"Perubahan: {((data['Close'].iloc[-1] / data['Close'].iloc[0]) - 1) * 100:.2f}%")
     
     # Simpan ke CSV
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Tentukan nama coin untuk filename
-    if DATA_SOURCE == "yfinance":
-        coin_name = SYMBOL.replace("-", "").lower()  # BTC-USD -> btcusd
-    elif DATA_SOURCE == "binance":
-        coin_name = SYMBOL.replace("-", "").lower()  # BTC-USD -> btcusd
-    elif DATA_SOURCE == "coingecko":
-        coin_name = COIN_ID.replace("-", "_")  # bitcoin -> bitcoin, hype-token -> hype_token
-    elif DATA_SOURCE == "freecryptoapi":
-        coin_name = FREECRYPTOAPI_SYMBOL.lower()  # BTC -> btc
+    # Tentukan nama coin untuk filename (gunakan current_symbol yang sudah di-reload)
+    if current_data_source == "yfinance":
+        coin_name = current_symbol.replace("-", "").lower()  # DOGE-USD -> dogeusd
+    elif current_data_source == "binance":
+        coin_name = current_symbol.replace("-", "").lower()  # DOGE-USD -> dogeusd
+    elif current_data_source == "coingecko":
+        coin_id = config_module.COIN_ID if config_module else COIN_ID
+        coin_name = coin_id.replace("-", "_")  # bitcoin -> bitcoin, hype-token -> hype_token
+    elif current_data_source == "freecryptoapi":
+        freecrypto_symbol = config_module.FREECRYPTOAPI_SYMBOL if config_module else FREECRYPTOAPI_SYMBOL
+        coin_name = freecrypto_symbol.lower()  # BTC -> btc
     else:
         coin_name = "crypto"
-    filename = f"{coin_name}_historical_{DATA_SOURCE}_{timestamp}.csv"
+    filename = f"{coin_name}_historical_{current_data_source}_{timestamp}.csv"
     data.to_csv(filename, index=False)
     print(f"\n✅ Data disimpan ke: {filename}")
     

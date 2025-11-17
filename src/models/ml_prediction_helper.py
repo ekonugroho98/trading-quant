@@ -99,12 +99,51 @@ def get_ml_prediction_from_file() -> Optional[Dict]:
     Returns:
         Dictionary dengan hasil ML prediction atau None
     """
-    json_file = "ml_prediction_result.json"
+    # Cari file di project root (bukan di src/)
+    import sys
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(script_dir))
+    
+    json_file = os.path.join(project_root, "ml_prediction_result.json")
+    
+    print(f"🔍 [ML_HELPER] Looking for JSON file at: {json_file}")
+    print(f"   Project root: {project_root}")
+    print(f"   Current directory: {os.getcwd()}")
+    
+    # Juga cek di current directory sebagai fallback
+    json_file_current = "ml_prediction_result.json"
+    
     if os.path.exists(json_file):
+        json_file_to_use = json_file
+    elif os.path.exists(json_file_current):
+        json_file_to_use = json_file_current
+    else:
+        print(f"⚠️  [ML_HELPER] File tidak ditemukan di {json_file} atau {json_file_current}")
+        return None
+    
+    print(f"✅ [ML_HELPER] Using file: {json_file_to_use}")
+    
+    if os.path.exists(json_file_to_use):
         try:
-            with open(json_file, 'r') as f:
-                return json.load(f)
-        except:
-            pass
+            with open(json_file_to_use, 'r') as f:
+                data = json.load(f)
+                # Debug logging
+                print(f"🔍 [ML_HELPER] File JSON ditemukan, membaca data...")
+                print(f"   File path: {json_file_to_use}")
+                print(f"   File size: {os.path.getsize(json_file_to_use)} bytes")
+                print(f"   Type: {type(data)}")
+                if isinstance(data, dict):
+                    print(f"   Keys: {list(data.keys())}")
+                    print(f"   accuracy: {data.get('accuracy')} (type: {type(data.get('accuracy'))})")
+                    print(f"   sharpe_ratio: {data.get('sharpe_ratio')} (type: {type(data.get('sharpe_ratio'))})")
+                    print(f"   expected_value: {data.get('expected_value')} (type: {type(data.get('expected_value'))})")
+                return data
+        except Exception as e:
+            print(f"⚠️  [ML_HELPER] Error reading JSON file: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    else:
+        print(f"⚠️  [ML_HELPER] File {json_file} tidak ditemukan")
     return None
 

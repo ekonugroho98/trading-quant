@@ -61,7 +61,7 @@ FILTER_YEAR = 2025  # Filter data hanya tahun tertentu (None = tidak filter)
 # KONFIGURASI DATA HISTORICAL
 # ============================================
 DATA_SOURCE = "binance"  # Pilihan: "yfinance", "binance", "coingecko", "indodax", "freecryptoapi"
-SYMBOL = "FXS-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
+SYMBOL = "GRIFFAIN-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
 
 # ============================================
 # KONFIGURASI BINANCE API TYPE
