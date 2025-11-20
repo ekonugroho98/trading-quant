@@ -101,18 +101,48 @@ Indonesia memiliki situasi yang berbeda dari US dan India:
 - Risiko: ⚠️ **Hukum Indonesia melarang** penggunaan Binance untuk warga Indonesia
 - Rekomendasi: ✅ **Lebih aman gunakan server di Singapore** atau exchange lokal yang legal
 
+### Status Malaysia
+
+**Malaysia: ⚠️ DILARANG OLEH PEMERINTAH**
+
+Malaysia memiliki situasi yang mirip dengan Indonesia:
+
+**Regulasi Malaysia:**
+- ❌ **SC** (Securities Commission Malaysia) mengambil **tindakan enforcement** terhadap Binance pada **30 Juli 2021**
+- ❌ Binance **dilarang beroperasi** di Malaysia karena **tidak terdaftar sebagai RMO** (Recognized Market Operator)
+- ❌ SC memerintahkan Binance untuk **menutup website dan aplikasi mobile** di Malaysia
+- ⚠️ Beberapa investor masih mengakses melalui VPN (tidak disarankan)
+
+**Dampak untuk Server di Malaysia:**
+- ⚠️ **Website Binance di-block** oleh pemerintah Malaysia
+- ⚠️ **API mungkin masih bisa diakses** (tidak di-block oleh Binance sendiri)
+- ⚠️ **Risiko hukum** karena melanggar regulasi SC Malaysia
+- ⚠️ **Tidak ada perlindungan hukum** jika terjadi masalah
+
+**Platform Legal di Malaysia:**
+- Gunakan exchange yang **terdaftar di SC Malaysia** sebagai RMO:
+  - Luno Malaysia
+  - Tokenize Malaysia
+  - Lainnya yang terdaftar resmi di SC
+
+**Kesimpulan untuk Malaysia:**
+- Server di Malaysia: ⚠️ **Mungkin bisa akses API** (tidak di-block oleh Binance)
+- Tapi: ❌ **Dilarang oleh SC Malaysia** sejak 2021
+- Risiko: ⚠️ **Melanggar hukum Malaysia**, tidak ada perlindungan hukum
+- Rekomendasi: ✅ **Lebih aman gunakan server di Singapore** atau exchange lokal yang legal
+
 ## ✅ Solusi
 
 ### 1. Pindahkan Server ke Lokasi yang Diizinkan
 
 **Recommended locations:**
-- **Singapore** ✅✅ (PALING RECOMMENDED - Binance memiliki operasi di sini, tidak ada blocking)
-- **India** ✅ (Dapat diakses sejak 2024, setelah registrasi FIU-IND)
-- **Malaysia** ✅
-- **Thailand** ✅
+- **Singapore** ✅✅ (PALING RECOMMENDED - Binance memiliki operasi di sini, tidak ada blocking, legal)
+- **India** ✅ (Dapat diakses sejak 2024, setelah registrasi FIU-IND, legal)
+- **Thailand** ✅ (Umumnya dapat diakses, cek regulasi terbaru)
+- **Vietnam** ✅ (Umumnya dapat diakses)
+- **Philippines** ✅ (Umumnya dapat diakses)
+- **Malaysia** ⚠️ (API mungkin bisa, tapi dilarang oleh SC sejak 2021, ada risiko hukum)
 - **Indonesia** ⚠️ (API mungkin bisa, tapi website di-block pemerintah, ada risiko hukum)
-- **Vietnam** ✅
-- **Philippines** ✅
 - **European Union** (terbatas, beberapa fitur)
 
 ### 2. Gunakan VPN ke Lokasi yang Diizinkan
