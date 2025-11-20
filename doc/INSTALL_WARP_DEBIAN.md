@@ -57,15 +57,27 @@ warp-cli registration new
 # warp-cli registration
 ```
 
-### 2. Set Mode WARP
+### 2. Set Mode WARP (PENTING!)
 
 ```bash
+# PENTING: Pastikan mode adalah "warp" (full VPN), bukan "doh" (DNS-only)
+# Mode DNS-only tidak akan bypass restriction!
+
+# Cek mode saat ini
+warp-cli get-mode
+
 # Mode 1: WARP (Full VPN) - Recommended untuk bypass restriction
 warp-cli set-mode warp
 
-# Mode 2: WARP+ (Jika punya license key)
-# warp-cli set-mode warp+
+# Mode 2: WARP+ (Jika punya license key) - Lebih baik untuk bypass
+# Dapatkan license key gratis di: https://1.1.1.1/
 # warp-cli set-license YOUR_LICENSE_KEY
+# warp-cli set-mode warp+
+
+# Setelah set mode, WAJIB reconnect!
+warp-cli disconnect
+sleep 2
+warp-cli connect
 ```
 
 ### 3. Connect WARP
@@ -73,6 +85,10 @@ warp-cli set-mode warp
 ```bash
 # Connect ke WARP
 warp-cli connect
+
+# Tunggu beberapa detik, lalu cek status
+sleep 3
+warp-cli status
 ```
 
 ### 4. Cek Status
@@ -86,14 +102,35 @@ warp-cli status
 # Successfully registered
 ```
 
-### 5. Test Koneksi
+### 5. Cek IP Address
+
+**PENTING**: Pastikan IP address sudah berubah setelah connect WARP!
+
+```bash
+# Cek IP address saat ini
+curl https://api.ipify.org
+
+# Cek detail IP (country, ISP, dll)
+curl https://ipinfo.io/json
+
+# IP harus berbeda dari IP server asli
+# Country harus bukan Indonesia (jika server di Indonesia)
+```
+
+### 6. Test Koneksi
 
 ```bash
 # Test DNS resolution
 nslookup api.binance.com
 
 # Test koneksi ke Binance
-curl -I https://api.binance.com/api/v3/ping
+curl https://api.binance.com/api/v3/ping
+
+# Response yang benar:
+# {"code":0}  atau {} (tanpa error message)
+# 
+# Response yang SALAH (masih restricted):
+# {"code":0,"msg":"Service unavailable from a restricted location..."}
 ```
 
 ## 🔧 Konfigurasi Lanjutan
@@ -229,18 +266,54 @@ warp-cli register
 warp-cli connect
 ```
 
-### WARP Tidak Bypass Restriction
+### WARP Connected Tapi Masih Error 451 (Restricted Location)
+
+Ini biasanya karena WARP masih dalam mode DNS-only, bukan full VPN:
 
 ```bash
-# Pastikan mode WARP aktif
-warp-cli status
+# 1. Cek mode saat ini
+warp-cli get-mode
 
-# Coba disconnect dan connect lagi
+# 2. Pastikan mode adalah "warp" (bukan "doh")
+warp-cli set-mode warp
+
+# 3. WAJIB reconnect setelah set mode
+warp-cli disconnect
+sleep 2
+warp-cli connect
+sleep 3
+
+# 4. Cek IP address (harus berubah)
+curl https://api.ipify.org
+curl https://ipinfo.io/json
+
+# 5. Test lagi
+curl https://api.binance.com/api/v3/ping
+```
+
+**Jika masih gagal, coba WARP+ (gratis):**
+
+```bash
+# 1. Dapatkan license key gratis di: https://1.1.1.1/
+# 2. Set license key
+warp-cli set-license YOUR_LICENSE_KEY
+
+# 3. Set mode ke WARP+
+warp-cli set-mode warp+
+
+# 4. Reconnect
 warp-cli disconnect
 warp-cli connect
 
-# Cek IP address
-curl https://api.ipify.org
+# 5. Test lagi
+curl https://api.binance.com/api/v3/ping
+```
+
+**Atau gunakan script troubleshooting:**
+
+```bash
+# Jalankan script troubleshooting
+bash scripts/troubleshoot_warp.sh
 ```
 
 ## 🔄 Quick Commands Reference
