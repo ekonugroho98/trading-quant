@@ -70,16 +70,47 @@ Binance telah kembali beroperasi di India setelah:
 
 **Kesimpulan:** Server di India **TIDAK di-block** oleh Binance API, berbeda dengan US.
 
+### Status Indonesia
+
+**Indonesia: ⚠️ SITUASI KOMPLEKS**
+
+Indonesia memiliki situasi yang berbeda dari US dan India:
+
+**Regulasi Indonesia:**
+- ❌ **Binance TIDAK memiliki izin resmi** dari **Bappebti** (Badan Pengawas Perdagangan Berjangka Komoditi)
+- ❌ **OJK** (Otoritas Jasa Keuangan) memasukkan Binance ke **daftar investasi ilegal** sejak Oktober 2020
+- ❌ **Kominfo** (Kementerian Komunikasi dan Informatika) **memblokir akses website Binance** di Indonesia
+- ⚠️ Aplikasi mobile Binance masih dapat diakses (meskipun tidak resmi)
+
+**Dampak untuk Server di Indonesia:**
+- ⚠️ **Website Binance di-block** oleh Kominfo (ISP blocking)
+- ⚠️ **API mungkin masih bisa diakses** (tidak di-block oleh Binance sendiri)
+- ⚠️ **Risiko hukum** jika digunakan untuk trading oleh warga Indonesia
+- ✅ **Untuk server/VPS di Indonesia**: API mungkin masih bisa diakses, tapi ada risiko
+
+**Platform Legal di Indonesia:**
+- Gunakan exchange yang **terdaftar di Bappebti**:
+  - Tokocrypto
+  - Indodax
+  - Pintu
+  - Lainnya yang terdaftar resmi
+
+**Kesimpulan untuk Indonesia:**
+- Server di Indonesia: ⚠️ **Mungkin bisa akses API** (tidak di-block oleh Binance)
+- Tapi: ❌ **Website di-block oleh pemerintah Indonesia**
+- Risiko: ⚠️ **Hukum Indonesia melarang** penggunaan Binance untuk warga Indonesia
+- Rekomendasi: ✅ **Lebih aman gunakan server di Singapore** atau exchange lokal yang legal
+
 ## ✅ Solusi
 
 ### 1. Pindahkan Server ke Lokasi yang Diizinkan
 
 **Recommended locations:**
-- **Singapore** ✅ (Binance memiliki operasi di sini)
+- **Singapore** ✅✅ (PALING RECOMMENDED - Binance memiliki operasi di sini, tidak ada blocking)
 - **India** ✅ (Dapat diakses sejak 2024, setelah registrasi FIU-IND)
 - **Malaysia** ✅
 - **Thailand** ✅
-- **Indonesia** ✅
+- **Indonesia** ⚠️ (API mungkin bisa, tapi website di-block pemerintah, ada risiko hukum)
 - **Vietnam** ✅
 - **Philippines** ✅
 - **European Union** (terbatas, beberapa fitur)
