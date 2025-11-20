@@ -14,8 +14,8 @@ xgboost==2.0.3
 lightgbm==4.1.0
 
 # Deep Learning
-tensorflow==2.15.0
-keras==2.15.0
+tensorflow>=2.20.0  # Updated for Python 3.13 compatibility (2.15.0 not available for Python 3.13)
+keras>=3.0.0  # Updated for Python 3.13 compatibility (Keras 3.x is integrated with TensorFlow 2.20+)
 
 # Hyperparameter Optimization
 scikit-optimize==0.9.0
