@@ -16,6 +16,7 @@ import time
 import json
 import requests
 import subprocess
+import re
 from typing import Optional, List, Dict
 from src.utils.config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SYMBOL as DEFAULT_SYMBOL
 
@@ -487,6 +488,15 @@ class TradingBot:
             if result.returncode == 0:
                 # Analisis berhasil, hasil sudah dikirim otomatis oleh analisis_quant.py
                 print(f"✅ [run_analysis] Analysis completed successfully for {symbol}")
+                
+                # DISABLED: Untuk request satuan (single coin), tidak ada filter/threshold
+                # Semua hasil analisis akan dikirim ke Telegram tanpa memandang kriteria
+                # Cek kriteria hanya untuk batch request (/analyze command)
+                
+                # Cek apakah coin memenuhi kriteria berdasarkan output
+                # COMMENTED OUT untuk single coin request - selalu kirim ke Telegram
+                # Semua hasil analisis untuk single coin request akan selalu dikirim ke Telegram
+                # Filter/threshold hanya berlaku untuk batch request di analyze_screened_coins.py
                 
                 # Tampilkan bagian penting dari output (ml_result dan Quant Metrics)
                 if result.stdout:
@@ -1148,7 +1158,7 @@ class TradingBot:
             # Format: /analyze [days] [top_n] [max_coins] [direction]
             days = 90  # Default
             top_n = 5  # Default untuk screening
-            max_coins = 5  # Default untuk analisis (lebih kecil dari top_n karena analisis lebih lama)
+            max_coins = None  # Default: None = analisis semua coin hasil screening (sama dengan top_n)
             trade_direction = "both"  # Default
             
             if len(parts) > 1:
@@ -1162,18 +1172,47 @@ class TradingBot:
             if len(parts) > 2:
                 try:
                     top_n = int(parts[2])
-                    if top_n < 1 or top_n > 20:
+                    if top_n < 1 or top_n > 200:  # Increase limit untuk top_n
                         top_n = 5
                 except:
                     pass
             
+            # Cek apakah user ingin skip screening (parameter "noscreen" atau "direct")
+            # HARUS dicek SEBELUM parsing max_coins agar tidak conflict
+            skip_screening = False
+            if len(parts) > 1:
+                # Cek apakah ada parameter "noscreen" atau "direct"
+                for part in parts[1:]:
+                    if part.lower() in ["noscreen", "direct", "skip"]:
+                        skip_screening = True
+                        # Hapus parameter ini dari parts untuk parsing normal
+                        parts = [p for p in parts if p.lower() not in ["noscreen", "direct", "skip"]]
+                        break
+            
             if len(parts) > 3:
                 try:
                     max_coins = int(parts[3])
-                    if max_coins < 1 or max_coins > 10:
-                        max_coins = 5
+                    if max_coins < 1:
+                        max_coins = None  # Jika 0 atau negatif, analisis semua
+                    elif skip_screening:
+                        # Untuk skip_screening, allow lebih banyak coins (sampai 1000)
+                        if max_coins > 1000:
+                            max_coins = 1000
+                    else:
+                        # Untuk normal screening, limit 200
+                        if max_coins > 200:
+                            max_coins = 200
                 except:
                     pass
+            
+            # Jika skip_screening, max_coins default = None (unlimited, analisis semua)
+            if skip_screening:
+                if max_coins is None:
+                    max_coins = None  # Unlimited - analisis semua coins dari list
+            else:
+                # Jika max_coins tidak di-specify, default = top_n (analisis semua hasil screening)
+                if max_coins is None:
+                    max_coins = top_n
             
             if len(parts) > 4:
                 direction_param = parts[4].lower()
@@ -1184,19 +1223,31 @@ class TradingBot:
             trading_style = "DAY_TRADING"  # Default untuk analisis screened coins
             
             # Kirim notifikasi sedang analisis
-            self.send_message(
-                chat_id,
-                f"🔍 <b>Memulai analisis screened coins...</b>\n\n"
-                f"📅 Periode screening: {days} hari\n"
-                f"📊 Top {top_n} coins dari screening\n"
-                f"🔢 Menganalisis {max_coins} coins teratas\n"
-                f"📈 Direction: {trade_direction}\n"
-                f"⚙️  Trading Style: {trading_style}\n\n"
-                f"⏳ Proses ini mungkin memakan waktu beberapa menit..."
-            )
+            if skip_screening:
+                self.send_message(
+                    chat_id,
+                    f"🚀 <b>Memulai analisis langsung (tanpa screening)...</b>\n\n"
+                    f"🔢 Menganalisis maksimal {max_coins} coins\n"
+                    f"⚙️  Trading Style: {trading_style}\n"
+                    f"🔄 Mode: REAL-TIME Processing\n"
+                    f"   → Analisis → Filter Ketat → AI → Telegram → Next\n\n"
+                    f"⏳ Proses ini mungkin memakan waktu lama..."
+                )
+            else:
+                self.send_message(
+                    chat_id,
+                    f"🔍 <b>Memulai analisis screened coins...</b>\n\n"
+                    f"📅 Periode screening: {days} hari\n"
+                    f"📊 Top {top_n} coins dari screening\n"
+                    f"🔢 Menganalisis {max_coins} coins teratas\n"
+                    f"📈 Direction: {trade_direction}\n"
+                    f"⚙️  Trading Style: {trading_style}\n\n"
+                    f"⏳ Proses ini mungkin memakan waktu beberapa menit..."
+                )
             
             print(f"🔍 [handle_analyze_screened_command] Starting analysis for chat_id={chat_id}")
             print(f"   Parameters: days={days}, top_n={top_n}, max_coins={max_coins}, direction={trade_direction}")
+            print(f"   Skip Screening: {skip_screening}")
             
             # Tentukan trading style untuk analisis
             # Default: DAY_TRADING untuk analisis screened coins (lebih stabil)
@@ -1211,7 +1262,8 @@ class TradingBot:
                 trade_direction=trade_direction,
                 max_coins=max_coins,
                 send_to_telegram=True,  # Otomatis kirim ke Telegram
-                trading_style=trading_style  # DAY_TRADING untuk analisis screened coins
+                trading_style=trading_style,  # DAY_TRADING untuk analisis screened coins
+                skip_screening=skip_screening  # Skip screening jika diminta
             )
             
             if not results:

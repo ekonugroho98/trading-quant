@@ -129,11 +129,38 @@ def load_data(csv_file=None):
         df.set_index('date', inplace=True)
         
         if 'Close' in df.columns:
-            data = df[['Close']].copy()
+            # Pastikan Volume, High, Low juga diambil jika tersedia (untuk VWAP dan features lainnya)
+            cols_to_use = ['Close']
+            if 'Volume' in df.columns:
+                cols_to_use.append('Volume')
+            if 'High' in df.columns:
+                cols_to_use.append('High')
+            if 'Low' in df.columns:
+                cols_to_use.append('Low')
+            
+            data = df[cols_to_use].copy()
+            
+            # Tambahkan Volume = 0 jika tidak ada
+            if 'Volume' not in data.columns:
+                data['Volume'] = 0
+                print(f"⚠️  Volume tidak tersedia, akan menggunakan Volume = 0")
+            else:
+                print(f"✅ Data dengan Volume: {len(data)} records")
+            
+            # Tambahkan High/Low = Close jika tidak ada (untuk VWAP)
+            if 'High' not in data.columns:
+                data['High'] = data['Close']
+            if 'Low' not in data.columns:
+                data['Low'] = data['Close']
         elif 'price' in df.columns:
             # Resample tick data
             data = pd.DataFrame()
             data['Close'] = df['price'].resample('1h').last()
+            # Cek apakah ada amount/volume
+            if 'amount' in df.columns:
+                data['Volume'] = df['amount'].resample('1h').sum()
+            else:
+                data['Volume'] = 0
         else:
             raise ValueError("Kolom 'Close' atau 'price' tidak ditemukan")
     else:
@@ -142,25 +169,37 @@ def load_data(csv_file=None):
     data = data.dropna()
     return data
 
-def create_features(df, lookback=20):
-    """Buat fitur untuk prediksi"""
+def create_features(df, lookback=20, use_enhanced=True):
+    """
+    Buat fitur untuk prediksi dengan enhanced features
+    
+    Args:
+        df: DataFrame dengan price data
+        lookback: Lookback window untuk beberapa indicators
+        use_enhanced: Gunakan enhanced feature engineering
+    """
     features = pd.DataFrame(index=df.index)
     
     # Harga historis
     features['Close'] = df['Close']
     features['Return'] = df['Close'].pct_change()
     
-    # Moving Averages
-    features['MA_5'] = df['Close'].rolling(window=5).mean()
-    features['MA_10'] = df['Close'].rolling(window=10).mean()
-    features['MA_20'] = df['Close'].rolling(window=20).mean()
+    # Moving Averages (multiple windows)
+    for window in [5, 10, 20, 50, 100]:
+        if len(df) >= window:
+            features[f'MA_{window}'] = df['Close'].rolling(window=window).mean()
+            features[f'EMA_{window}'] = df['Close'].ewm(span=window, adjust=False).mean()
     
-    # Volatilitas
-    features['Volatility'] = df['Close'].rolling(window=10).std()
+    # Volatilitas (multiple windows)
+    for window in [10, 20, 50]:
+        if len(df) >= window:
+            features[f'Volatility_{window}'] = df['Close'].rolling(window=window).std()
+            if f'MA_{window}' in features.columns:
+                features[f'Volatility_Ratio_{window}'] = features[f'Volatility_{window}'] / features[f'MA_{window}']
     
-    # Momentum
-    features['Momentum_5'] = df['Close'].pct_change(5)
-    features['Momentum_10'] = df['Close'].pct_change(10)
+    # Momentum (multiple periods)
+    for period in [1, 3, 5, 10, 20]:
+        features[f'Momentum_{period}'] = df['Close'].pct_change(period)
     
     # RSI (Relative Strength Index)
     delta = df['Close'].diff()
@@ -175,14 +214,90 @@ def create_features(df, lookback=20):
     features['BB_Upper'] = features['BB_Middle'] + (bb_std * 2)
     features['BB_Lower'] = features['BB_Middle'] - (bb_std * 2)
     features['BB_Width'] = features['BB_Upper'] - features['BB_Lower']
+    features['BB_Position'] = (df['Close'] - features['BB_Lower']) / (features['BB_Upper'] - features['BB_Lower'])
     
     # Harga relatif terhadap MA
-    features['Price_MA5_Ratio'] = df['Close'] / features['MA_5']
-    features['Price_MA20_Ratio'] = df['Close'] / features['MA_20']
+    for ma_col in ['MA_5', 'MA_10', 'MA_20', 'MA_50']:
+        if ma_col in features.columns:
+            features[f'Price_{ma_col}_Ratio'] = df['Close'] / features[ma_col]
     
     # Lag features (harga kemarin, 2 hari lalu, dll)
-    for lag in [1, 2, 3, 5]:
+    for lag in [1, 2, 3, 5, 10]:
         features[f'Close_Lag_{lag}'] = df['Close'].shift(lag)
+        features[f'Return_Lag_{lag}'] = features['Return'].shift(lag)
+    
+    # Volume-based features (PENTING untuk akurasi!)
+    if 'Volume' in df.columns and df['Volume'].sum() > 0:
+        # Volume Moving Averages
+        for window in [5, 10, 20, 50]:
+            if len(df) >= window:
+                features[f'Volume_MA_{window}'] = df['Volume'].rolling(window=window).mean()
+        
+        # Volume Ratio (volume hari ini vs rata-rata)
+        if 'Volume_MA_20' in features.columns:
+            features['Volume_Ratio'] = df['Volume'] / features['Volume_MA_20']
+            features['Volume_Ratio'] = features['Volume_Ratio'].replace([np.inf, -np.inf], 0).fillna(0)
+        
+        # Volume Change (momentum volume)
+        features['Volume_Change'] = df['Volume'].pct_change()
+        features['Volume_Change'] = features['Volume_Change'].fillna(0)
+        
+        # Volume Spikes (volume > 2x rata-rata)
+        if 'Volume_MA_20' in features.columns:
+            features['Volume_Spike'] = (df['Volume'] > (features['Volume_MA_20'] * 2)).astype(int)
+        
+        # VWAP (Volume Weighted Average Price) - rolling
+        for window in [10, 20, 50]:
+            if len(df) >= window:
+                # Calculate typical price (High + Low + Close) / 3, fallback ke Close jika High/Low tidak ada
+                if 'High' in df.columns and 'Low' in df.columns:
+                    typical_price = (df['High'] + df['Low'] + df['Close']) / 3
+                else:
+                    typical_price = df['Close']  # Fallback ke Close jika High/Low tidak ada
+                
+                vwap = (typical_price * df['Volume']).rolling(window=window).sum() / df['Volume'].rolling(window=window).sum()
+                features[f'VWAP_{window}'] = vwap
+                features[f'Price_VWAP_{window}_Ratio'] = df['Close'] / features[f'VWAP_{window}']
+                features[f'Price_VWAP_{window}_Ratio'] = features[f'Price_VWAP_{window}_Ratio'].replace([np.inf, -np.inf], 1).fillna(1)
+        
+        # Volume-Price Trend (VPT)
+        features['VPT'] = (features['Return'] * df['Volume']).cumsum()
+        
+        # On-Balance Volume (OBV)
+        obv = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+        features['OBV'] = obv
+        features['OBV_MA_20'] = features['OBV'].rolling(window=20).mean() if len(df) >= 20 else 0
+        
+        print(f"✅ Volume features ditambahkan: {len([col for col in features.columns if 'Volume' in col or 'VWAP' in col or 'OBV' in col or 'VPT' in col])} features")
+    else:
+        print(f"⚠️  Volume tidak tersedia atau semua 0, skip volume features")
+    
+    # Enhanced features jika enabled
+    if use_enhanced:
+        try:
+            from src.utils.enhanced_feature_engineering import (
+                add_time_based_features,
+                add_rolling_window_features,
+                add_garch_volatility_features
+            )
+            
+            # Time-based features
+            features = add_time_based_features(features)
+            
+            # Additional rolling windows
+            features = add_rolling_window_features(features, windows=[5, 10, 20, 50, 100])
+            
+            # GARCH volatility (jika data cukup)
+            if len(df) > 100:
+                try:
+                    features = add_garch_volatility_features(features)
+                except:
+                    pass  # Skip jika error
+            
+        except ImportError:
+            print("⚠️  Enhanced features tidak tersedia, menggunakan basic features saja")
+        except Exception as e:
+            print(f"⚠️  Error dalam enhanced features: {e}")
     
     return features.dropna()
 
@@ -343,20 +458,331 @@ def predict_moving_average(df, window=20):
         'momentum': momentum
     }
 
-def predict_ensemble(features, df, use_classification=True, models_config=None):
+def predict_ensemble_enhanced(features, df, use_classification=True, models_config=None, 
+                              use_dynamic_weighting=True, use_arima_garch=True):
+    """
+    Enhanced ensemble dengan support untuk XGBoost, LSTM, ARIMA/GARCH, dan dynamic weighting
+    
+    Args:
+        features: DataFrame dengan features
+        df: DataFrame dengan data original
+        use_classification: True untuk classification, False untuk regression
+        models_config: List of dict dengan konfigurasi model
+        use_dynamic_weighting: Gunakan dynamic weighting berdasarkan performance
+        use_arima_garch: Include ARIMA/GARCH predictions
+    
+    Returns:
+        Dictionary dengan hasil ensemble
+    """
+    # Import enhanced utilities
+    try:
+        from src.utils.ensemble_improvements import (
+            calculate_dynamic_weights,
+            dynamic_weighted_ensemble
+        )
+        from src.models.xgboost_model import (
+            predict_xgboost_classification,
+            predict_xgboost_regression
+        )
+        from src.models.lstm_model import (
+            predict_lstm_classification,
+            predict_lstm_regression
+        )
+        from src.models.time_series_models import auto_arima, fit_garch_model
+        HAS_ENHANCED = True
+    except ImportError as e:
+        print(f"⚠️  Enhanced models tidak tersedia: {e}")
+        HAS_ENHANCED = False
+    
+    # Default models config
+    if models_config is None:
+        models_config = ML_MODELS_CONFIG if 'ML_MODELS_CONFIG' in globals() else [
+            {"model": "random_forest", "weight": 0.3, "enabled": True},
+            {"model": "xgboost", "weight": 0.3, "enabled": True},
+            {"model": "linear", "weight": 0.2, "enabled": True},
+            {"model": "moving_avg", "weight": 0.2, "enabled": True}
+        ]
+    
+    enabled_models = [m for m in models_config if m.get('enabled', True)]
+    if not enabled_models:
+        raise ValueError("Tidak ada model yang enabled")
+    
+    results = {}
+    model_results = {}
+    model_performances = []
+    
+    # Run semua models
+    for model_config in enabled_models:
+        model_name = model_config['model']
+        
+        try:
+            if model_name == "random_forest":
+                result = predict_random_forest(features, df, use_classification=use_classification)
+                model_results['random_forest'] = result
+                results['rf'] = result
+                if 'accuracy' in result:
+                    model_performances.append(result['accuracy'])
+                else:
+                    model_performances.append(0.5)  # Default
+                    
+            elif model_name == "xgboost" and HAS_ENHANCED:
+                if use_classification:
+                    result = predict_xgboost_classification(features, df)
+                else:
+                    result = predict_xgboost_regression(features, df)
+                model_results['xgboost'] = result
+                results['xgb'] = result
+                if 'accuracy' in result:
+                    model_performances.append(result['accuracy'])
+                else:
+                    model_performances.append(0.5)
+                    
+            elif model_name == "lstm" and HAS_ENHANCED:
+                # Load LSTM config dari config.py
+                try:
+                    from src.utils.config import (
+                        LSTM_SEQUENCE_LENGTH, LSTM_UNITS, LSTM_DROPOUT_RATE,
+                        LSTM_EPOCHS, LSTM_BATCH_SIZE, LSTM_USE_GRU, ENABLE_LSTM
+                    )
+                    if not ENABLE_LSTM:
+                        print("⚠️  LSTM disabled di config, skip")
+                        continue
+                except ImportError:
+                    # Default values jika config tidak ada
+                    LSTM_SEQUENCE_LENGTH = 60
+                    LSTM_UNITS = 50
+                    LSTM_DROPOUT_RATE = 0.2
+                    LSTM_EPOCHS = 50
+                    LSTM_BATCH_SIZE = 32
+                    LSTM_USE_GRU = False
+                
+                if use_classification:
+                    result = predict_lstm_classification(
+                        features, df,
+                        sequence_length=LSTM_SEQUENCE_LENGTH,
+                        epochs=LSTM_EPOCHS,
+                        batch_size=LSTM_BATCH_SIZE,
+                        lstm_units=LSTM_UNITS,
+                        dropout_rate=LSTM_DROPOUT_RATE,
+                        use_gru=LSTM_USE_GRU
+                    )
+                else:
+                    result = predict_lstm_regression(
+                        features, df,
+                        sequence_length=LSTM_SEQUENCE_LENGTH,
+                        epochs=LSTM_EPOCHS,
+                        batch_size=LSTM_BATCH_SIZE,
+                        lstm_units=LSTM_UNITS,
+                        dropout_rate=LSTM_DROPOUT_RATE,
+                        use_gru=LSTM_USE_GRU
+                    )
+                model_results['lstm'] = result
+                results['lstm'] = result
+                if 'accuracy' in result:
+                    model_performances.append(result['accuracy'])
+                else:
+                    model_performances.append(0.5)
+                    
+            elif model_name == "linear":
+                result = predict_linear_regression(features)
+                model_results['linear'] = result
+                results['lr'] = result
+                model_performances.append(0.5)  # Linear regression tidak punya accuracy
+                
+            elif model_name == "moving_avg":
+                result = predict_moving_average(df)
+                model_results['moving_avg'] = result
+                results['ma'] = result
+                model_performances.append(0.5)
+                
+        except Exception as e:
+            print(f"⚠️  {model_name} error: {e}, skip model ini")
+            continue
+    
+    # ARIMA/GARCH jika enabled
+    arima_pred = None
+    if use_arima_garch and HAS_ENHANCED:
+        try:
+            arima_result = auto_arima(df['Close'], max_p=2, max_d=1, max_q=2)
+            if arima_result:
+                arima_pred = arima_result.get('forecast', None)
+                if arima_pred:
+                    results['arima'] = {'prediction': arima_pred}
+        except:
+            pass
+    
+    if not results:
+        raise ValueError("Semua model gagal")
+    
+    # Dynamic weighting jika enabled
+    if use_dynamic_weighting and HAS_ENHANCED and len(model_performances) > 1:
+        weights = calculate_dynamic_weights(model_performances, method='inverse_error')
+    else:
+        # Static weights dari config
+        weights = [m.get('weight', 1.0/len(enabled_models)) for m in enabled_models]
+        total_w = sum(weights)
+        if total_w > 0:
+            weights = [w / total_w for w in weights]
+    
+    # Combine predictions
+    if use_classification:
+        # Classification: combine probabilities
+        buy_probs = []
+        sell_probs = []
+        valid_weights = []
+        
+        for i, (model_config, weight) in enumerate(zip(enabled_models, weights)):
+            model_name = model_config['model']
+            if model_name == 'random_forest' and 'rf' in results:
+                buy_probs.append(results['rf']['buy_probability'])
+                sell_probs.append(results['rf']['sell_probability'])
+                valid_weights.append(weight)
+            elif model_name == 'xgboost' and 'xgb' in results:
+                buy_probs.append(results['xgb']['buy_probability'])
+                sell_probs.append(results['xgb']['sell_probability'])
+                valid_weights.append(weight)
+            elif model_name == 'lstm' and 'lstm' in results:
+                buy_probs.append(results['lstm']['buy_probability'])
+                sell_probs.append(results['lstm']['sell_probability'])
+                valid_weights.append(weight)
+        
+        if not buy_probs:
+            # Fallback ke random_forest jika ada
+            if 'rf' in results:
+                return {
+                    'signal': results['rf']['signal'],
+                    'buy_probability': results['rf']['buy_probability'],
+                    'sell_probability': results['rf']['sell_probability'],
+                    'accuracy': results['rf'].get('accuracy', 0),
+                    'current_price': results['rf']['current_price'],
+                    'model_type': 'Ensemble (Enhanced)',
+                    'ensemble_models': list(model_results.keys())
+                }
+            else:
+                raise ValueError("Tidak ada model classification yang berhasil")
+        
+        # Normalize weights
+        total_w = sum(valid_weights)
+        if total_w > 0:
+            valid_weights = [w / total_w for w in valid_weights]
+        
+        # Weighted average
+        combined_buy_prob = sum(bp * w for bp, w in zip(buy_probs, valid_weights))
+        combined_sell_prob = sum(sp * w for sp, w in zip(sell_probs, valid_weights))
+        
+        # Determine signal
+        prob_margin = abs(combined_buy_prob - combined_sell_prob)
+        min_threshold_strong = 55.0
+        min_margin_strong = 10.0
+        
+        if combined_buy_prob >= min_threshold_strong and prob_margin >= min_margin_strong:
+            signal = "BELI"
+            signal_strength = "STRONG"
+        elif combined_sell_prob >= min_threshold_strong and prob_margin >= min_margin_strong:
+            signal = "JUAL"
+            signal_strength = "STRONG"
+        elif combined_buy_prob > 50:
+            signal = "BELI"
+            signal_strength = "WEAK"
+        elif combined_sell_prob > 50:
+            signal = "JUAL"
+            signal_strength = "WEAK"
+        else:
+            signal = "HOLD"
+            signal_strength = "NEUTRAL"
+        
+        # Get accuracy dari best model
+        best_accuracy = max([r.get('accuracy', 0) for r in results.values() if 'accuracy' in r], default=0)
+        current_price = results[list(results.keys())[0]].get('current_price', df['Close'].iloc[-1])
+        
+        return {
+            'signal': signal,
+            'buy_probability': combined_buy_prob,
+            'sell_probability': combined_sell_prob,
+            'signal_strength': signal_strength,
+            'prob_margin': prob_margin,
+            'accuracy': best_accuracy,
+            'current_price': current_price,
+            'model_type': 'Ensemble (Enhanced)',
+            'ensemble_models': list(model_results.keys()),
+            'model_weights': dict(zip([m['model'] for m in enabled_models], weights))
+        }
+    else:
+        # Regression: weighted average predictions
+        predictions = []
+        valid_weights = []
+        
+        for i, (model_config, weight) in enumerate(zip(enabled_models, weights)):
+            model_name = model_config['model']
+            if model_name == 'linear' and 'lr' in results:
+                predictions.append(results['lr']['prediction'])
+                valid_weights.append(weight)
+            elif model_name == 'moving_avg' and 'ma' in results:
+                predictions.append(results['ma']['prediction'])
+                valid_weights.append(weight)
+            elif model_name == 'xgboost' and 'xgb' in results:
+                predictions.append(results['xgb']['prediction'])
+                valid_weights.append(weight)
+            elif model_name == 'lstm' and 'lstm' in results:
+                predictions.append(results['lstm']['prediction'])
+                valid_weights.append(weight)
+        
+        # Include ARIMA jika ada
+        if arima_pred:
+            predictions.append(arima_pred)
+            valid_weights.append(0.1)  # Small weight untuk ARIMA
+        
+        if not predictions:
+            raise ValueError("Tidak ada model regression yang berhasil")
+        
+        # Normalize weights
+        total_w = sum(valid_weights)
+        if total_w > 0:
+            valid_weights = [w / total_w for w in valid_weights]
+        
+        # Weighted average
+        ensemble_pred = sum(p * w for p, w in zip(predictions, valid_weights))
+        
+        # Get metrics dari best model
+        current_price = results[list(results.keys())[0]].get('current_price', df['Close'].iloc[-1])
+        
+        return {
+            'prediction': ensemble_pred,
+            'current_price': current_price,
+            'model_type': 'Ensemble (Enhanced)',
+            'ensemble_models': list(model_results.keys()),
+            'model_weights': dict(zip([m['model'] for m in enabled_models], weights))
+        }
+
+
+def predict_ensemble(features, df, use_classification=True, models_config=None, use_enhanced=True):
     """
     Prediksi menggunakan ensemble method (gabungan beberapa metode)
+    Support untuk enhanced models jika use_enhanced=True
     
     Args:
         features: DataFrame dengan features
         df: DataFrame dengan data original
         use_classification: True untuk classification, False untuk regression
         models_config: List of dict dengan konfigurasi model dari config.py
-                      Format: [{"model": "random_forest", "weight": 0.5, "enabled": True}, ...]
+        use_enhanced: Gunakan enhanced ensemble dengan XGBoost, LSTM, dll
     
     Returns:
         Dictionary dengan hasil ensemble
     """
+    # Gunakan enhanced ensemble jika enabled
+    if use_enhanced:
+        try:
+            return predict_ensemble_enhanced(
+                features, df, 
+                use_classification=use_classification,
+                models_config=models_config,
+                use_dynamic_weighting=True,
+                use_arima_garch=True
+            )
+        except Exception as e:
+            print(f"⚠️  Enhanced ensemble error: {e}, fallback ke basic ensemble")
+            # Fallback ke basic ensemble
     # Gunakan config dari parameter atau global config
     if models_config is None:
         models_config = ML_MODELS_CONFIG if 'ML_MODELS_CONFIG' in globals() else [
@@ -464,8 +890,32 @@ def predict_ensemble(features, df, use_classification=True, models_config=None):
             combined_buy_prob = sum(bp * w for bp, w in zip(buy_probs, weights))
             combined_sell_prob = sum(sp * w for sp, w in zip(sell_probs, weights))
             
-            # Determine signal
-            signal = "BELI" if combined_buy_prob > 50 else "JUAL"
+            # Determine signal dengan threshold yang lebih ketat
+            # Threshold untuk signal kuat: minimal 55% dengan margin minimal 10%
+            # Signal lemah (50-55% atau margin < 10%) akan menghasilkan HOLD
+            prob_margin = abs(combined_buy_prob - combined_sell_prob)
+            min_threshold_strong = 55.0  # Minimal 55% untuk signal kuat
+            min_margin_strong = 10.0    # Minimal 10% margin untuk signal kuat
+            
+            signal_strength = "WEAK"  # Default: weak signal
+            if combined_buy_prob >= min_threshold_strong and prob_margin >= min_margin_strong:
+                signal = "BELI"
+                signal_strength = "STRONG"
+            elif combined_sell_prob >= min_threshold_strong and prob_margin >= min_margin_strong:
+                signal = "JUAL"
+                signal_strength = "STRONG"
+            elif combined_buy_prob > 50:
+                # Signal lemah untuk LONG - tetap signal BELI tapi akan di-warning
+                signal = "BELI"
+                signal_strength = "WEAK"
+            elif combined_sell_prob > 50:
+                # Signal lemah untuk SHORT - tetap signal JUAL tapi akan di-warning
+                signal = "JUAL"
+                signal_strength = "WEAK"
+            else:
+                # Tidak ada sinyal jelas
+                signal = "HOLD"
+                signal_strength = "NEUTRAL"
             
             # Debug: cek accuracy
             accuracy_val = rf_result.get('accuracy', 0) if 'rf' in results else 0
@@ -479,6 +929,8 @@ def predict_ensemble(features, df, use_classification=True, models_config=None):
                 'signal': signal,
                 'buy_probability': combined_buy_prob,
                 'sell_probability': combined_sell_prob,
+                'signal_strength': signal_strength,  # STRONG, WEAK, atau NEUTRAL
+                'prob_margin': prob_margin,  # Margin antara buy dan sell prob
                 'accuracy': accuracy_val,
                 'current_price': rf_result['current_price'],
                 'model_type': 'Ensemble (Weighted)',
@@ -748,16 +1200,153 @@ def main():
         return
     
     # ============================================
-    # 2. FEATURE ENGINEERING
+    # 1.5. DATA QUALITY SCORING
     # ============================================
-    print("\n🔧 [2] FEATURE ENGINEERING")
+    print("\n📊 [1.5] DATA QUALITY SCORING")
     print("-" * 60)
-    print("Menyusun pola matematis dari harga...")
-    features = create_features(data)
+    try:
+        from src.utils.data_quality import calculate_data_quality_score
+        
+        quality_result = calculate_data_quality_score(data)
+        quality_score = quality_result['score']
+        quality_grade = quality_result['grade']
+        quality_recommendation = quality_result['recommendation']
+        
+        print(f"✅ Data Quality Score: {quality_score*100:.1f}% (Grade: {quality_grade})")
+        print(f"   Recommendation: {quality_recommendation}")
+        
+        if quality_score < 0.6:
+            print(f"⚠️  PERINGATAN: Data quality rendah! Disarankan cleaning data sebelum prediksi")
+            # Auto-clean jika quality terlalu rendah
+            if quality_score < 0.4:
+                print(f"   🔧 Auto-cleaning data...")
+                from src.utils.data_quality import clean_trading_data
+                data = clean_trading_data(data, handle_outliers=True, impute_missing=True, remove_invalid_ohlc=True)
+                print(f"   ✅ Data cleaned")
+        
+        # Show quality details
+        if quality_result['details']['warnings']:
+            print(f"   ⚠️  Warnings: {len(quality_result['details']['warnings'])}")
+        if quality_result['details']['errors']:
+            print(f"   ❌ Errors: {len(quality_result['details']['errors'])}")
+    except Exception as e:
+        print(f"⚠️  Data quality scoring error: {e}")
+    
+    # ============================================
+    # 2. FEATURE ENGINEERING (ENHANCED)
+    # ============================================
+    print("\n🔧 [2] FEATURE ENGINEERING (ENHANCED)")
+    print("-" * 60)
+    print("Menyusun pola matematis dari harga dengan enhanced features...")
+    
+    # Get current interval untuk multi-timeframe features
+    try:
+        from src.utils.config import get_interval
+        current_interval = get_interval()
+    except:
+        current_interval = None
+    
+    # Gunakan enhanced features
+    features = create_features(data, use_enhanced=True)
+    
+    # Add multi-timeframe features jika enabled
+    try:
+        from src.utils.enhanced_feature_engineering import add_multi_timeframe_features, add_seasonal_features
+        from src.utils.pullback_detection import add_pullback_features, get_current_pullback_status
+        
+        # Multi-timeframe features
+        features = add_multi_timeframe_features(features, current_interval=current_interval)
+        
+        # Seasonal features
+        features = add_seasonal_features(features, column='Close')
+        
+        # Pullback detection features
+        features = add_pullback_features(features)
+        
+        # Get current pullback & reversal status untuk coin (misalnya XAN)
+        pullback_status = get_current_pullback_status(data)
+        
+        # Display Reversal (prioritas tertinggi)
+        if pullback_status.get('has_reversal', False):
+            print(f"\n🔄 REVERSAL DETECTION:")
+            print(f"   ✅ Reversal Detected: {pullback_status['reversal_type']}")
+            print(f"   Signal: {'LONG (Bullish Reversal)' if pullback_status['reversal_signal'] == 1 else 'SHORT (Bearish Reversal)' if pullback_status['reversal_signal'] == -1 else 'NONE'}")
+            print(f"   Confidence: {pullback_status['reversal_confidence']*100:.1f}%")
+            print(f"   ⚠️  WARNING: Trend berubah! Ini bukan pullback, tapi reversal sebenarnya")
+            print(f"   Recommendation: {pullback_status['recommendation']}")
+        
+        # Display Breakout (prioritas kedua)
+        elif pullback_status.get('has_breakout', False):
+            print(f"\n🚀 BREAKOUT DETECTION:")
+            print(f"   ✅ Breakout Detected: {pullback_status['breakout_type']}")
+            print(f"   Signal: {'LONG (Bullish Breakout)' if pullback_status['breakout_signal'] == 1 else 'SHORT (Bearish Breakout)' if pullback_status['breakout_signal'] == -1 else 'NONE'}")
+            print(f"   Level: ${pullback_status.get('breakout_level', 0):.6f}")
+            print(f"   Confidence: {pullback_status['breakout_confidence']*100:.1f}%")
+            print(f"   Recommendation: {pullback_status['recommendation']}")
+        
+        # Display Impulse Move (prioritas ketiga)
+        elif pullback_status.get('has_impulse', False):
+            print(f"\n⚡ IMPULSE MOVE DETECTION:")
+            print(f"   ✅ Impulse Detected: {pullback_status['impulse_type']}")
+            print(f"   Signal: {'LONG (Bullish Impulse)' if pullback_status['impulse_signal'] == 1 else 'SHORT (Bearish Impulse)' if pullback_status['impulse_signal'] == -1 else 'NONE'}")
+            print(f"   Strength: {pullback_status['impulse_strength']*100:.1f}%")
+            print(f"   Confidence: {pullback_status['impulse_confidence']*100:.1f}%")
+            print(f"   Recommendation: {pullback_status['recommendation']}")
+        
+        # Display Pullback (prioritas terendah)
+        elif pullback_status.get('has_pullback', False):
+            print(f"\n📊 PULLBACK DETECTION:")
+            print(f"   ✅ Pullback Detected: {pullback_status['pullback_type']} ({pullback_status['pullback_depth']*100:.1f}% retracement)")
+            print(f"   Signal: {'LONG' if pullback_status['pullback_signal'] == 1 else 'SHORT' if pullback_status['pullback_signal'] == -1 else 'NONE'}")
+            print(f"   Confidence: {pullback_status['pullback_confidence']*100:.1f}%")
+            print(f"   Recommendation: {pullback_status['recommendation']}")
+            if pullback_status['entry_levels']['pullback_entry_1']:
+                print(f"   Entry Levels:")
+                if pullback_status['entry_levels']['pullback_entry_1']:
+                    print(f"      Entry 1 (Shallow): ${pullback_status['entry_levels']['pullback_entry_1']:.6f}")
+                if pullback_status['entry_levels']['pullback_entry_2']:
+                    print(f"      Entry 2 (Medium): ${pullback_status['entry_levels']['pullback_entry_2']:.6f}")
+                if pullback_status['entry_levels']['pullback_entry_3']:
+                    print(f"      Entry 3 (Deep): ${pullback_status['entry_levels']['pullback_entry_3']:.6f}")
+    except Exception as e:
+        print(f"⚠️  Error adding multi-timeframe/seasonal/pullback features: {e}")
     print(f"✅ Fitur dibuat: {len(features.columns)} fitur")
-    feature_examples = ['Return', 'MA_5', 'RSI', 'Volatility', 'Momentum_5']
+    
+    # Feature selection jika terlalu banyak features
+    if len(features.columns) > 100:
+        print(f"⚠️  Terlalu banyak features ({len(features.columns)}), melakukan feature selection...")
+        try:
+            from src.utils.feature_selection import comprehensive_feature_selection
+            from sklearn.ensemble import RandomForestClassifier
+            
+            # Feature selection
+            target = (data['Close'].shift(-1) > data['Close']).astype(int)
+            target = target[features.index]
+            target = target.dropna()
+            features_aligned = features.loc[target.index]
+            
+            selection_result = comprehensive_feature_selection(
+                features_aligned,
+                target,
+                RandomForestClassifier,
+                n_features_to_select=50,
+                min_importance=0.01
+            )
+            
+            selected_features = selection_result['selected_features']
+            features = features[selected_features + ['Close']]  # Keep Close
+            print(f"✅ Feature selection: {len(selected_features)} features selected")
+        except Exception as e:
+            print(f"⚠️  Feature selection error: {e}, menggunakan semua features")
+    
+    feature_examples = ['Return', 'MA_5', 'RSI', 'Volatility_10', 'Momentum_5']
     available_features = [f for f in feature_examples if f in features.columns]
     print(f"   Contoh fitur: {', '.join(available_features)}")
+    
+    # Show enhanced features jika ada
+    enhanced_features = [f for f in features.columns if any(x in f.lower() for x in ['hour', 'day', 'month', 'garch', 'seasonal'])]
+    if enhanced_features:
+        print(f"   Enhanced features: {len(enhanced_features)} (time-based, GARCH, dll)")
     
     if len(features) < 50:
         print("⚠️  PERINGATAN: Data terlalu sedikit untuk prediksi yang akurat!")
@@ -800,18 +1389,55 @@ def main():
         print(f"   Prediksi harga: ${result['prediction']:,.2f}")
         
     elif PREDICTION_METHOD == "ensemble":
-        result = predict_ensemble(features, data, use_classification=USE_CLASSIFICATION, models_config=ML_MODELS_CONFIG)
+        # Gunakan enhanced ensemble dengan semua improvements
+        result = predict_ensemble(
+            features, data, 
+            use_classification=USE_CLASSIFICATION, 
+            models_config=ML_MODELS_CONFIG,
+            use_enhanced=True  # Enable enhanced models (XGBoost, LSTM, ARIMA/GARCH)
+        )
+        
+        # Add confidence intervals jika regression
+        if not USE_CLASSIFICATION and 'prediction' in result:
+            try:
+                # Calculate confidence interval dari model predictions
+                predictions_list = []
+                if 'lr' in result or 'lr_prediction' in result:
+                    predictions_list.append(result.get('lr_prediction', result.get('prediction')))
+                if 'xgb' in result and 'prediction' in result.get('xgb', {}):
+                    predictions_list.append(result['xgb']['prediction'])
+                if 'lstm' in result and 'prediction' in result.get('lstm', {}):
+                    predictions_list.append(result['lstm']['prediction'])
+                
+                if predictions_list:
+                    pred_array = np.array(predictions_list)
+                    pred_std = np.std(pred_array)
+                    result['prediction_lower'] = result['prediction'] - 1.96 * pred_std
+                    result['prediction_upper'] = result['prediction'] + 1.96 * pred_std
+                    result['confidence_interval_95'] = {
+                        'lower': result['prediction_lower'],
+                        'upper': result['prediction_upper'],
+                        'width': 2 * 1.96 * pred_std
+                    }
+            except:
+                pass
         if USE_CLASSIFICATION and 'signal' in result:
-            print(f"✅ Model: Ensemble (RandomForestClassifier)")
+            model_type = result.get('model_type', 'Ensemble')
+            print(f"✅ Model: {model_type}")
             print(f"   Signal: {result['signal']}")
             print(f"   Probabilitas BELI: {result['buy_probability']:.2f}%")
             print(f"   Probabilitas JUAL: {result['sell_probability']:.2f}%")
+            if 'signal_strength' in result:
+                print(f"   Signal Strength: {result['signal_strength']}")
+            if 'ensemble_models' in result:
+                print(f"   Models: {', '.join(result['ensemble_models'])}")
         else:
-            print(f"✅ Model: Ensemble (LinearRegression + MovingAverage)")
-            if result.get('lr_prediction'):
-                print(f"   - Linear Regression: ${result['lr_prediction']:,.2f}")
-            print(f"   - Moving Average: ${result['ma_prediction']:,.2f}")
-            print(f"   - Ensemble: ${result['prediction']:,.2f}")
+            # Regression
+            if 'prediction' in result:
+                print(f"✅ Model: {result.get('model_type', 'Ensemble')}")
+                print(f"   Prediksi harga: ${result['prediction']:,.2f}")
+                if 'prediction_lower' in result and 'prediction_upper' in result:
+                    print(f"   Confidence Interval (95%): ${result['prediction_lower']:,.2f} - ${result['prediction_upper']:,.2f}")
     
     if result is None:
         print("❌ Error: Tidak ada hasil prediksi")
@@ -831,17 +1457,29 @@ def main():
         signal = result['signal']
         buy_prob = result.get('buy_probability', 0)
         sell_prob = result.get('sell_probability', 0)
+        signal_strength = result.get('signal_strength', 'UNKNOWN')
+        prob_margin = result.get('prob_margin', 0)
         
         print(f"   Prediksi besok: {signal}")
         print(f"   Probabilitas BELI: {buy_prob:.2f}%")
         print(f"   Probabilitas JUAL: {sell_prob:.2f}%")
+        print(f"   Margin Probabilitas: {prob_margin:.2f}%")
         
-        if buy_prob > 60:
-            print(f"   💪 Signal Kuat: {signal} (Probabilitas tinggi)")
-        elif buy_prob > 50:
-            print(f"   ⚠️  Signal Lemah: {signal} (Probabilitas rendah)")
+        if signal_strength == "STRONG":
+            print(f"   💪 Signal Kuat: {signal} (Probabilitas tinggi, margin {prob_margin:.1f}%)")
+        elif signal_strength == "WEAK":
+            print(f"   ⚠️  Signal Lemah: {signal} (Probabilitas {buy_prob:.1f}%, margin hanya {prob_margin:.1f}%)")
+            print(f"   💡 Peringatan: Signal ini lemah! Pertimbangkan konfirmasi dari AI Strategy atau market context")
+        elif signal_strength == "NEUTRAL":
+            print(f"   🟡 Signal Netral: {signal} (Tidak ada sinyal jelas)")
         else:
-            print(f"   ⚠️  Signal Lemah: {signal} (Probabilitas rendah)")
+            # Fallback untuk backward compatibility
+            if buy_prob > 60:
+                print(f"   💪 Signal Kuat: {signal} (Probabilitas tinggi)")
+            elif buy_prob > 50:
+                print(f"   ⚠️  Signal Lemah: {signal} (Probabilitas rendah)")
+            else:
+                print(f"   ⚠️  Signal Lemah: {signal} (Probabilitas rendah)")
     else:
         # Regression: Convert ke signal
         predicted_price = result.get('prediction', current_price)

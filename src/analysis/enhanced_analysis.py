@@ -176,7 +176,7 @@ def print_enhanced_metrics(metrics: Dict):
 
 
 def print_market_context(context: Dict):
-    """Print market context information"""
+    """Print market context information dengan multiple timeframe analysis"""
     if not context:
         return
     
@@ -188,6 +188,70 @@ def print_market_context(context: Dict):
     print(f"📊 Trend Direction: {'Up' if context.get('trend_direction', 0) > 0 else 'Down' if context.get('trend_direction', 0) < 0 else 'Neutral'}")
     print(f"💹 Volatility Regime: {context.get('volatility_regime', 'Unknown')}")
     print(f"⏰ Higher TF Trend: {context.get('higher_tf_trend', 'Unknown')}")
+    
+    # Multiple Timeframe Analysis
+    mtf = context.get('multiple_timeframe', {})
+    if mtf:
+        print("\n" + "-" * 70)
+        print("📊 MULTIPLE TIMEFRAME ANALYSIS")
+        print("-" * 70)
+        
+        # Display each timeframe
+        for tf_name, tf_data in mtf.get('timeframes', {}).items():
+            interval = tf_data.get('interval', 'Unknown')
+            trend_info = tf_data.get('trend', {})
+            trend = trend_info.get('trend', 'Unknown')
+            trend_strength = trend_info.get('trend_strength', 0)
+            ma_alignment = trend_info.get('ma_alignment', False)
+            
+            alignment_icon = "✅" if ma_alignment else "⚠️"
+            print(f"\n{tf_name.upper()} ({interval}):")
+            print(f"   Trend: {trend} (Strength: {trend_strength:.2f}%)")
+            print(f"   MA Alignment: {alignment_icon}")
+            
+            # Support/Resistance
+            sr = tf_data.get('support_resistance', {})
+            if sr.get('support'):
+                print(f"   Support: {sr['support']:.6f} (Strength: {sr.get('support_strength', 0):.1f}%)")
+            if sr.get('resistance'):
+                print(f"   Resistance: {sr['resistance']:.6f} (Strength: {sr.get('resistance_strength', 0):.1f}%)")
+        
+        # Overall analysis
+        print("\n" + "-" * 70)
+        print("🎯 MULTIPLE TF SUMMARY")
+        print("-" * 70)
+        alignment_score = mtf.get('alignment_score', 0)
+        overall_trend = mtf.get('overall_trend', 'Unknown')
+        confidence = mtf.get('confidence', 0)
+        trend_consensus = mtf.get('trend_consensus', 0)
+        
+        # Alignment icon
+        if alignment_score >= 100:
+            alignment_icon = "✅✅✅"
+            alignment_text = "PERFECT ALIGNMENT"
+        elif alignment_score >= 66:
+            alignment_icon = "✅✅"
+            alignment_text = "STRONG ALIGNMENT"
+        elif alignment_score >= 33:
+            alignment_icon = "✅"
+            alignment_text = "PARTIAL ALIGNMENT"
+        else:
+            alignment_icon = "⚠️"
+            alignment_text = "WEAK ALIGNMENT"
+        
+        print(f"   Overall Trend: {overall_trend}")
+        print(f"   Trend Consensus: {'🟢 BULLISH' if trend_consensus == 1 else '🔴 BEARISH' if trend_consensus == -1 else '🟡 MIXED'}")
+        print(f"   Alignment Score: {alignment_icon} {alignment_score:.1f}% ({alignment_text})")
+        print(f"   MTF Confidence: {confidence:.1f}%")
+        
+        # Primary Support/Resistance dari multiple TF
+        sr_agg = mtf.get('support_resistance', {})
+        if sr_agg.get('primary_support'):
+            ps = sr_agg['primary_support']
+            print(f"\n   🟢 Primary Support: {ps['level']:.6f} (from {ps['timeframe']}, strength: {ps['strength']:.1f}%)")
+        if sr_agg.get('primary_resistance'):
+            pr = sr_agg['primary_resistance']
+            print(f"   🔴 Primary Resistance: {pr['level']:.6f} (from {pr['timeframe']}, strength: {pr['strength']:.1f}%)")
     
     print("=" * 70)
 

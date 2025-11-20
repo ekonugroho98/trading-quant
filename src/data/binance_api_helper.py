@@ -89,6 +89,88 @@ def get_binance_data(symbol: str,
         return None
 
 
+def _process_futures_coins(coins: list, days: int, interval: str,
+                          api_key: Optional[str], api_secret: Optional[str]) -> pd.DataFrame:
+    """
+    Process coins using Futures API
+    
+    Returns:
+        DataFrame with MultiIndex columns for all coins
+    """
+    from src.data.binance_futures_data import get_futures_data
+    import time
+    
+    all_data = {}
+    successful = 0
+    failed = 0
+    
+    print(f"   📊 Processing {len(coins)} coins...")
+    
+    for idx, symbol in enumerate(coins, 1):
+        try:
+            if idx > 1:
+                time.sleep(0.2)
+            
+            print(f"   [{idx}/{len(coins)}] Processing {symbol}...")
+            df = get_futures_data(
+                symbol=symbol,
+                days_back=days,
+                interval=interval,
+                api_key=api_key,
+                api_secret=api_secret
+            )
+            
+            if df is not None and not df.empty:
+                from src.data.binance_futures_data import convert_futures_symbol_to_yfinance
+                binance_symbol = symbol.replace("-USD", "") + "USDT" if symbol.endswith("-USD") else symbol.upper()
+                
+                df_multi = pd.DataFrame({
+                    (binance_symbol, 'Open'): df['Open'],
+                    (binance_symbol, 'High'): df['High'],
+                    (binance_symbol, 'Low'): df['Low'],
+                    (binance_symbol, 'Close'): df['Close'],
+                    (binance_symbol, 'Volume'): df['Volume']
+                }, index=df.index)
+                
+                all_data[binance_symbol] = df_multi
+                successful += 1
+                print(f"      ✅ {symbol}: Success ({len(df)} records)")
+            else:
+                failed += 1
+                print(f"      ⚠️  {symbol}: Data kosong atau None, skip")
+        except Exception as e:
+            failed += 1
+            error_msg = str(e)[:100]
+            print(f"      ⚠️  {symbol}: Error - {error_msg}, skip dan lanjut ke coin berikutnya")
+    
+    print(f"   📊 Screening summary: {successful} successful, {failed} failed")
+    
+    if not all_data:
+        return pd.DataFrame()
+    
+    result = pd.concat(all_data.values(), axis=1)
+    result.columns = pd.MultiIndex.from_tuples(result.columns)
+    return result
+
+
+def _process_spot_coins(coins: list, days: int, interval: str,
+                        api_key: Optional[str], api_secret: Optional[str]) -> pd.DataFrame:
+    """
+    Process coins using Spot API
+    
+    Returns:
+        DataFrame with coin data
+    """
+    from src.screening.coin_screening import get_coins_snapshot_binance
+    return get_coins_snapshot_binance(
+        coins=coins,
+        days=days,
+        interval=interval,
+        api_key=api_key,
+        api_secret=api_secret
+    )
+
+
 def get_binance_coins_snapshot(coins: list,
                                days: int = 90,
                                interval: str = "4h",
@@ -112,57 +194,15 @@ def get_binance_coins_snapshot(coins: list,
     api_secret = api_secret or BINANCE_API_SECRET
     
     if api_type == "futures":
-        # Gunakan Futures API
         try:
-            from src.data.binance_futures_data import get_futures_data
-            import pandas as pd
-            
-            all_data = {}
-            for symbol in coins:
-                df = get_futures_data(
-                    symbol=symbol,
-                    days_back=days,
-                    interval=interval,
-                    api_key=api_key,
-                    api_secret=api_secret
-                )
-                if df is not None and not df.empty:
-                    # Convert ke format MultiIndex seperti yfinance
-                    from src.data.binance_futures_data import convert_futures_symbol_to_yfinance
-                    binance_symbol = symbol.replace("-USD", "") + "USDT" if symbol.endswith("-USD") else symbol.upper()
-                    
-                    df_multi = pd.DataFrame({
-                        (binance_symbol, 'Open'): df['Open'],
-                        (binance_symbol, 'High'): df['High'],
-                        (binance_symbol, 'Low'): df['Low'],
-                        (binance_symbol, 'Close'): df['Close'],
-                        (binance_symbol, 'Volume'): df['Volume']
-                    }, index=df.index)
-                    
-                    all_data[binance_symbol] = df_multi
-            
-            if not all_data:
-                return pd.DataFrame()
-            
-            # Combine all dataframes
-            result = pd.concat(all_data.values(), axis=1)
-            result.columns = pd.MultiIndex.from_tuples(result.columns)
-            return result
+            return _process_futures_coins(coins, days, interval, api_key, api_secret)
         except ImportError:
             print("⚠️  Futures API module tidak ditemukan, fallback ke Spot API")
             api_type = "spot"
     
     if api_type == "spot":
-        # Gunakan Spot API
         try:
-            from src.screening.coin_screening import get_coins_snapshot_binance
-            return get_coins_snapshot_binance(
-                coins=coins,
-                days=days,
-                interval=interval,
-                api_key=api_key,
-                api_secret=api_secret
-            )
+            return _process_spot_coins(coins, days, interval, api_key, api_secret)
         except ImportError:
             print("❌ Spot API module tidak ditemukan")
             return pd.DataFrame()
@@ -170,14 +210,7 @@ def get_binance_coins_snapshot(coins: list,
     # Default: gunakan spot
     print(f"⚠️  Unknown BINANCE_API_TYPE: {api_type}, menggunakan Spot API")
     try:
-        from src.screening.coin_screening import get_coins_snapshot_binance
-        return get_coins_snapshot_binance(
-            coins=coins,
-            days=days,
-            interval=interval,
-            api_key=api_key,
-            api_secret=api_secret
-        )
+        return _process_spot_coins(coins, days, interval, api_key, api_secret)
     except ImportError:
         return pd.DataFrame()
 
@@ -205,9 +238,7 @@ def get_binance_symbols(quote_asset: str = "USDT",
         try:
             from src.data.binance_futures_data import get_futures_symbols, convert_futures_symbol_to_yfinance
             symbols = get_futures_symbols(
-                quote_asset=quote_asset,
-                api_key=api_key,
-                api_secret=api_secret
+                quote_asset=quote_asset
             )
             # Convert ke yfinance format
             return [convert_futures_symbol_to_yfinance(s) for s in symbols]

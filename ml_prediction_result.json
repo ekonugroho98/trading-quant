@@ -1,0 +1,13 @@
+{
+  "model": "ensemble",
+  "model_type": "Ensemble (Enhanced)",
+  "signal": "JUAL",
+  "buy_probability": 48.0,
+  "sell_probability": 52.0,
+  "accuracy": 49.494020239190434,
+  "expected_value": -0.010016307424465893,
+  "sharpe_ratio": 0.21904756229637654,
+  "data_records": 5532,
+  "features_count": 82,
+  "current_price": 0.008872
+}

@@ -41,15 +41,21 @@ except ImportError as e:
 def update_config_symbol(symbol: str):
     """Update SYMBOL di config.py"""
     try:
-        with open('config.py', 'r') as f:
+        # Gunakan path yang benar: src/utils/config.py
+        config_path = os.path.join(project_root, 'src', 'utils', 'config.py')
+        if not os.path.exists(config_path):
+            print(f"⚠️  Error updating config: {config_path} tidak ditemukan")
+            return
+        
+        with open(config_path, 'r') as f:
             content = f.read()
         
-        # Replace SYMBOL line
+        # Replace SYMBOL line (jika ada)
         pattern = r'^SYMBOL\s*=\s*["\'][^"\']*["\']'
         replacement = f'SYMBOL = "{symbol}"'
         content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
         
-        with open('config.py', 'w') as f:
+        with open(config_path, 'w') as f:
             f.write(content)
     except Exception as e:
         print(f"⚠️  Error updating config: {e}")
@@ -58,7 +64,13 @@ def update_config_symbol(symbol: str):
 def update_config_trading_style(trading_style: str):
     """Update TRADING_STYLE di config.py"""
     try:
-        with open('config.py', 'r') as f:
+        # Gunakan path yang benar: src/utils/config.py
+        config_path = os.path.join(project_root, 'src', 'utils', 'config.py')
+        if not os.path.exists(config_path):
+            print(f"⚠️  Error updating TRADING_STYLE: {config_path} tidak ditemukan")
+            return
+        
+        with open(config_path, 'r') as f:
             content = f.read()
         
         # Replace TRADING_STYLE line
@@ -66,7 +78,7 @@ def update_config_trading_style(trading_style: str):
         replacement = f'TRADING_STYLE = "{trading_style}"'
         content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
         
-        with open('config.py', 'w') as f:
+        with open(config_path, 'w') as f:
             f.write(content)
     except Exception as e:
         print(f"⚠️  Error updating TRADING_STYLE: {e}")
@@ -289,6 +301,83 @@ def parse_deepseek_recommendation_string(recommendation_str: str) -> Optional[Di
         return None
 
 
+def extract_backtest_results_from_output(output: str) -> Optional[Dict]:
+    """
+    Extract backtesting results dari output analisis_quant.py
+    
+    Args:
+        output: Output string dari analisis_quant.py
+    
+    Returns:
+        Dictionary dengan backtesting metrics atau None
+    """
+    backtest = {}
+    
+    try:
+        # Cari section Enhanced Backtesting Results
+        pattern = r'🔬\s*ENHANCED BACKTESTING RESULTS.*?(?=\n\n|\n📱|\n⚠️|$)'
+        match = re.search(pattern, output, re.DOTALL | re.IGNORECASE)
+        
+        if not match:
+            return None
+        
+        backtest_section = match.group(0)
+        
+        # Extract Return Before Costs (format: "Return Before Costs: X.XX%")
+        return_before_match = re.search(r'Return Before Costs:\s*([\d.+-]+)%', backtest_section)
+        if return_before_match:
+            backtest['return_before_costs'] = float(return_before_match.group(1))
+        
+        # Extract Return After Costs (format: "Return After Costs: X.XX%")
+        return_after_match = re.search(r'Return After Costs:\s*([\d.+-]+)%', backtest_section)
+        if return_after_match:
+            backtest['return_after_costs'] = float(return_after_match.group(1))
+        
+        # Extract Cost Impact (format: "Cost Impact: X.XX%")
+        cost_impact_match = re.search(r'Cost Impact:\s*([\d.+-]+)%', backtest_section)
+        if cost_impact_match:
+            backtest['cost_impact'] = float(cost_impact_match.group(1))
+        
+        # Extract Sharpe Ratio (After) (format: "Sharpe Ratio (After): X.XX")
+        sharpe_after_match = re.search(r'Sharpe Ratio\s*\(After\):\s*([\d.+-]+)', backtest_section)
+        if sharpe_after_match:
+            backtest['sharpe_ratio_after'] = float(sharpe_after_match.group(1))
+        
+        # Extract Sortino Ratio (After) (format: "Sortino Ratio (After): X.XX")
+        sortino_after_match = re.search(r'Sortino Ratio\s*\(After\):\s*([\d.+-]+)', backtest_section)
+        if sortino_after_match:
+            backtest['sortino_ratio_after'] = float(sortino_after_match.group(1))
+        
+        # Extract Monte Carlo results
+        mc_mean_match = re.search(r'Mean Final Return:\s*([\d.+-]+)%', backtest_section)
+        if mc_mean_match:
+            backtest['mc_mean_final_return'] = float(mc_mean_match.group(1))
+        
+        mc_median_match = re.search(r'Median Final Return:\s*([\d.+-]+)%', backtest_section)
+        if mc_median_match:
+            backtest['mc_median_final_return'] = float(mc_median_match.group(1))
+        
+        mc_prob_profit_match = re.search(r'Probability of Profit:\s*([\d.]+)%', backtest_section)
+        if mc_prob_profit_match:
+            backtest['mc_probability_profit'] = float(mc_prob_profit_match.group(1))
+        
+        # Extract Max Drawdown (jika ada di output - format fleksibel)
+        max_dd_match = re.search(r'Max(?:imum)?\s*Drawdown[:\s]+([\d.+-]+)%?', backtest_section, re.IGNORECASE)
+        if max_dd_match:
+            backtest['max_drawdown'] = abs(float(max_dd_match.group(1)))
+        
+        # Extract Win Rate (jika ada di output - format fleksibel)
+        win_rate_match = re.search(r'Win\s*Rate[:\s]+([\d.]+)%', backtest_section, re.IGNORECASE)
+        if win_rate_match:
+            backtest['win_rate'] = float(win_rate_match.group(1))
+        
+        return backtest if backtest else None
+        
+    except Exception as e:
+        print(f"⚠️  Error extracting backtest results: {e}")
+        return None
+
+
 def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> Optional[Dict]:
     """
     Jalankan analisis lengkap untuk satu coin dan extract hasil penting
@@ -315,6 +404,8 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
         'deepseek_recommendation': None,
         'ml_prediction': None,
         'price_info': None,
+        'recent_trades_analysis': None,
+        'backtest_results': None,  # Tambahkan backtest results
         'error': None
     }
     
@@ -327,35 +418,47 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
         
         # 2. Jalankan get_historical_data.py
         print(f"📥 Mengambil data historical untuk {symbol}...")
+        # Gunakan path yang benar: src/data/get_historical_data.py
+        historical_data_script = os.path.join(project_root, 'src', 'data', 'get_historical_data.py')
+        # Capture output tapi print agar log "get klines" terlihat
         data_result = subprocess.run(
-            [sys.executable, "get_historical_data.py"],
-            capture_output=True,
+            [sys.executable, historical_data_script],
+            capture_output=True,  # Capture untuk cek error
             text=True,
-            timeout=120
+            timeout=120,
+            cwd=project_root  # Set working directory ke project root
         )
         
+        # Print output agar log "get klines" terlihat
+        if data_result.stdout:
+            print(data_result.stdout)
+        if data_result.stderr:
+            print(data_result.stderr, file=sys.stderr)
+        
         if data_result.returncode != 0:
-            result['error'] = f"Gagal mengambil data: {data_result.stderr[:200]}"
+            result['error'] = f"Gagal mengambil data: {data_result.stderr[:200] if data_result.stderr else 'Unknown error'}"
             print(f"❌ {result['error']}")
             return result
         
-        # Cari file CSV yang baru dibuat
-        csv_files = [f for f in os.listdir('.') if f.endswith('.csv') and symbol.replace('-', '').lower() in f.lower()]
+        # Cari file CSV yang baru dibuat (di project root)
+        csv_files = [f for f in os.listdir(project_root) if f.endswith('.csv') and symbol.replace('-', '').lower() in f.lower()]
         if not csv_files:
             result['error'] = "File CSV tidak ditemukan setelah get_historical_data"
             print(f"❌ {result['error']}")
             return result
         
-        csv_file = max(csv_files, key=os.path.getctime)
-        print(f"✅ Data historical: {csv_file}")
+        csv_file = os.path.join(project_root, max(csv_files, key=lambda f: os.path.getctime(os.path.join(project_root, f))))
+        print(f"✅ Data historical: {os.path.basename(csv_file)}")
         
         # 3. Jalankan analisis_quant.py dengan output capture
         print(f"🔍 Menjalankan analisis quant untuk {symbol}...")
+        analysis_script = os.path.join(project_root, 'src', 'analysis', 'analisis_quant.py')
         analysis_result = subprocess.run(
-            [sys.executable, "analisis_quant.py"],
+            [sys.executable, analysis_script],
             capture_output=True,
             text=True,
             timeout=300,
+            cwd=project_root,  # Set working directory ke project root
             env={**os.environ, 'RUN_FROM_MASTER_SCRIPT': '1'}  # Set flag untuk tidak delete CSV
         )
         
@@ -378,6 +481,15 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
                 if deepseek_rec:
                     result['deepseek_recommendation'] = deepseek_rec
                     print(f"✅ DeepSeek recommendation ditemukan")
+            
+            # Extract backtesting results
+            backtest_results = extract_backtest_results_from_output(analysis_result.stdout)
+            if backtest_results:
+                result['backtest_results'] = backtest_results
+                print(f"✅ Backtesting results ditemukan")
+                print(f"   Sharpe Ratio (After): {backtest_results.get('sharpe_ratio_after', 'N/A')}")
+                print(f"   Sortino Ratio (After): {backtest_results.get('sortino_ratio_after', 'N/A')}")
+                print(f"   Return After Costs: {backtest_results.get('return_after_costs', 'N/A')}%")
         
         if analysis_result.returncode != 0:
             print(f"⚠️  Warning: analisis_quant.py exit dengan code {analysis_result.returncode}")
@@ -385,11 +497,13 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
         
         # 4. Jalankan prediksi_next_day.py
         print(f"🤖 Menjalankan ML prediction untuk {symbol}...")
+        prediction_script = os.path.join(project_root, 'src', 'prediksi_next_day.py')
         pred_result = subprocess.run(
-            [sys.executable, "prediksi_next_day.py"],
+            [sys.executable, prediction_script],
             capture_output=True,
             text=True,
             timeout=120,
+            cwd=project_root,  # Set working directory ke project root
             env={**os.environ, 'RUN_FROM_MASTER_SCRIPT': '1'}
         )
         
@@ -401,7 +515,35 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
             result['ml_prediction'] = ml_prediction
             print(f"✅ ML prediction ditemukan")
         
-        # 6. Cleanup CSV file
+        # 6. Get recent trades analysis (untuk market aggression & momentum)
+        try:
+            from src.data.binance_futures_data import get_futures_recent_trades, analyze_recent_trades
+            from src.utils.config import DATA_SOURCE
+            
+            # Convert symbol format: BTC-USD -> BTCUSDT
+            binance_symbol = symbol.replace('-USD', 'USDT').replace('-', '')
+            
+            print(f"📊 Mengambil recent trades untuk {symbol}...")
+            trades = get_futures_recent_trades(
+                symbol=binance_symbol,
+                limit=500,  # Ambil 500 recent trades untuk akurasi lebih baik
+                testnet=False
+            )
+            
+            if trades:
+                trades_analysis = analyze_recent_trades(trades)
+                result['recent_trades_analysis'] = trades_analysis
+                print(f"✅ Recent trades analysis ditemukan")
+                print(f"   Market Aggression: {trades_analysis['market_aggression']:.1f}/100")
+                print(f"   Buyer Dominance: {trades_analysis['buyer_dominance']:.1f}%")
+                print(f"   Momentum: {trades_analysis['momentum']:+.2f}%")
+            else:
+                print(f"⚠️  Recent trades tidak ditemukan untuk {symbol}")
+        except Exception as e:
+            print(f"⚠️  Error mengambil recent trades: {e}")
+            # Continue tanpa recent trades analysis
+        
+        # 7. Cleanup CSV file
         try:
             if os.path.exists(csv_file):
                 os.remove(csv_file)
@@ -436,6 +578,363 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
     return result
 
 
+def validate_trading_setup(setup: Dict, current_price: Optional[float] = None) -> bool:
+    """
+    Validasi trading setup untuk memastikan data konsisten
+    
+    Args:
+        setup: Trading setup dictionary
+        current_price: Current price (optional, untuk validasi)
+    
+    Returns:
+        True jika valid, False jika tidak valid
+    """
+    if not setup:
+        return False
+    
+    direction = setup.get('direction', '').upper()
+    entry1 = setup.get('entry1')
+    entry2 = setup.get('entry2')
+    entry3 = setup.get('entry3')
+    stop_loss = setup.get('stop_loss')
+    tp1 = setup.get('tp1')
+    tp2 = setup.get('tp2')
+    tp3 = setup.get('tp3')
+    
+    # Validasi entry levels
+    if not all(isinstance(x, (int, float)) and x > 0 for x in [entry1, entry2, entry3] if x is not None):
+        return False
+    
+    if direction == "LONG":
+        # Untuk LONG: entry harus <= current_price (jika ada), TP harus > entry, SL harus < entry
+        entry_min = min([e for e in [entry1, entry2, entry3] if e is not None])
+        entry_max = max([e for e in [entry1, entry2, entry3] if e is not None])
+        
+        # Entry harus konsisten (entry1 >= entry2 >= entry3 untuk LONG agresif)
+        # Atau entry1 <= entry2 <= entry3 untuk LONG konservatif (wait for pullback)
+        # Untuk sekarang, kita validasi bahwa entry levels masuk akal
+        
+        # TP harus > entry untuk LONG
+        if tp1 and tp1 <= entry_max:
+            print(f"⚠️  [VALIDASI] TP1 ({tp1}) harus > entry max ({entry_max}) untuk LONG")
+            return False
+        if tp2 and tp2 <= tp1:
+            print(f"⚠️  [VALIDASI] TP2 ({tp2}) harus > TP1 ({tp1}) untuk LONG")
+            return False
+        if tp3 and tp3 <= tp2:
+            print(f"⚠️  [VALIDASI] TP3 ({tp3}) harus > TP2 ({tp2}) untuk LONG")
+            return False
+        
+        # Stop Loss harus < entry untuk LONG
+        if stop_loss and stop_loss >= entry_min:
+            print(f"⚠️  [VALIDASI] Stop Loss ({stop_loss}) harus < entry min ({entry_min}) untuk LONG")
+            return False
+        
+        # Jika ada current_price, entry seharusnya tidak terlalu jauh dari current_price
+        # Untuk LONG: entry bisa di atas atau di bawah current_price (untuk pullback)
+        # Tapi tidak boleh terlalu jauh (max 30% dari current_price)
+        if current_price:
+            if entry_max > current_price * 1.3:  # Entry tidak boleh > 30% dari current price
+                print(f"⚠️  [VALIDASI] Entry max ({entry_max}) terlalu jauh dari current price ({current_price}) untuk LONG")
+                return False
+            if entry_min < current_price * 0.7:  # Entry tidak boleh < 30% dari current price (terlalu jauh di bawah)
+                print(f"⚠️  [VALIDASI] Entry min ({entry_min}) terlalu jauh di bawah current price ({current_price}) untuk LONG")
+                return False
+    
+    elif direction == "SHORT":
+        # Untuk SHORT: entry harus >= current_price (jika ada), TP harus < entry, SL harus > entry
+        entry_min = min([e for e in [entry1, entry2, entry3] if e is not None])
+        entry_max = max([e for e in [entry1, entry2, entry3] if e is not None])
+        
+        # TP harus < entry untuk SHORT
+        if tp1 and tp1 >= entry_min:
+            print(f"⚠️  [VALIDASI] TP1 ({tp1}) harus < entry min ({entry_min}) untuk SHORT")
+            return False
+        if tp2 and tp2 >= tp1:
+            print(f"⚠️  [VALIDASI] TP2 ({tp2}) harus < TP1 ({tp1}) untuk SHORT")
+            return False
+        if tp3 and tp3 >= tp2:
+            print(f"⚠️  [VALIDASI] TP3 ({tp3}) harus < TP2 ({tp2}) untuk SHORT")
+            return False
+        
+        # Stop Loss harus > entry untuk SHORT
+        if stop_loss and stop_loss <= entry_max:
+            print(f"⚠️  [VALIDASI] Stop Loss ({stop_loss}) harus > entry max ({entry_max}) untuk SHORT")
+            return False
+        
+        # Jika ada current_price, entry seharusnya tidak terlalu jauh dari current_price
+        # Untuk SHORT: entry harus di atas current_price
+        # Tapi tidak boleh terlalu jauh (max 30% dari current_price)
+        if current_price:
+            if entry_min < current_price * 0.7:  # Entry tidak boleh < 30% dari current price (terlalu jauh di bawah)
+                print(f"⚠️  [VALIDASI] Entry min ({entry_min}) terlalu jauh di bawah current price ({current_price}) untuk SHORT")
+                return False
+            if entry_max > current_price * 1.3:  # Entry tidak boleh > 30% dari current price (terlalu jauh di atas)
+                print(f"⚠️  [VALIDASI] Entry max ({entry_max}) terlalu jauh dari current price ({current_price}) untuk SHORT")
+                return False
+    
+    return True
+
+
+def filter_analysis_results_by_metrics(results: List[Dict], print_summary: bool = True) -> List[Dict]:
+    """
+    Filter hasil analisis berdasarkan ML metrics DAN backtesting metrics
+    Hanya return coin yang memenuhi SEMUA kriteria ketat
+    
+    KRITERIA KETAT (HARUS SEMUA MEMENUHI):
+    
+    ML Metrics (WAJIB):
+    - Accuracy >= 50% (minimal sama dengan random)
+    - Sharpe Ratio >= 0.5 (risk-adjusted return bagus)
+    - Expected Value > 0% (positif expected return)
+    
+    Backtesting Metrics (WAJIB):
+    - Sharpe Ratio (After Costs) >= 0.5
+    - Sortino Ratio (After Costs) >= 1.5
+    - Max Drawdown < 20% (atau tidak ada data)
+    - Win Rate >= 55% (atau tidak ada data)
+    - Return After Costs > 0% (positif setelah transaction costs)
+    
+    Args:
+        results: List of analysis results
+        print_summary: Print summary filtering (default: True, set False untuk real-time filtering)
+    
+    Returns:
+        Filtered list of results yang memenuhi SEMUA kriteria ketat
+    """
+    if not results:
+        return []
+    
+    filtered_results = []
+    skipped_count = 0
+    
+    # KRITERIA KETAT - HARUS SEMUA MEMENUHI
+    min_accuracy = 50.0
+    min_sharpe_ml = 0.5
+    min_expected_value = 0.0  # Harus > 0 (positif)
+    
+    # Backtesting criteria
+    min_sharpe_backtest = 0.5
+    min_sortino_backtest = 1.5
+    max_drawdown_pct = 20.0  # Max drawdown < 20%
+    min_win_rate = 55.0
+    min_return_after_costs = 0.0  # Harus > 0 (positif)
+    
+    # Hanya print header jika print_summary=True (untuk final summary)
+    if print_summary:
+        print("\n" + "=" * 70)
+        print("🔍 FILTERING HASIL ANALISIS - KRITERIA SANGAT KETAT")
+        print("=" * 70)
+        print("📋 Semua kriteria berikut HARUS dipenuhi:")
+        print(f"   ML Metrics:")
+        print(f"   - Accuracy >= {min_accuracy}%")
+        print(f"   - Sharpe Ratio >= {min_sharpe_ml}")
+        print(f"   - Expected Value > {min_expected_value}%")
+        print(f"   Backtesting Metrics:")
+        print(f"   - Sharpe Ratio (After) >= {min_sharpe_backtest}")
+        print(f"   - Sortino Ratio (After) >= {min_sortino_backtest}")
+        print(f"   - Max Drawdown < {max_drawdown_pct}%")
+        print(f"   - Win Rate >= {min_win_rate}%")
+        print(f"   - Return After Costs > {min_return_after_costs}%")
+        print("=" * 70)
+        print()
+    
+    for result in results:
+        symbol = result.get('symbol', 'Unknown')
+        
+        if not result.get('success', False):
+            skipped_count += 1
+            print(f"❌ {symbol}: Skip (error dalam analisis)")
+            continue
+        
+        # ============================================
+        # VALIDASI ML METRICS
+        # ============================================
+        ml_prediction = result.get('ml_prediction')
+        if not ml_prediction:
+            skipped_count += 1
+            print(f"❌ {symbol}: Tidak ada ML prediction - SKIP")
+            continue
+        
+        accuracy = ml_prediction.get('accuracy')
+        sharpe_ml = ml_prediction.get('sharpe_ratio')
+        expected_value = ml_prediction.get('expected_value')
+        
+        # Validasi nilai
+        if accuracy is None or sharpe_ml is None or expected_value is None:
+            skipped_count += 1
+            print(f"❌ {symbol}: ML metrics tidak lengkap - SKIP")
+            continue
+        
+        try:
+            accuracy = float(accuracy)
+            sharpe_ml = float(sharpe_ml)
+            expected_value = float(expected_value)
+        except (TypeError, ValueError):
+            skipped_count += 1
+            print(f"❌ {symbol}: ML metrics tidak valid - SKIP")
+            continue
+        
+        # Cek ML metrics (HARUS SEMUA MEMENUHI)
+        ml_accuracy_ok = accuracy >= min_accuracy
+        ml_sharpe_ok = sharpe_ml >= min_sharpe_ml
+        ml_expected_ok = expected_value > min_expected_value
+        
+        if not (ml_accuracy_ok and ml_sharpe_ok and ml_expected_ok):
+            skipped_count += 1
+            print(f"❌ {symbol}: ML metrics TIDAK memenuhi kriteria ketat:")
+            print(f"      - Accuracy: {accuracy:.1f}% (min: {min_accuracy}%) {'✅' if ml_accuracy_ok else '❌'}")
+            print(f"      - Sharpe: {sharpe_ml:.2f} (min: {min_sharpe_ml}) {'✅' if ml_sharpe_ok else '❌'}")
+            print(f"      - Expected Value: {expected_value:.2f}% (min: >{min_expected_value}%) {'✅' if ml_expected_ok else '❌'}")
+            print(f"   ⏭️  SKIP - tidak akan dikirim ke AI dan Telegram")
+            continue
+        
+        # ============================================
+        # VALIDASI BACKTESTING METRICS
+        # ============================================
+        backtest_results = result.get('backtest_results')
+        
+        if not backtest_results:
+            skipped_count += 1
+            print(f"❌ {symbol}: Tidak ada backtesting results - SKIP")
+            print(f"   💡 Backtesting WAJIB untuk validasi kuantitatif")
+            continue
+        
+        sharpe_backtest = backtest_results.get('sharpe_ratio_after')
+        sortino_backtest = backtest_results.get('sortino_ratio_after')
+        max_dd = backtest_results.get('max_drawdown')
+        win_rate = backtest_results.get('win_rate')
+        return_after = backtest_results.get('return_after_costs')
+        
+        # Validasi backtesting metrics
+        backtest_sharpe_ok = sharpe_backtest is not None and sharpe_backtest >= min_sharpe_backtest
+        backtest_sortino_ok = sortino_backtest is not None and sortino_backtest >= min_sortino_backtest
+        backtest_dd_ok = max_dd is None or max_dd < max_drawdown_pct
+        backtest_winrate_ok = win_rate is None or win_rate >= min_win_rate
+        backtest_return_ok = return_after is not None and return_after > min_return_after_costs
+        
+        if not (backtest_sharpe_ok and backtest_sortino_ok and backtest_dd_ok and backtest_winrate_ok and backtest_return_ok):
+            skipped_count += 1
+            print(f"❌ {symbol}: Backtesting metrics TIDAK memenuhi kriteria ketat:")
+            print(f"      - Sharpe (After): {sharpe_backtest:.2f if sharpe_backtest else 'N/A'} (min: {min_sharpe_backtest}) {'✅' if backtest_sharpe_ok else '❌'}")
+            print(f"      - Sortino (After): {sortino_backtest:.2f if sortino_backtest else 'N/A'} (min: {min_sortino_backtest}) {'✅' if backtest_sortino_ok else '❌'}")
+            print(f"      - Max Drawdown: {max_dd:.2f if max_dd else 'N/A'}% (max: <{max_drawdown_pct}%) {'✅' if backtest_dd_ok else '❌'}")
+            print(f"      - Win Rate: {win_rate:.1f if win_rate else 'N/A'}% (min: {min_win_rate}%) {'✅' if backtest_winrate_ok else '❌'}")
+            print(f"      - Return After Costs: {return_after:.2f if return_after else 'N/A'}% (min: >{min_return_after_costs}%) {'✅' if backtest_return_ok else '❌'}")
+            print(f"   ⏭️  SKIP - tidak akan dikirim ke AI dan Telegram")
+            continue
+        
+        # ============================================
+        # SEMUA KRITERIA TERPENUHI
+        # ============================================
+        print(f"✅ {symbol}: SEMUA kriteria terpenuhi!")
+        print(f"   ML Metrics: Accuracy={accuracy:.1f}%, Sharpe={sharpe_ml:.2f}, EV={expected_value:.2f}%")
+        print(f"   Backtesting: Sharpe={sharpe_backtest:.2f}, Sortino={sortino_backtest:.2f}, Return={return_after:.2f}%")
+        if max_dd:
+            print(f"   Max DD: {max_dd:.2f}%, Win Rate: {win_rate:.1f}%")
+        print(f"   ✅ Coin ini akan dikirim ke AI dan Telegram")
+        
+        # Validasi trading setup
+        setup = result.get('trading_setup')
+        price_info = result.get('price_info', {})
+        current_price = price_info.get('current_price')
+        
+        if setup:
+            if not validate_trading_setup(setup, current_price):
+                print(f"   ⚠️  [WARNING] Trading setup tidak valid, tapi tetap kirim karena metrics bagus")
+                result['setup_warning'] = True
+        
+        filtered_results.append(result)
+    
+    # Hanya print summary jika print_summary=True (untuk final summary di akhir)
+    if print_summary:
+        print("\n" + "=" * 70)
+        print("📊 SUMMARY FILTERING (KRITERIA KETAT):")
+        print(f"   ✅ Coin yang memenuhi SEMUA kriteria: {len(filtered_results)}")
+        print(f"   ❌ Coin yang di-skip: {skipped_count}")
+        print(f"   📈 Total coin dianalisis: {len(results)}")
+        print("=" * 70)
+        print()
+    
+    return filtered_results
+
+
+def _extract_price_info(result: Dict) -> tuple:
+    """
+    Extract price information from result
+    
+    Returns:
+        Tuple of (current_price, support, resistance, timeframe)
+    """
+    price_info = result.get('price_info', {})
+    current_price = price_info.get('current_price')
+    support = price_info.get('support')
+    resistance = price_info.get('resistance')
+    timeframe = price_info.get('timeframe')
+    
+    if not current_price and result.get('trading_setup'):
+        setup = result['trading_setup']
+        if 'entry2' in setup:
+            current_price = setup.get('entry2')
+    
+    return current_price, support, resistance, timeframe
+
+
+def _get_pullback_status(result: Dict) -> Optional[Dict]:
+    """
+    Get pullback status from result data
+    
+    Returns:
+        Pullback status dict or None
+    """
+    try:
+        if 'data' in result and result['data'] is not None and len(result['data']) > 0:
+            from src.utils.pullback_detection import get_current_pullback_status
+            return get_current_pullback_status(result['data'])
+    except Exception:
+        pass
+    return None
+
+
+def _process_single_result(result: Dict, bot: TelegramBot) -> bool:
+    """
+    Process and send a single analysis result to Telegram
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    symbol = result['symbol']
+    
+    if not result['success']:
+        error_msg = f"❌ <b>Error untuk {symbol}:</b> {result.get('error', 'Unknown error')}"
+        bot.send_message(error_msg)
+        return False
+    
+    deepseek_rec_dict = None
+    if result.get('deepseek_recommendation'):
+        deepseek_rec_str = result['deepseek_recommendation']
+        deepseek_rec_dict = parse_deepseek_recommendation_string(deepseek_rec_str)
+    
+    current_price, support, resistance, timeframe = _extract_price_info(result)
+    pullback_status_data = _get_pullback_status(result)
+    
+    message = bot.format_simplified_trading_signal(
+        symbol=symbol,
+        timeframe=timeframe,
+        current_price=current_price,
+        support=support,
+        resistance=resistance,
+        trading_setup=result.get('trading_setup'),
+        deepseek_recommendation=deepseek_rec_dict,
+        ml_prediction=result.get('ml_prediction'),
+        recent_trades_analysis=result.get('recent_trades_analysis'),
+        pullback_status=pullback_status_data
+    )
+    
+    bot.send_message(message)
+    return True
+
+
 def send_analysis_results_to_telegram(results: List[Dict], bot: TelegramBot) -> bool:
     """
     Kirim hasil analisis ke Telegram dengan format yang disederhanakan
@@ -452,49 +951,8 @@ def send_analysis_results_to_telegram(results: List[Dict], bot: TelegramBot) -> 
     
     try:
         for i, result in enumerate(results, 1):
-            symbol = result['symbol']
+            _process_single_result(result, bot)
             
-            if not result['success']:
-                error_msg = f"❌ <b>Error untuk {symbol}:</b> {result.get('error', 'Unknown error')}"
-                bot.send_message(error_msg)
-                continue
-            
-            # Parse DeepSeek recommendation string menjadi dict
-            deepseek_rec_dict = None
-            if result.get('deepseek_recommendation'):
-                deepseek_rec_str = result['deepseek_recommendation']
-                deepseek_rec_dict = parse_deepseek_recommendation_string(deepseek_rec_str)
-            
-            # Extract current_price, support, resistance dari price_info atau trading_setup
-            price_info = result.get('price_info', {})
-            current_price = price_info.get('current_price')
-            support = price_info.get('support')
-            resistance = price_info.get('resistance')
-            timeframe = price_info.get('timeframe')
-            
-            # Fallback: coba ambil dari trading_setup (jika price_info tidak ada)
-            if not current_price and result.get('trading_setup'):
-                setup = result['trading_setup']
-                # Gunakan entry2 (konservatif) sebagai estimasi current price
-                if 'entry2' in setup:
-                    current_price = setup.get('entry2')
-            
-            # Format menggunakan fungsi baru yang disederhanakan
-            message = bot.format_simplified_trading_signal(
-                symbol=symbol,
-                timeframe=timeframe,
-                current_price=current_price,
-                support=support,
-                resistance=resistance,
-                trading_setup=result.get('trading_setup'),
-                deepseek_recommendation=deepseek_rec_dict,
-                ml_prediction=result.get('ml_prediction')
-            )
-            
-            # Kirim pesan
-            bot.send_message(message)
-            
-            # Delay antar pesan
             if i < len(results):
                 time.sleep(1)
         
@@ -510,84 +968,312 @@ def send_analysis_results_to_telegram(results: List[Dict], bot: TelegramBot) -> 
 def analyze_screened_coins(
     coins: Optional[List[str]] = None,
     days: int = 90,
-    top_n: int = 5,
+    top_n: int = 50,
     trade_direction: str = "both",
-    max_coins: int = 10,  # Limit jumlah coin yang dianalisis
+    max_coins: int = 100,  # Limit jumlah coin yang dianalisis
     send_to_telegram: bool = True,
-    trading_style: Optional[str] = "DAY_TRADING"  # Default: DAY_TRADING untuk analisis screened coins
+    trading_style: Optional[str] = "DAY_TRADING",  # Default: DAY_TRADING untuk analisis screened coins
+    skip_screening: bool = False  # NEW: Skip screening, langsung analisis semua coins
 ) -> List[Dict]:
     """
-    Screen coins dan analisis hasilnya
+    Screen coins dan analisis hasilnya (atau langsung analisis tanpa screening)
     
     Args:
         coins: List of coins (default: None = use Binance top coins)
-        days: Days untuk screening
-        top_n: Top N coins dari screening
-        trade_direction: "long", "short", atau "both"
-        max_coins: Maximum jumlah coin yang dianalisis (default: 10)
+        days: Days untuk screening (tidak digunakan jika skip_screening=True)
+        top_n: Top N coins dari screening (tidak digunakan jika skip_screening=True)
+        trade_direction: "long", "short", atau "both" (tidak digunakan jika skip_screening=True)
+        max_coins: Maximum jumlah coin yang dianalisis (default: 100)
         send_to_telegram: Kirim hasil ke Telegram (default: True)
         trading_style: Trading style untuk analisis (default: "DAY_TRADING")
                        Pilihan: "SCALPING", "DAY_TRADING", "INTRADAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
+        skip_screening: Skip screening, langsung analisis semua coins (default: False)
     
     Returns:
         List of analysis results
     """
     print(f"\n{'='*70}")
-    print("🔍 SCREENING & ANALISIS COINS")
+    if skip_screening:
+        print("🚀 LANGSUNG ANALISIS COINS (TANPA SCREENING)")
+    else:
+        print("🔍 SCREENING & ANALISIS COINS")
     print(f"{'='*70}")
     print(f"📅 Days: {days}")
-    print(f"📊 Top N: {top_n}")
-    print(f"📈 Direction: {trade_direction}")
+    if not skip_screening:
+        print(f"📊 Top N: {top_n}")
+        print(f"📈 Direction: {trade_direction}")
     print(f"🔢 Max coins to analyze: {max_coins}")
     print(f"⚙️  Trading Style: {trading_style}")
+    print(f"⏭️  Skip Screening: {skip_screening}")
     print()
     
-    # 1. Screen coins
-    print("🔍 Step 1: Screening coins...")
-    screened_results = screen_coins(
-        coins=coins,
-        days=days,
-        top_n=top_n,
-        trade_direction=trade_direction,
-        data_source=DATA_SOURCE,
-        api_key=BINANCE_API_KEY,
-        api_secret=BINANCE_API_SECRET,
-        use_adaptive_filtering=True
-    )
+    # Jika skip_screening, langsung ambil semua coins dari list
+    if skip_screening:
+        print("🚀 Mode: LANGSUNG ANALISIS (Skip Screening)")
+        print("   Langsung analisis semua coins tanpa screening")
+        print()
+        
+        # Load coins dari Binance atau default
+        if coins is None:
+            from src.screening.coin_screening import load_binance_coins, BINANCE_COINS, DEFAULT_COINS
+            coins_list = BINANCE_COINS if BINANCE_COINS else DEFAULT_COINS
+            if not coins_list:
+                print("❌ Tidak ada coins tersedia")
+                return []
+            print(f"✅ Loaded {len(coins_list)} coins dari Binance list")
+        else:
+            coins_list = coins
+            print(f"✅ Menggunakan {len(coins_list)} coins yang diberikan")
+        
+        # Convert ke format yang diharapkan (list of dict dengan 'symbol')
+        coins_to_analyze = [{'symbol': coin} for coin in coins_list]
+        
+        # Limit jika max_coins di-specify (jika None, analisis semua)
+        if max_coins is not None and max_coins > 0 and max_coins < len(coins_to_analyze):
+            coins_to_analyze = coins_to_analyze[:max_coins]
+            print(f"📊 Membatasi analisis ke {max_coins} coins pertama dari {len(coins_list)} total")
+        else:
+            print(f"📊 Akan menganalisis SEMUA {len(coins_to_analyze)} coins (tidak ada limit)")
+        
+        print(f"📊 Total coins yang akan dianalisis: {len(coins_to_analyze)}")
+        print()
+    else:
+        # 1. Screen coins (mode normal)
+        print("🔍 Step 1: Screening coins...")
+        screened_results = screen_coins(
+            coins=coins,
+            days=days,
+            top_n=top_n,
+            trade_direction=trade_direction,
+            data_source=DATA_SOURCE,
+            api_key=BINANCE_API_KEY,
+            api_secret=BINANCE_API_SECRET,
+            use_adaptive_filtering=True
+        )
+        
+        if not screened_results:
+            print("❌ Tidak ada coin yang memenuhi criteria screening")
+            if send_to_telegram and ENABLE_TELEGRAM_BOT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+                bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+                bot.send_message("❌ <b>Tidak ada coin yang memenuhi criteria screening</b>\n\n💡 Coba ubah filter criteria atau coba lagi nanti")
+            return []
+        
+        print(f"✅ Ditemukan {len(screened_results)} coins")
+        print()
+        
+        # 2. Analisis setiap coin dengan REAL-TIME processing
+        # Alur: Analisis → Filter → AI → Telegram → Next Coin
+        # Jika max_coins >= len(screened_results), analisis semua
+        if max_coins and max_coins < len(screened_results):
+            coins_to_analyze = screened_results[:max_coins]
+            print(f"📊 Step 2: Menganalisis {len(coins_to_analyze)} coins dari {len(screened_results)} hasil screening...")
+        else:
+            coins_to_analyze = screened_results
+            print(f"📊 Step 2: Menganalisis SEMUA {len(coins_to_analyze)} coins hasil screening...")
+        print()
     
-    if not screened_results:
-        print("❌ Tidak ada coin yang memenuhi criteria screening")
-        if send_to_telegram and ENABLE_TELEGRAM_BOT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-            bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
-            bot.send_message("❌ <b>Tidak ada coin yang memenuhi criteria screening</b>\n\n💡 Coba ubah filter criteria atau coba lagi nanti")
-        return []
-    
-    print(f"✅ Ditemukan {len(screened_results)} coins")
+    # REAL-TIME processing untuk semua coins (baik dari screening atau langsung)
+    print("🔄 Mode: REAL-TIME Processing")
+    print("   Setiap coin yang lolos filter akan langsung diproses AI dan dikirim ke Telegram")
+    print()
+    print("🔄 Mode: REAL-TIME Processing")
+    print("   Setiap coin yang lolos filter akan langsung diproses AI dan dikirim ke Telegram")
     print()
     
-    # 2. Analisis setiap coin (limit ke max_coins)
-    coins_to_analyze = screened_results[:max_coins]
-    print(f"📊 Step 2: Menganalisis {len(coins_to_analyze)} coins...")
-    print()
+    # Initialize Telegram bot sekali untuk semua coin
+    bot = None
+    if send_to_telegram and ENABLE_TELEGRAM_BOT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
     
     analysis_results = []
+    passed_count = 0
+    failed_count = 0
+    
     for i, coin_data in enumerate(coins_to_analyze, 1):
         symbol = coin_data['symbol']
-        print(f"\n[{i}/{len(coins_to_analyze)}] Menganalisis {symbol}...")
+        print(f"\n{'='*70}")
+        print(f"[{i}/{len(coins_to_analyze)}] Menganalisis {symbol}...")
+        print(f"{'='*70}")
         
+        # Analisis coin
         result = run_analysis_for_coin(symbol, trading_style=trading_style)
         analysis_results.append(result)
+        
+        # Filter langsung (cek apakah coin ini lolos kriteria ketat)
+        # Set print_summary=False untuk real-time filtering (tidak print summary setiap coin)
+        filtered_single = filter_analysis_results_by_metrics([result], print_summary=False)
+        
+        if filtered_single:
+            # Coin lolos filter ketat!
+            passed_count += 1
+            result = filtered_single[0]  # Ambil hasil yang sudah terfilter
+            
+            print(f"\n✅ {symbol}: LOLOS FILTER KETAT!")
+            print(f"   Langsung memproses AI dan mengirim ke Telegram...")
+            
+            # Panggil AI DeepSeek untuk coin yang lolos filter
+            if ENABLE_DEEPSEEK_AI and DEEPSEEK_API_KEY:
+                if not result.get('deepseek_recommendation'):
+                    print(f"🤖 {symbol}: Memanggil AI DeepSeek...")
+                    try:
+                        # Convert symbol format (COINUSDT -> COIN-USD untuk SYMBOL)
+                        if symbol.endswith('USDT'):
+                            coin_name = symbol.replace('USDT', '')
+                            symbol_for_config = f"{coin_name}-USD"
+                        else:
+                            symbol_for_config = symbol
+                        
+                        # Jalankan analisis_quant.py lagi untuk bagian AI
+                        # Set symbol via environment variable
+                        analysis_script = os.path.join(project_root, 'src', 'analysis', 'analisis_quant.py')
+                        env_vars = {
+                            **os.environ,
+                            'RUN_FROM_MASTER_SCRIPT': '1',
+                            'TRADING_SYMBOL': symbol,  # Set trading symbol
+                            'SYMBOL': symbol_for_config  # Set symbol untuk config
+                        }
+                        ai_result = subprocess.run(
+                            [sys.executable, analysis_script],
+                            capture_output=True,
+                            text=True,
+                            timeout=180,  # 3 menit untuk AI saja
+                            cwd=project_root,
+                            env=env_vars
+                        )
+                        
+                        if ai_result.stdout:
+                            deepseek_rec = extract_deepseek_recommendation_from_output(ai_result.stdout)
+                            if deepseek_rec:
+                                result['deepseek_recommendation'] = deepseek_rec
+                                print(f"   ✅ AI recommendation berhasil didapat")
+                            else:
+                                print(f"   ⚠️  AI recommendation tidak ditemukan di output")
+                        else:
+                            print(f"   ⚠️  Tidak ada output dari analisis_quant.py")
+                            
+                    except Exception as e:
+                        print(f"   ❌ Error memanggil AI: {e}")
+                        # Continue tetap kirim ke Telegram meskipun AI gagal
+            
+            # Kirim langsung ke Telegram
+            if bot:
+                try:
+                    print(f"📱 {symbol}: Mengirim ke Telegram...")
+                    send_analysis_results_to_telegram([result], bot)
+                    result['_sent_to_telegram'] = True  # Mark sebagai sudah dikirim
+                    print(f"   ✅ {symbol} berhasil dikirim ke Telegram")
+                except Exception as e:
+                    print(f"   ❌ Error mengirim ke Telegram: {e}")
+        else:
+            # Coin tidak lolos filter
+            failed_count += 1
+            print(f"\n❌ {symbol}: TIDAK memenuhi kriteria ketat")
+            print(f"   ⏭️  Skip - tidak akan dikirim ke AI dan Telegram")
         
         # Small delay antara analisis
         if i < len(coins_to_analyze):
             time.sleep(2)
     
-    # 3. Kirim hasil ke Telegram
+    # Summary
+    print(f"\n{'='*70}")
+    print(f"📊 SUMMARY ANALISIS")
+    print(f"{'='*70}")
+    print(f"   Total coin dianalisis: {len(coins_to_analyze)}")
+    print(f"   ✅ Lolos filter ketat: {passed_count}")
+    print(f"   ❌ Tidak memenuhi kriteria: {failed_count}")
+    print(f"{'='*70}")
+    print()
+    
+    # 3. Filter hasil berdasarkan metrics (untuk return value - sudah diproses real-time di atas)
+    # Print summary di akhir (setelah semua coin selesai dianalisis)
+    filtered_results = filter_analysis_results_by_metrics(analysis_results, print_summary=True)
+    
+    # 4. Panggil AI DeepSeek untuk coin yang LOLOS filter ketat (jika belum dipanggil)
+    # (Ini untuk backup jika ada yang terlewat)
+    if ENABLE_DEEPSEEK_AI and DEEPSEEK_API_KEY:
+        print(f"\n{'='*70}")
+        print("🤖 MEMASTIKAN AI RECOMMENDATION UNTUK COIN YANG LOLOS FILTER")
+        print(f"{'='*70}")
+        
+        for result in filtered_results:
+            symbol = result.get('symbol', 'Unknown')
+            
+            # Jika sudah ada AI recommendation, skip
+            if result.get('deepseek_recommendation'):
+                print(f"✅ {symbol}: Sudah ada AI recommendation")
+                continue
+            
+            # Panggil AI untuk coin yang lolos filter tapi belum dapat AI
+            print(f"🤖 {symbol}: Memanggil AI DeepSeek (backup)...")
+            try:
+                # Convert symbol format (COINUSDT -> COIN-USD untuk SYMBOL)
+                if symbol.endswith('USDT'):
+                    coin_name = symbol.replace('USDT', '')
+                    symbol_for_config = f"{coin_name}-USD"
+                else:
+                    symbol_for_config = symbol
+                
+                analysis_script = os.path.join(project_root, 'src', 'analysis', 'analisis_quant.py')
+                env_vars = {
+                    **os.environ,
+                    'RUN_FROM_MASTER_SCRIPT': '1',
+                    'TRADING_SYMBOL': symbol,  # Set trading symbol
+                    'SYMBOL': symbol_for_config  # Set symbol untuk config
+                }
+                ai_result = subprocess.run(
+                    [sys.executable, analysis_script],
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                    cwd=project_root,
+                    env=env_vars
+                )
+                
+                if ai_result.stdout:
+                    deepseek_rec = extract_deepseek_recommendation_from_output(ai_result.stdout)
+                    if deepseek_rec:
+                        result['deepseek_recommendation'] = deepseek_rec
+                        print(f"   ✅ AI recommendation berhasil didapat")
+                    else:
+                        print(f"   ⚠️  AI recommendation tidak ditemukan di output")
+                else:
+                    print(f"   ⚠️  Tidak ada output dari analisis_quant.py")
+                    
+            except Exception as e:
+                print(f"   ❌ Error memanggil AI: {e}")
+    
+    # 5. Kirim hasil ke Telegram (backup - untuk coin yang mungkin terlewat)
     if send_to_telegram and ENABLE_TELEGRAM_BOT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-        print("\n📱 Mengirim hasil ke Telegram...")
-        bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
-        send_analysis_results_to_telegram(analysis_results, bot)
-        print("✅ Hasil dikirim ke Telegram")
+        if filtered_results:
+            # Cek apakah ada coin yang belum dikirim
+            unsent_results = [r for r in filtered_results if not r.get('_sent_to_telegram', False)]
+            if unsent_results:
+                print("\n📱 Mengirim hasil yang terlewat ke Telegram...")
+                if not bot:
+                    bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+                send_analysis_results_to_telegram(unsent_results, bot)
+                print(f"✅ {len(unsent_results)} coin yang terlewat dikirim ke Telegram")
+            else:
+                print("\n✅ Semua coin yang lolos filter sudah dikirim ke Telegram (real-time)")
+        else:
+            print("\n⚠️  Tidak ada coin yang memenuhi kriteria untuk dikirim ke Telegram")
+            bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+            bot.send_message(
+                "⚠️ <b>Tidak ada coin yang memenuhi kriteria ketat</b>\n\n"
+                "📋 <b>Kriteria yang harus dipenuhi (SEMUA):</b>\n\n"
+                "<b>ML Metrics:</b>\n"
+                "   - Accuracy >= 50%\n"
+                "   - Sharpe Ratio >= 0.5\n"
+                "   - Expected Value > 0%\n\n"
+                "<b>Backtesting Metrics:</b>\n"
+                "   - Sharpe Ratio (After Costs) >= 0.5\n"
+                "   - Sortino Ratio (After Costs) >= 1.5\n"
+                "   - Max Drawdown < 20%\n"
+                "   - Win Rate >= 55%\n"
+                "   - Return After Costs > 0%\n\n"
+                "💡 Semua coin yang dianalisis tidak memenuhi SEMUA kriteria di atas.\n"
+                "🔍 Coba analisis lagi nanti atau ubah parameter screening."
+            )
     
     return analysis_results
 

@@ -139,10 +139,43 @@ class DeepSeekTradingAdvisor:
         if 'market_context' in analysis_results:
             ctx = analysis_results['market_context']
             prompt_parts.append("=== MARKET CONTEXT ===")
-            prompt_parts.append(f"Market Regime: {ctx.get('market_regime', 'N/A')}")
+            prompt_parts.append(f"Market Regime: {ctx.get('current_regime', 'N/A')}")
             prompt_parts.append(f"Trend Direction: {ctx.get('trend_direction', 'N/A')}")
             prompt_parts.append(f"Volatility Regime: {ctx.get('volatility_regime', 'N/A')}")
             prompt_parts.append(f"Higher TF Trend: {ctx.get('higher_tf_trend', 'N/A')}")
+            
+            # Multiple Timeframe Analysis
+            if 'multiple_timeframe' in ctx:
+                mtf = ctx['multiple_timeframe']
+                prompt_parts.append("")
+                prompt_parts.append("=== MULTIPLE TIMEFRAME ANALYSIS ===")
+                prompt_parts.append(f"Overall Trend: {mtf.get('overall_trend', 'N/A')}")
+                prompt_parts.append(f"Trend Consensus: {mtf.get('trend_consensus', 'N/A')} (1=Bullish, -1=Bearish, 0=Mixed)")
+                prompt_parts.append(f"Alignment Score: {mtf.get('alignment_score', 0):.1f}%")
+                prompt_parts.append(f"MTF Confidence: {mtf.get('confidence', 0):.1f}%")
+                
+                # Detail per timeframe
+                for tf_name, tf_data in mtf.get('timeframes', {}).items():
+                    interval = tf_data.get('interval', 'Unknown')
+                    trend_info = tf_data.get('trend', {})
+                    sr_info = tf_data.get('support_resistance', {})
+                    prompt_parts.append(f"\n{tf_name.upper()} ({interval}):")
+                    prompt_parts.append(f"  Trend: {trend_info.get('trend', 'N/A')} (Strength: {trend_info.get('trend_strength', 0):.2f}%)")
+                    prompt_parts.append(f"  MA Alignment: {'Yes' if trend_info.get('ma_alignment', False) else 'No'}")
+                    if sr_info.get('support'):
+                        prompt_parts.append(f"  Support: {sr_info['support']:.6f} (Strength: {sr_info.get('support_strength', 0):.1f}%)")
+                    if sr_info.get('resistance'):
+                        prompt_parts.append(f"  Resistance: {sr_info['resistance']:.6f} (Strength: {sr_info.get('resistance_strength', 0):.1f}%)")
+                
+                # Primary Support/Resistance
+                sr_agg = mtf.get('support_resistance', {})
+                if sr_agg.get('primary_support'):
+                    ps = sr_agg['primary_support']
+                    prompt_parts.append(f"\nPrimary Support: {ps['level']:.6f} (from {ps['timeframe']}, strength: {ps['strength']:.1f}%)")
+                if sr_agg.get('primary_resistance'):
+                    pr = sr_agg['primary_resistance']
+                    prompt_parts.append(f"Primary Resistance: {pr['level']:.6f} (from {pr['timeframe']}, strength: {pr['strength']:.1f}%)")
+            
             prompt_parts.append("")
         
         # Advanced Features
@@ -201,6 +234,128 @@ class DeepSeekTradingAdvisor:
             prompt_parts.append(f"Sharpe Ratio: {ml.get('sharpe_ratio', 'N/A')}")
             prompt_parts.append("")
         
+        # Recent Trades Analysis (Market Activity)
+        if 'recent_trades_analysis' in analysis_results:
+            trades = analysis_results['recent_trades_analysis']
+            prompt_parts.append("=== MARKET ACTIVITY (RECENT TRADES) ===")
+            prompt_parts.append(f"Market Aggression: {trades.get('market_aggression', 0):.1f}/100")
+            aggression_level = "Sangat Tinggi" if trades.get('market_aggression', 0) >= 70 else "Tinggi" if trades.get('market_aggression', 0) >= 50 else "Sedang" if trades.get('market_aggression', 0) >= 30 else "Rendah"
+            prompt_parts.append(f"  → Level: {aggression_level}")
+            prompt_parts.append(f"Buyer Dominance: {trades.get('buyer_dominance', 50):.1f}%")
+            buyer_dom = trades.get('buyer_dominance', 50)
+            if buyer_dom >= 60:
+                prompt_parts.append(f"  → Buyer Dominant (Strong buying pressure)")
+            elif buyer_dom <= 40:
+                prompt_parts.append(f"  → Seller Dominant (Strong selling pressure)")
+            else:
+                prompt_parts.append(f"  → Balanced market")
+            prompt_parts.append(f"Short-term Momentum: {trades.get('momentum', 0):+.2f}%")
+            momentum_val = trades.get('momentum', 0)
+            if momentum_val > 0.1:
+                prompt_parts.append(f"  → Bullish momentum (price increasing)")
+            elif momentum_val < -0.1:
+                prompt_parts.append(f"  → Bearish momentum (price decreasing)")
+            else:
+                prompt_parts.append(f"  → Neutral momentum")
+            prompt_parts.append(f"Trade Count: {trades.get('trade_count', 0)} recent trades")
+            prompt_parts.append(f"Total Volume: {trades.get('total_volume', 0):.2f}")
+            prompt_parts.append(f"Buy Volume: {trades.get('buy_volume', 0):.2f} ({trades.get('buy_ratio', 0.5)*100:.1f}%)")
+            prompt_parts.append(f"Sell Volume: {trades.get('sell_volume', 0):.2f} ({trades.get('sell_ratio', 0.5)*100:.1f}%)")
+            prompt_parts.append(f"Average Trade Size: {trades.get('avg_trade_size', 0):.2f}")
+            prompt_parts.append("")
+            prompt_parts.append("💡 INTERPRETASI:")
+            prompt_parts.append("  - Market Aggression: Tinggi = aktif trading, Rendah = tenang")
+            prompt_parts.append("  - Buyer Dominance > 60% = strong buying pressure, < 40% = strong selling pressure")
+            prompt_parts.append("  - Momentum positif = bullish short-term, negatif = bearish short-term")
+            prompt_parts.append("  - Cocok untuk scalping & high-frequency decision making")
+            prompt_parts.append("")
+        
+        # Open Interest Analysis (Trend Strength)
+        if 'open_interest_analysis' in analysis_results:
+            oi = analysis_results['open_interest_analysis']
+            prompt_parts.append("=== OPEN INTEREST (TREND STRENGTH) ===")
+            prompt_parts.append(f"Open Interest: {oi.get('open_interest', 0):.2f}")
+            
+            if oi.get('oi_change_pct', 0) != 0:
+                prompt_parts.append(f"OI Change: {oi.get('oi_change_pct', 0):+.2f}%")
+                oi_change_val = oi.get('oi_change_pct', 0)
+                if oi_change_val > 0:
+                    prompt_parts.append(f"  → OI Meningkat (posisi bertambah)")
+                elif oi_change_val < 0:
+                    prompt_parts.append(f"  → OI Menurun (posisi berkurang)")
+                else:
+                    prompt_parts.append(f"  → OI Stabil")
+            
+            trend_strength = oi.get('trend_strength', 'UNKNOWN')
+            trend_direction = oi.get('trend_direction', 'NEUTRAL')
+            signal = oi.get('signal', 'NEUTRAL')
+            interpretation = oi.get('interpretation', 'No interpretation available')
+            
+            prompt_parts.append(f"Trend Direction: {trend_direction}")
+            prompt_parts.append(f"Trend Strength: {trend_strength}")
+            prompt_parts.append(f"Signal: {signal}")
+            prompt_parts.append(f"Interpretation: {interpretation}")
+            prompt_parts.append("")
+            prompt_parts.append("💡 INTERPRETASI UMUM:")
+            prompt_parts.append("  - OI naik + harga naik → trend bullish kuat (Long) - posisi long bertambah")
+            prompt_parts.append("  - OI naik + harga turun → trend bearish kuat (Short) - posisi short bertambah")
+            prompt_parts.append("  - OI turun + harga naik → long liquidation/profit taking (caution)")
+            prompt_parts.append("  - OI turun + harga turun → short liquidation/profit taking (caution)")
+            prompt_parts.append("  - Trend Strength: VERY_STRONG > STRONG > MODERATE > WEAK")
+            prompt_parts.append("  - Cocok untuk trend strength analysis")
+            prompt_parts.append("")
+        
+        # Orderbook Depth Analysis (Orderbook Imbalance, Buy/Sell Walls, Whales)
+        if 'orderbook_analysis' in analysis_results:
+            ob = analysis_results['orderbook_analysis']
+            prompt_parts.append("=== ORDERBOOK DEPTH (ORDERBOOK IMBALANCE) ===")
+            prompt_parts.append(f"Total Bid Volume: {ob.get('total_bid_volume', 0):.2f}")
+            prompt_parts.append(f"Total Ask Volume: {ob.get('total_ask_volume', 0):.2f}")
+            prompt_parts.append(f"Bid/Ask Ratio: {ob.get('bid_ask_ratio', 1.0):.2f}")
+            prompt_parts.append(f"Orderbook Imbalance: {ob.get('orderbook_imbalance', 0):+.2%}")
+            
+            buy_wall_size = ob.get('buy_wall_size', 0)
+            buy_wall_price = ob.get('buy_wall_price', 0)
+            sell_wall_size = ob.get('sell_wall_size', 0)
+            sell_wall_price = ob.get('sell_wall_price', 0)
+            
+            if buy_wall_size > 0:
+                prompt_parts.append(f"Buy Wall: {buy_wall_size:.2f} @ {buy_wall_price:.4f}")
+            if sell_wall_size > 0:
+                prompt_parts.append(f"Sell Wall: {sell_wall_size:.2f} @ {sell_wall_price:.4f}")
+            
+            big_orders_count = ob.get('big_orders_count', 0)
+            if big_orders_count > 0:
+                prompt_parts.append(f"Big Orders (Whales): {big_orders_count}")
+            
+            liquidity_clusters = ob.get('liquidity_clusters', [])
+            if liquidity_clusters:
+                prompt_parts.append(f"Liquidity Clusters: {len(liquidity_clusters)} detected")
+                # Show top 3 biggest clusters
+                top_clusters = sorted(liquidity_clusters, key=lambda x: x.get('volume', 0), reverse=True)[:3]
+                for i, cluster in enumerate(top_clusters, 1):
+                    cluster_type = cluster.get('type', 'UNKNOWN')
+                    cluster_price = cluster.get('price', 0)
+                    cluster_volume = cluster.get('volume', 0)
+                    cluster_size = cluster.get('size_category', 'BIG')
+                    prompt_parts.append(f"  {i}. {cluster_type} {cluster_size}: {cluster_volume:.2f} @ {cluster_price:.4f}")
+            
+            signal = ob.get('signal', 'NEUTRAL')
+            interpretation = ob.get('interpretation', 'No interpretation available')
+            
+            prompt_parts.append(f"Signal: {signal}")
+            prompt_parts.append(f"Interpretation: {interpretation}")
+            prompt_parts.append("")
+            prompt_parts.append("💡 INTERPRETASI UMUM:")
+            prompt_parts.append("  - Buy wall besar → potensi Long (support kuat di level tersebut)")
+            prompt_parts.append("  - Sell wall besar → potensi Short (resistance kuat di level tersebut)")
+            prompt_parts.append("  - Orderbook imbalance positif (>0.1) = lebih banyak buy orders (buy pressure)")
+            prompt_parts.append("  - Orderbook imbalance negatif (<-0.1) = lebih banyak sell orders (sell pressure)")
+            prompt_parts.append("  - Big orders (whales) dapat mempengaruhi pergerakan harga")
+            prompt_parts.append("  - Liquidity clusters menunjukkan area dengan konsentrasi order besar")
+            prompt_parts.append("  - Cocok untuk scalping, orderflow analysis, dan high-frequency trading")
+            prompt_parts.append("")
+        
         return "\n".join(prompt_parts)
     
     def create_trading_prompt(self, analysis_data: str) -> str:
@@ -232,24 +387,47 @@ Berdasarkan semua data di atas, berikan rekomendasi trading dalam format JSON be
 **PENTING - ATURAN REKOMENDASI:**
 
 1. **BUY (LONG)** - Pilih jika:
+   - **Multiple TF Alignment >= 66% dan trend consensus = BULLISH** (prioritas tertinggi!)
    - Strategi menunjukkan signal BELI dan confidence > 50%
    - ML prediction menunjukkan BELI dengan probabilitas > 50%
    - Harga di atas support atau mendekati support (bounce opportunity)
    - RSI < 70 (tidak overbought) atau Z-Score menunjukkan oversold
    - Volume analysis menunjukkan akumulasi atau volume spike positif
+   - **Market Activity (Recent Trades):**
+     * Buyer Dominance > 60% = strong buying pressure (konfirmasi untuk LONG)
+     * Momentum positif = bullish short-term (konfirmasi timing entry)
+     * Market Aggression tinggi (>70) = aktif trading, cocok untuk entry cepat
+   - **Open Interest (Trend Strength):**
+     * OI naik + harga naik = trend bullish kuat (konfirmasi untuk LONG)
+     * Trend Strength STRONG atau VERY_STRONG = trend kuat, confidence tinggi
+   - **Orderbook Depth (Orderbook Imbalance):**
+     * Buy wall besar = support kuat (konfirmasi untuk LONG)
+     * Orderbook imbalance positif (>0.1) = buy pressure (konfirmasi untuk LONG)
    - Risk/reward ratio dari trading setup > 1.2
    - **WAJIB berikan entry_price, targets (minimal 2), dan stop_loss**
 
 2. **SELL (SHORT)** - Pilih jika:
+   - **Multiple TF Alignment >= 66% dan trend consensus = BEARISH** (prioritas tertinggi!)
    - Strategi menunjukkan signal JUAL dan confidence > 50%
    - ML prediction menunjukkan JUAL dengan probabilitas > 50%
    - Harga di bawah resistance atau mendekati resistance (rejection opportunity)
    - RSI > 30 (tidak oversold) atau Z-Score menunjukkan overbought
    - Volume analysis menunjukkan distribusi atau volume spike negatif
+   - **Market Activity (Recent Trades):**
+     * Buyer Dominance < 40% = strong selling pressure (konfirmasi untuk SHORT)
+     * Momentum negatif = bearish short-term (konfirmasi timing entry)
+     * Market Aggression tinggi (>70) = aktif trading, cocok untuk entry cepat
+   - **Open Interest (Trend Strength):**
+     * OI naik + harga turun = trend bearish kuat (konfirmasi untuk SHORT)
+     * Trend Strength STRONG atau VERY_STRONG = trend kuat, confidence tinggi
+   - **Orderbook Depth (Orderbook Imbalance):**
+     * Sell wall besar = resistance kuat (konfirmasi untuk SHORT)
+     * Orderbook imbalance negatif (<-0.1) = sell pressure (konfirmasi untuk SHORT)
    - Risk/reward ratio dari trading setup > 1.2
    - **WAJIB berikan entry_price, targets (minimal 2), dan stop_loss**
 
 3. **HOLD (CASH)** - Pilih HANYA jika:
+   - **Multiple TF Alignment < 33% atau trend consensus = MIXED** (prioritas tertinggi!)
    - Semua sinyal bertentangan (strategi vs ML vs market context)
    - Confidence < 40% untuk semua sinyal
    - Tidak ada setup yang jelas (harga di tengah-tengah range tanpa konfirmasi)
@@ -257,11 +435,33 @@ Berdasarkan semua data di atas, berikan rekomendasi trading dalam format JSON be
    - Untuk HOLD, set entry_price, targets, dan stop_loss ke null
 
 **PRIORITAS ANALISIS:**
-1. ML prediction signal dan confidence (berat 30%)
-2. Strategi signal dan performance metrics (berat 25%)
-3. Support/Resistance levels dan price action (berat 20%)
-4. Volume analysis dan market context (berat 15%)
-5. Advanced features (RSI, Z-Score, patterns) (berat 10%)
+1. Multiple Timeframe Alignment (berat 30%) - **PENTING!**
+   - Jika alignment score >= 66% dan semua TF align → confidence tinggi
+   - Jika alignment score < 33% atau conflict → confidence rendah, pertimbangkan HOLD
+   - Prioritaskan trend consensus dari multiple TF jika alignment tinggi
+2. ML prediction signal dan confidence (berat 20%)
+3. Strategi signal dan performance metrics (berat 15%)
+4. Market Activity (Recent Trades) - **PENTING untuk timing!** (berat 12%)
+   - Market Aggression tinggi (>70) = aktif trading, cocok untuk entry/exit cepat
+   - Buyer Dominance > 60% = strong buying pressure, konfirmasi untuk LONG
+   - Buyer Dominance < 40% = strong selling pressure, konfirmasi untuk SHORT
+   - Momentum positif = bullish short-term, momentum negatif = bearish short-term
+   - Gunakan untuk konfirmasi timing entry, terutama untuk scalping & day trading
+5. Open Interest (Trend Strength) - **PENTING untuk konfirmasi trend!** (berat 10%)
+   - OI naik + harga naik → trend bullish kuat (Long) - posisi long bertambah, trend kuat
+   - OI naik + harga turun → trend bearish kuat (Short) - posisi short bertambah, trend kuat
+   - OI turun + harga naik/turun → liquidation/profit taking (caution, trend melemah)
+   - Trend Strength: VERY_STRONG > STRONG > MODERATE > WEAK
+   - Gunakan untuk konfirmasi strength trend, terutama untuk swing & position trading
+6. Orderbook Depth (Orderbook Imbalance) - **PENTING untuk timing entry/exit!** (berat 8%)
+   - Buy wall besar → potensi Long (support kuat di level tersebut)
+   - Sell wall besar → potensi Short (resistance kuat di level tersebut)
+   - Orderbook imbalance positif = buy pressure, negatif = sell pressure
+   - Big orders (whales) dapat mempengaruhi pergerakan harga
+   - Cocok untuk scalping, orderflow analysis, dan high-frequency trading
+7. Support/Resistance levels dari multiple TF (prioritize higher TF) (berat 6%)
+8. Volume analysis dan market context (berat 4%)
+9. Advanced features (RSI, Z-Score, patterns) (berat 4%)
 
 **UNTUK BUY/SELL:**
 - entry_price: Gunakan limit_entry dari trading setup jika ada, atau current_price ± 0.5% untuk limit order

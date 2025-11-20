@@ -10,7 +10,10 @@ import pandas as pd
 def collect_analysis_data(data: pd.DataFrame, 
                          market_context: Dict,
                          enhanced_metrics: Dict,
-                         ml_prediction: Optional[Dict] = None) -> Dict:
+                         ml_prediction: Optional[Dict] = None,
+                         recent_trades_analysis: Optional[Dict] = None,
+                         open_interest_analysis: Optional[Dict] = None,
+                         orderbook_analysis: Optional[Dict] = None) -> Dict:
     """
     Collect semua data analisis menjadi satu dictionary
     
@@ -19,6 +22,9 @@ def collect_analysis_data(data: pd.DataFrame,
         market_context: Dictionary dengan market context
         enhanced_metrics: Dictionary dengan enhanced validation metrics
         ml_prediction: Dictionary dengan ML prediction results (optional)
+        recent_trades_analysis: Dictionary dengan recent trades analysis (optional)
+        open_interest_analysis: Dictionary dengan open interest analysis (optional)
+        orderbook_analysis: Dictionary dengan orderbook depth analysis (optional)
     
     Returns:
         Dictionary dengan semua data analisis
@@ -157,12 +163,81 @@ def collect_analysis_data(data: pd.DataFrame,
         except:
             trend_text = 'Neutral'
         
-        analysis_results['market_context'] = {
+        market_context_data = {
             'market_regime': str(market_context.get('current_regime', 'Unknown')),
             'trend_direction': trend_text,
             'volatility_regime': str(market_context.get('volatility_regime', 'Unknown')),
             'higher_tf_trend': str(market_context.get('higher_tf_trend', 'Unknown'))
         }
+        
+        # Tambahkan Multiple Timeframe Analysis jika ada
+        if 'multiple_timeframe' in market_context:
+            mtf = market_context['multiple_timeframe']
+            
+            # Debug: cek apakah ada data timeframes
+            has_timeframes = 'timeframes' in mtf and mtf['timeframes']
+            print(f"🔍 [DEBUG] Multiple Timeframe Data Check:")
+            print(f"   - Has 'multiple_timeframe' key: ✅")
+            print(f"   - Has 'timeframes' data: {'✅' if has_timeframes else '❌'}")
+            if has_timeframes:
+                print(f"   - Timeframes available: {list(mtf['timeframes'].keys())}")
+            
+            market_context_data['multiple_timeframe'] = {
+                'alignment_score': float(mtf.get('alignment_score', 0)) if mtf.get('alignment_score') is not None else 0,
+                'overall_trend': str(mtf.get('overall_trend', 'Unknown')),
+                'confidence': float(mtf.get('confidence', 0)) if mtf.get('confidence') is not None else 0,
+                'trend_consensus': int(mtf.get('trend_consensus', 0)) if mtf.get('trend_consensus') is not None else 0,
+                'timeframes': {}
+            }
+            
+            # Tambahkan data per timeframe
+            if 'timeframes' in mtf and mtf['timeframes']:
+                print(f"   ✅ Found {len(mtf['timeframes'])} timeframes: {list(mtf['timeframes'].keys())}")
+                for tf_name, tf_data in mtf['timeframes'].items():
+                    tf_info = {
+                        'interval': str(tf_data.get('interval', 'Unknown')),
+                        'trend_signal': int(tf_data.get('trend', {}).get('trend_signal', 0)) if isinstance(tf_data.get('trend'), dict) else 0,
+                        'trend_strength': float(tf_data.get('trend', {}).get('trend_strength', 0)) if isinstance(tf_data.get('trend'), dict) and tf_data.get('trend', {}).get('trend_strength') is not None else 0
+                    }
+                    
+                    # Tambahkan support/resistance per timeframe
+                    if 'support_resistance' in tf_data:
+                        sr = tf_data['support_resistance']
+                        tf_info['support'] = float(sr.get('support', 0)) if sr.get('support') is not None else None
+                        tf_info['resistance'] = float(sr.get('resistance', 0)) if sr.get('resistance') is not None else None
+                    
+                    market_context_data['multiple_timeframe']['timeframes'][tf_name] = tf_info
+                    print(f"      - {tf_name}: {tf_info['interval']}, signal={tf_info['trend_signal']}, strength={tf_info['trend_strength']:.2f}")
+            else:
+                print(f"   ⚠️  No timeframes data found in multiple_timeframe")
+                print(f"   💡 Kemungkinan: get_higher_timeframe_data gagal mengambil data atau USE_ENHANCED_FEATURES = False")
+            
+            # Tambahkan primary support/resistance dari multiple TF
+            if 'support_resistance' in mtf:
+                sr = mtf['support_resistance']
+                if 'primary_support' in sr:
+                    market_context_data['multiple_timeframe']['primary_support'] = {
+                        'level': float(sr['primary_support'].get('level', 0)) if sr['primary_support'].get('level') is not None else None,
+                        'strength': float(sr['primary_support'].get('strength', 0)) if sr['primary_support'].get('strength') is not None else 0,
+                        'timeframe': str(sr['primary_support'].get('timeframe', 'Unknown'))
+                    }
+                if 'primary_resistance' in sr:
+                    market_context_data['multiple_timeframe']['primary_resistance'] = {
+                        'level': float(sr['primary_resistance'].get('level', 0)) if sr['primary_resistance'].get('level') is not None else None,
+                        'strength': float(sr['primary_resistance'].get('strength', 0)) if sr['primary_resistance'].get('strength') is not None else 0,
+                        'timeframe': str(sr['primary_resistance'].get('timeframe', 'Unknown'))
+                    }
+        
+        # Tambahkan MTF metrics jika ada (untuk backward compatibility)
+        if 'mtf_alignment_score' in market_context:
+            if 'multiple_timeframe' not in market_context_data:
+                market_context_data['multiple_timeframe'] = {}
+            market_context_data['multiple_timeframe']['alignment_score'] = float(market_context.get('mtf_alignment_score', 0))
+            market_context_data['multiple_timeframe']['overall_trend'] = str(market_context.get('mtf_overall_trend', 'Unknown'))
+            market_context_data['multiple_timeframe']['confidence'] = float(market_context.get('mtf_confidence', 0))
+            market_context_data['multiple_timeframe']['trend_consensus'] = int(market_context.get('mtf_trend_consensus', 0))
+        
+        analysis_results['market_context'] = market_context_data
     
     # Advanced Features
     advanced_features = {}
@@ -264,6 +339,51 @@ def collect_analysis_data(data: pd.DataFrame,
     # ML Prediction
     if ml_prediction:
         analysis_results['ml_prediction'] = ml_prediction
+    
+    # Recent Trades Analysis (Market Activity)
+    if recent_trades_analysis:
+        analysis_results['recent_trades_analysis'] = {
+            'market_aggression': recent_trades_analysis.get('market_aggression', 0),
+            'buyer_dominance': recent_trades_analysis.get('buyer_dominance', 50),
+            'momentum': recent_trades_analysis.get('momentum', 0),
+            'price_trend': recent_trades_analysis.get('price_trend', 0),
+            'trade_count': recent_trades_analysis.get('trade_count', 0),
+            'total_volume': recent_trades_analysis.get('total_volume', 0),
+            'buy_volume': recent_trades_analysis.get('buy_volume', 0),
+            'sell_volume': recent_trades_analysis.get('sell_volume', 0),
+            'buy_ratio': recent_trades_analysis.get('buy_ratio', 0.5),
+            'sell_ratio': recent_trades_analysis.get('sell_ratio', 0.5),
+            'avg_trade_size': recent_trades_analysis.get('avg_trade_size', 0)
+        }
+    
+    # Open Interest Analysis (Trend Strength)
+    if open_interest_analysis:
+        analysis_results['open_interest_analysis'] = {
+            'open_interest': open_interest_analysis.get('open_interest', 0),
+            'oi_change': open_interest_analysis.get('oi_change', 0),
+            'oi_change_pct': open_interest_analysis.get('oi_change_pct', 0),
+            'trend_strength': open_interest_analysis.get('trend_strength', 'UNKNOWN'),
+            'trend_direction': open_interest_analysis.get('trend_direction', 'NEUTRAL'),
+            'signal': open_interest_analysis.get('signal', 'NEUTRAL'),
+            'interpretation': open_interest_analysis.get('interpretation', 'No interpretation available')
+        }
+    
+    # Orderbook Depth Analysis (Orderbook Imbalance, Buy/Sell Walls, Whales)
+    if orderbook_analysis:
+        analysis_results['orderbook_analysis'] = {
+            'total_bid_volume': orderbook_analysis.get('total_bid_volume', 0),
+            'total_ask_volume': orderbook_analysis.get('total_ask_volume', 0),
+            'bid_ask_ratio': orderbook_analysis.get('bid_ask_ratio', 1.0),
+            'orderbook_imbalance': orderbook_analysis.get('orderbook_imbalance', 0),
+            'buy_wall_size': orderbook_analysis.get('buy_wall_size', 0),
+            'sell_wall_size': orderbook_analysis.get('sell_wall_size', 0),
+            'buy_wall_price': orderbook_analysis.get('buy_wall_price', 0),
+            'sell_wall_price': orderbook_analysis.get('sell_wall_price', 0),
+            'big_orders_count': orderbook_analysis.get('big_orders_count', 0),
+            'liquidity_clusters': orderbook_analysis.get('liquidity_clusters', []),
+            'signal': orderbook_analysis.get('signal', 'NEUTRAL'),
+            'interpretation': orderbook_analysis.get('interpretation', 'No interpretation available')
+        }
     
     return analysis_results
 

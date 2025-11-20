@@ -55,8 +55,6 @@ def get_futures_top_coins_by_volume(limit: int = 200,
     # Get all symbols from exchangeInfo
     symbols = get_futures_symbols(
         quote_asset="USDT",
-        api_key=api_key,
-        api_secret=api_secret,
         testnet=testnet
     )
     

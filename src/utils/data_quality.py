@@ -269,6 +269,141 @@ def validate_ohlcv_data(df: pd.DataFrame) -> Dict[str, Any]:
     return results
 
 
+def calculate_data_quality_score(df: pd.DataFrame,
+                                required_columns: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Calculate comprehensive data quality score (0.0 - 1.0)
+    
+    Args:
+        df: DataFrame untuk evaluate
+        required_columns: List of required columns
+    
+    Returns:
+        Dictionary dengan quality score dan details
+    """
+    if required_columns is None:
+        required_columns = ['Open', 'High', 'Low', 'Close']
+    
+    score = 1.0
+    details = {
+        'checks': {},
+        'warnings': [],
+        'errors': []
+    }
+    
+    # Check 1: Data completeness (30% weight)
+    if df is None or df.empty:
+        details['errors'].append("DataFrame is None or empty")
+        return {
+            'score': 0.0,
+            'details': details,
+            'grade': 'F',
+            'recommendation': 'Data tidak valid'
+        }
+    
+    completeness_score = 1.0
+    if len(df) < 50:
+        completeness_score = len(df) / 50.0
+        details['warnings'].append(f"Data terlalu sedikit: {len(df)} rows (minimal 50)")
+    
+    missing_cols = [col for col in required_columns if col not in df.columns]
+    if missing_cols:
+        completeness_score = 0.0
+        details['errors'].append(f"Missing required columns: {missing_cols}")
+    
+    details['checks']['completeness'] = completeness_score
+    score *= completeness_score ** 0.3
+    
+    # Check 2: Missing data (20% weight)
+    missing_data_score = 1.0
+    if len(df) > 0:
+        missing_pct = df[required_columns].isnull().sum().sum() / (len(df) * len(required_columns))
+        missing_data_score = 1.0 - missing_pct
+        if missing_pct > 0.1:
+            details['warnings'].append(f"Missing data: {missing_pct*100:.1f}%")
+    
+    details['checks']['missing_data'] = missing_data_score
+    score *= missing_data_score ** 0.2
+    
+    # Check 3: Data validity (20% weight)
+    validity_score = 1.0
+    if all(col in df.columns for col in ['Open', 'High', 'Low', 'Close']):
+        invalid_ohlc = (
+            (df['High'] < df['Low']) |
+            (df['High'] < df['Open']) |
+            (df['High'] < df['Close']) |
+            (df['Low'] > df['Open']) |
+            (df['Low'] > df['Close'])
+        )
+        invalid_count = invalid_ohlc.sum()
+        if invalid_count > 0:
+            invalid_pct = invalid_count / len(df)
+            validity_score = 1.0 - invalid_pct
+            details['warnings'].append(f"Invalid OHLC: {invalid_count} rows ({invalid_pct*100:.1f}%)")
+        
+        # Check for negative prices
+        negative_prices = (df[required_columns] < 0).any().any()
+        if negative_prices:
+            validity_score = 0.0
+            details['errors'].append("Found negative prices")
+    
+    details['checks']['validity'] = validity_score
+    score *= validity_score ** 0.2
+    
+    # Check 4: Outliers (15% weight)
+    outlier_score = 1.0
+    if 'Close' in df.columns:
+        outliers = detect_outliers_zscore(df['Close'], threshold=3.0)
+        outlier_pct = outliers.sum() / len(df)
+        if outlier_pct > 0.05:  # More than 5% outliers
+            outlier_score = 1.0 - min(0.5, outlier_pct * 2)  # Max penalty 50%
+            details['warnings'].append(f"High outlier rate: {outlier_pct*100:.1f}%")
+    
+    details['checks']['outliers'] = outlier_score
+    score *= outlier_score ** 0.15
+    
+    # Check 5: Data consistency (15% weight)
+    consistency_score = 1.0
+    if 'Close' in df.columns and len(df) > 1:
+        # Check for unrealistic price changes
+        returns = df['Close'].pct_change().abs()
+        extreme_changes = (returns > 0.5).sum()  # More than 50% change
+        if extreme_changes > 0:
+            extreme_pct = extreme_changes / len(df)
+            consistency_score = 1.0 - min(0.3, extreme_pct * 3)
+            details['warnings'].append(f"Extreme price changes: {extreme_changes} occurrences")
+    
+    details['checks']['consistency'] = consistency_score
+    score *= consistency_score ** 0.15
+    
+    # Calculate final score
+    score = max(0.0, min(1.0, score))
+    
+    # Grade
+    if score >= 0.9:
+        grade = 'A'
+        recommendation = 'Data quality excellent, siap untuk prediksi'
+    elif score >= 0.75:
+        grade = 'B'
+        recommendation = 'Data quality baik, beberapa warnings perlu diperhatikan'
+    elif score >= 0.6:
+        grade = 'C'
+        recommendation = 'Data quality cukup, disarankan cleaning sebelum prediksi'
+    elif score >= 0.4:
+        grade = 'D'
+        recommendation = 'Data quality buruk, perlu cleaning dan validation'
+    else:
+        grade = 'F'
+        recommendation = 'Data quality sangat buruk, tidak disarankan untuk prediksi'
+    
+    return {
+        'score': score,
+        'grade': grade,
+        'details': details,
+        'recommendation': recommendation
+    }
+
+
 def clean_trading_data(df: pd.DataFrame,
                       handle_outliers: bool = True,
                       impute_missing: bool = True,

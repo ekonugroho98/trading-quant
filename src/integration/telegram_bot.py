@@ -126,6 +126,29 @@ class TelegramBot:
             print("⚠️  Telegram Bot Token atau Chat ID tidak ditemukan")
             return False
         
+        # Sanitize HTML: escape karakter khusus yang bisa menyebabkan parsing error
+        if parse_mode == "HTML":
+            import html
+            import re
+            # Telegram HTML hanya support: <b>, <i>, <u>, <s>, <a>, <code>, <pre>
+            # Pattern untuk tag HTML yang valid di Telegram
+            valid_tags_pattern = r'</?(?:b|i|u|s|a|code|pre)(?:\s[^>]*)?>'
+            
+            # Temukan semua tag HTML yang valid
+            valid_tags = re.findall(valid_tags_pattern, text)
+            
+            # Escape semua karakter HTML terlebih dahulu
+            text_escaped = html.escape(text)
+            
+            # Restore tag HTML yang valid
+            for tag in valid_tags:
+                # Escape tag untuk mencari di text_escaped
+                tag_escaped = html.escape(tag)
+                # Ganti kembali dengan tag asli
+                text_escaped = text_escaped.replace(tag_escaped, tag)
+            
+            text = text_escaped
+        
         payload = {
             "chat_id": self.chat_id,
             "text": text,
@@ -139,6 +162,17 @@ class TelegramBot:
             else:
                 print(f"❌ Error mengirim ke Telegram: {response.status_code}")
                 print(f"   Response: {response.text}")
+                # Jika error parsing, coba kirim tanpa parse_mode
+                if response.status_code == 400 and "parse" in response.text.lower():
+                    print("   ⚠️  Mencoba kirim tanpa HTML parsing...")
+                    payload_no_html = {
+                        "chat_id": self.chat_id,
+                        "text": text.replace('<b>', '').replace('</b>', '').replace('<i>', '').replace('</i>', '')
+                    }
+                    response2 = requests.post(self.api_url, json=payload_no_html, timeout=10)
+                    if response2.status_code == 200:
+                        print("   ✅ Berhasil dikirim tanpa HTML formatting")
+                        return True
                 return False
         except Exception as e:
             print(f"❌ Error menghubungi Telegram API: {e}")
@@ -778,7 +812,10 @@ class TelegramBot:
                                          resistance: Optional[float] = None,
                                          trading_setup: Optional[Dict] = None,
                                          deepseek_recommendation: Optional[Dict] = None,
-                                         ml_prediction: Optional[Dict] = None) -> str:
+                                         ml_prediction: Optional[Dict] = None,
+                                         recent_trades_analysis: Optional[Dict] = None,
+                                         pullback_status: Optional[Dict] = None,
+                                         price_source: Optional[str] = None) -> str:
         """
         Format trading signal yang disederhanakan - menggabungkan semua informasi
         
@@ -791,6 +828,7 @@ class TelegramBot:
             trading_setup: Trading setup dictionary (optional)
             deepseek_recommendation: DeepSeek recommendation dictionary (optional)
             ml_prediction: ML prediction dictionary (optional)
+            price_source: Source of price data (optional, e.g., "real-time (ticker)" or "klines (last close)")
         
         Returns:
             Formatted HTML message
@@ -807,7 +845,14 @@ class TelegramBot:
         # Price & Key Levels (satu baris dengan koma separator)
         price_info = []
         if current_price is not None and current_price > 0:
-            price_info.append(f"Price: {format_price_with_comma(current_price)}")
+            price_str = f"Price: {format_price_with_comma(current_price)}"
+            # Tambahkan info sumber harga jika tersedia
+            if price_source:
+                if "real-time" in price_source.lower():
+                    price_str += " ⚡"  # Emoji untuk real-time
+                elif "klines" in price_source.lower():
+                    price_str += " ⏰"  # Emoji untuk klines (mungkin tidak real-time)
+            price_info.append(price_str)
         if support is not None and support > 0:
             price_info.append(f"Support: {format_price_with_comma(support)}")
         if resistance is not None and resistance > 0:
@@ -815,9 +860,250 @@ class TelegramBot:
         
         if price_info:
             lines.append(" | ".join(price_info))
+            # Tambahkan warning jika menggunakan klines price (mungkin tidak real-time)
+            if price_source and "klines" in price_source.lower():
+                lines.append("⚠️ <i>Harga dari klines (mungkin tidak real-time - pastikan data up-to-date)</i>")
+            
+            # Validasi: cek apakah harga berbeda terlalu jauh dari harga real di exchange
+            # Jika berbeda lebih dari 10%, tambahkan warning
+            if current_price and current_price > 0:
+                try:
+                    import requests
+                    # Coba fetch real-time price dari Binance untuk validasi
+                    symbol_for_check = symbol.replace("-USD", "") + "USDT" if "-USD" in symbol else symbol
+                    if not symbol_for_check.endswith("USDT"):
+                        symbol_for_check = symbol_for_check + "USDT"
+                    
+                    # Fetch dari Binance Futures API
+                    try:
+                        url = f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={symbol_for_check.upper()}"
+                        response = requests.get(url, timeout=5)
+                        if response.status_code == 200:
+                            real_price_data = response.json()
+                            real_price = float(real_price_data.get('price', 0))
+                            
+                            if real_price > 0:
+                                price_diff_pct = abs((current_price - real_price) / real_price) * 100
+                                if price_diff_pct > 10.0:
+                                    lines.append(f"⚠️ <b>WARNING:</b> Harga di signal ({format_price_with_comma(current_price)}) berbeda {price_diff_pct:.1f}% dari harga real di exchange ({format_price_with_comma(real_price)})")
+                                    lines.append(f"   💡 Kemungkinan: data klines sudah lama atau symbol berbeda")
+                                    lines.append(f"   💡 Pastikan data selalu up-to-date untuk akurasi signal")
+                                elif price_diff_pct > 5.0:
+                                    lines.append(f"ℹ️ Harga di signal berbeda {price_diff_pct:.1f}% dari harga real ({format_price_with_comma(real_price)}) - normal untuk volatile market")
+                    except:
+                        pass  # Skip jika tidak bisa fetch real price
+                except:
+                    pass  # Skip jika error
+            
             lines.append("")
         
-        # Deteksi konflik sinyal
+        # Lakukan direction auto-correction dan AI Strategy adjustment terlebih dahulu
+        # agar quant_model_signal menggunakan direction yang sudah diperbaiki
+        if trading_setup:
+            direction = trading_setup.get('direction', 'N/A')
+            entry2 = trading_setup.get('entry2')
+            tp1 = trading_setup.get('tp1')
+            stop_loss = trading_setup.get('stop_loss')
+            
+            # VALIDASI: Deteksi dan perbaiki inkonsistensi direction dengan data aktual
+            if entry2 and isinstance(entry2, (int, float)) and entry2 > 0:
+                tp_suggests_long = False
+                tp_suggests_short = False
+                sl_suggests_long = False
+                sl_suggests_short = False
+                
+                if tp1 and isinstance(tp1, (int, float)) and tp1 > 0:
+                    if tp1 > entry2:
+                        tp_suggests_long = True
+                    elif tp1 < entry2:
+                        tp_suggests_short = True
+                
+                if stop_loss and isinstance(stop_loss, (int, float)) and stop_loss > 0:
+                    if stop_loss < entry2:
+                        sl_suggests_long = True
+                    elif stop_loss > entry2:
+                        sl_suggests_short = True
+                
+                actual_direction = None
+                if tp_suggests_long and sl_suggests_long:
+                    actual_direction = "LONG"
+                elif tp_suggests_short and sl_suggests_short:
+                    actual_direction = "SHORT"
+                elif tp_suggests_long:
+                    actual_direction = "LONG"
+                elif tp_suggests_short:
+                    actual_direction = "SHORT"
+                elif sl_suggests_long:
+                    actual_direction = "LONG"
+                elif sl_suggests_short:
+                    actual_direction = "SHORT"
+                
+                if actual_direction and direction != actual_direction:
+                    print(f"⚠️  [TELEGRAM] Direction inconsistency detected: direction={direction} but TP/SL suggest {actual_direction}. Auto-correcting...")
+                    print(f"   Entry2: {entry2}, TP1: {tp1}, SL: {stop_loss}")
+                    direction = actual_direction
+                    trading_setup['direction'] = actual_direction
+            
+            # ADJUSTMENT: Prioritaskan ML Prediction untuk Quant Model setup
+            # Jika ML Prediction menunjukkan LONG, maka Quant Model setup harus LONG juga
+            # Hanya adjust dengan AI Strategy jika ML Prediction tidak ada atau HOLD
+            ml_direction_for_setup = None
+            if ml_prediction:
+                ml_signal_raw = ml_prediction.get('signal', 'N/A')
+                if ml_signal_raw == "BELI":
+                    ml_direction_for_setup = "LONG"
+                elif ml_signal_raw == "JUAL":
+                    ml_direction_for_setup = "SHORT"
+            
+            # Jika ML Prediction ada dan berbeda dengan direction saat ini, sesuaikan dengan ML Prediction
+            # Trading setup sudah dihasilkan berdasarkan ML prediction di analisis_quant.py,
+            # jadi kita hanya perlu memastikan direction sesuai dengan ML prediction
+            if ml_direction_for_setup and direction != ml_direction_for_setup:
+                print(f"🔄 [TELEGRAM] ML Prediction ({ml_direction_for_setup}) berbeda dengan Quant Model ({direction}). Menyesuaikan direction dengan ML Prediction...")
+                print(f"   💡 Quant Model setup akan mengikuti ML Prediction: {ml_direction_for_setup}")
+                
+                # Update direction dengan ML Prediction
+                direction = ml_direction_for_setup
+                trading_setup['direction'] = ml_direction_for_setup
+                
+                # Recalculate entry, TP, dan SL agar sesuai dengan ML Prediction direction
+                # Gunakan support/resistance untuk recalculate entry levels
+                if current_price and current_price > 0 and support and resistance:
+                    if ml_direction_for_setup == "LONG":
+                        # LONG: entry di support atau di bawah current price, TP di atas, SL di bawah
+                        # Entry konservatif: di support atau sedikit di atas support
+                        entry2_new = support * 1.001 if support > 0 else current_price * 0.998
+                        entry1_new = current_price * 0.999 if current_price > support * 1.002 else support * 1.002  # Agresif
+                        entry3_new = support * 0.998 if support > 0 else current_price * 0.995  # Sangat konservatif
+                        
+                        # TP di atas entry
+                        tp1_new = entry2_new * 1.10  # 10% profit
+                        tp2_new = entry2_new * 1.15  # 15% profit
+                        tp3_new = entry2_new * 1.20  # 20% profit
+                        
+                        # SL di bawah entry
+                        stop_loss_new = entry2_new * 0.98  # 2% risk
+                    else:  # SHORT
+                        # SHORT: entry di resistance atau di atas current price, TP di bawah, SL di atas
+                        # Entry konservatif: di resistance atau sedikit di bawah resistance
+                        entry2_new = resistance * 0.999 if resistance > 0 else current_price * 1.002
+                        entry1_new = current_price * 1.001 if current_price < resistance * 0.998 else resistance * 0.998  # Agresif
+                        entry3_new = resistance * 1.002 if resistance > 0 else current_price * 1.005  # Sangat konservatif
+                        
+                        # TP di bawah entry
+                        tp1_new = entry2_new * 0.90  # 10% profit
+                        tp2_new = entry2_new * 0.85  # 15% profit
+                        tp3_new = entry2_new * 0.80  # 20% profit
+                        
+                        # SL di atas entry
+                        stop_loss_new = entry2_new * 1.02  # 2% risk
+                    
+                    # Update trading_setup dictionary
+                    trading_setup['entry1'] = entry1_new
+                    trading_setup['entry2'] = entry2_new
+                    trading_setup['entry3'] = entry3_new
+                    trading_setup['entry'] = entry2_new
+                    trading_setup['stop_loss'] = stop_loss_new
+                    trading_setup['tp1'] = tp1_new
+                    trading_setup['tp2'] = tp2_new
+                    trading_setup['tp3'] = tp3_new
+                    
+                    # Update local variables untuk digunakan di bawah
+                    entry2 = entry2_new
+                    tp1 = tp1_new
+                    stop_loss = stop_loss_new
+                    
+                    # Recalculate risk_pct
+                    if entry2_new and stop_loss_new and entry2_new > 0:
+                        if ml_direction_for_setup == "LONG":
+                            risk_pct = ((entry2_new - stop_loss_new) / entry2_new) * 100
+                        else:  # SHORT
+                            risk_pct = ((stop_loss_new - entry2_new) / entry2_new) * 100
+                        trading_setup['risk_pct'] = abs(risk_pct)
+                
+                print(f"   ✅ Direction dan TP/SL disesuaikan dengan ML Prediction: {ml_direction_for_setup}")
+            
+            # ADJUSTMENT: Jika ML Prediction tidak ada atau HOLD, dan AI Strategy berbeda dengan Quant Model,
+            # sesuaikan trading setup dengan AI Strategy untuk konsistensi
+            elif deepseek_recommendation and (not ml_direction_for_setup or ml_direction_for_setup == "HOLD"):
+                ai_action_temp = deepseek_recommendation.get('action', '').upper()
+                if ai_action_temp and ai_action_temp != "HOLD":
+                    ai_entry = deepseek_recommendation.get('entry_price')
+                    ai_targets = deepseek_recommendation.get('targets', [])
+                    ai_stop_loss = deepseek_recommendation.get('stop_loss')
+                    
+                    # Cek apakah AI Strategy direction berbeda dengan Quant Model
+                    ai_direction = "SHORT" if ai_action_temp == "SELL" else "LONG" if ai_action_temp == "BUY" else None
+                    
+                    # Jika direction berbeda ATAU entry/targets/stop_loss berbeda, gunakan AI Strategy setup
+                    direction_differs = ai_direction and direction != ai_direction
+                    entry_differs = ai_entry and entry2 and abs(ai_entry - entry2) / entry2 > 0.001  # > 0.1% difference
+                    targets_differ = ai_targets and len(ai_targets) >= 2 and tp1 and abs(ai_targets[0] - tp1) / tp1 > 0.001
+                    sl_differs = ai_stop_loss and stop_loss and abs(ai_stop_loss - stop_loss) / stop_loss > 0.001
+                    
+                    should_adjust = (direction_differs or entry_differs or targets_differ or sl_differs) and \
+                                   ai_entry and ai_stop_loss and len(ai_targets) >= 2
+                    
+                    if should_adjust:
+                        print(f"🔄 [TELEGRAM] AI Strategy ({ai_direction}) berbeda dengan Quant Model ({direction}). Menyesuaikan trading setup dengan AI Strategy...")
+                        
+                        # Update direction
+                        direction = ai_direction
+                        trading_setup['direction'] = ai_direction
+                        
+                        # Update entry levels: gunakan AI entry sebagai entry konservatif
+                        entry1_temp = trading_setup.get('entry1')
+                        entry2_temp = trading_setup.get('entry2')
+                        entry3_temp = trading_setup.get('entry3')
+                        
+                        if current_price and current_price > 0:
+                            if ai_direction == "LONG":
+                                # Untuk LONG: entry agresif sedikit di bawah AI entry
+                                entry1_temp = ai_entry * 0.999 if ai_entry > current_price * 0.995 else current_price * 0.998
+                                entry2_temp = ai_entry  # Konservatif = AI entry
+                                entry3_temp = ai_entry * 0.998  # Sangat konservatif = sedikit di bawah AI entry
+                            else:  # SHORT
+                                # Untuk SHORT: entry agresif sedikit di atas AI entry
+                                entry1_temp = ai_entry * 1.001 if ai_entry < current_price * 1.005 else current_price * 1.002
+                                entry2_temp = ai_entry  # Konservatif = AI entry
+                                entry3_temp = ai_entry * 1.002  # Sangat konservatif = sedikit di atas AI entry
+                        else:
+                            entry1_temp = ai_entry
+                            entry2_temp = ai_entry
+                            entry3_temp = ai_entry
+                        
+                        # Update trading_setup dictionary
+                        trading_setup['entry1'] = entry1_temp
+                        trading_setup['entry2'] = entry2_temp
+                        trading_setup['entry3'] = entry3_temp
+                        trading_setup['entry'] = entry2_temp
+                        trading_setup['stop_loss'] = ai_stop_loss
+                        
+                        # Update targets dari AI Strategy
+                        if len(ai_targets) >= 3:
+                            trading_setup['tp1'] = ai_targets[0]
+                            trading_setup['tp2'] = ai_targets[1]
+                            trading_setup['tp3'] = ai_targets[2]
+                        elif len(ai_targets) >= 2:
+                            trading_setup['tp1'] = ai_targets[0]
+                            trading_setup['tp2'] = ai_targets[1]
+                            trading_setup['tp3'] = ai_targets[1] * (0.98 if ai_direction == "SHORT" else 1.02)
+                        elif len(ai_targets) >= 1:
+                            trading_setup['tp1'] = ai_targets[0]
+                            trading_setup['tp2'] = ai_targets[0] * (0.99 if ai_direction == "SHORT" else 1.01)
+                            trading_setup['tp3'] = ai_targets[0] * (0.98 if ai_direction == "SHORT" else 1.02)
+                        
+                        # Recalculate risk_pct
+                        if entry2_temp and ai_stop_loss and entry2_temp > 0:
+                            if ai_direction == "LONG":
+                                risk_pct_new = ((entry2_temp - ai_stop_loss) / entry2_temp) * 100
+                            else:  # SHORT
+                                risk_pct_new = ((ai_stop_loss - entry2_temp) / entry2_temp) * 100
+                            trading_setup['risk_pct'] = abs(risk_pct_new)
+                        
+                        print(f"   ✅ Trading setup disesuaikan dengan AI Strategy: {ai_direction}")
+        
+        # Ambil data untuk deteksi konflik (setelah direction auto-correction)
         ai_action = None
         ai_position = None
         ai_confidence = 0
@@ -840,26 +1126,67 @@ class TelegramBot:
             else:
                 ml_signal = "HOLD"
         
+        # Tentukan Quant Model signal berdasarkan trading_setup direction yang sudah diperbaiki
+        quant_model_signal = ml_signal  # Default: gunakan ml_signal
+        quant_model_position = None
+        if trading_setup:
+            corrected_direction = trading_setup.get('direction', 'N/A')
+            if corrected_direction == "LONG":
+                quant_model_signal = "BUY"
+                quant_model_position = "LONG"
+            elif corrected_direction == "SHORT":
+                quant_model_signal = "SELL"
+                quant_model_position = "SHORT"
+        
         # Tampilkan konflik jika ada
+        # Konflik bisa terjadi antara:
+        # 1. AI Strategy vs Quant Model (trading setup yang sudah diperbaiki)
+        # 2. ML Prediction vs Quant Model (jika ML prediction berbeda dengan trading setup)
         has_conflict = False
-        if ai_action and ml_signal and ai_action != "HOLD" and ml_signal != "HOLD":
-            if (ai_action == "BUY" and ml_signal == "SELL") or (ai_action == "SELL" and ml_signal == "BUY"):
+        conflict_ai_vs_quant = False
+        conflict_ml_vs_quant = False
+        
+        # Cek konflik antara AI Strategy dan Quant Model
+        if ai_action and quant_model_signal and ai_action != "HOLD" and quant_model_signal != "HOLD":
+            if (ai_action == "BUY" and quant_model_signal == "SELL") or (ai_action == "SELL" and quant_model_signal == "BUY"):
+                conflict_ai_vs_quant = True
                 has_conflict = True
-                # Tampilkan dengan position jika ada
+        
+        # Cek konflik antara ML Prediction dan Quant Model (jika berbeda)
+        if ml_signal and quant_model_signal and ml_signal != "HOLD" and quant_model_signal != "HOLD":
+            if (ml_signal == "BUY" and quant_model_signal == "SELL") or (ml_signal == "SELL" and quant_model_signal == "BUY"):
+                conflict_ml_vs_quant = True
+                has_conflict = True
+        
+        if has_conflict:
+            lines.append("⚠️ <b>KONFLIKT:</b>")
+            
+            # Tampilkan AI Strategy jika ada
+            if ai_action and ai_action != "HOLD":
                 ai_display = f"{ai_action}"
                 if ai_position and ai_position != "CASH":
                     ai_display = f"{ai_action} ({ai_position})"
-                
+                lines.append(f"   - AI Strategy: {ai_display} ({ai_confidence}% confidence)")
+            
+            # Tampilkan Quant Model (trading setup yang sudah diperbaiki)
+            quant_display = quant_model_signal
+            if quant_model_position:
+                quant_display = f"{quant_model_signal} ({quant_model_position})"
+            elif quant_model_signal == "BUY":
+                quant_display = f"{quant_model_signal} (LONG)"
+            elif quant_model_signal == "SELL":
+                quant_display = f"{quant_model_signal} (SHORT)"
+            lines.append(f"   - Quant Model: {quant_display} ({ml_prob:.1f}% probability)")
+            
+            # Tampilkan ML Prediction jika berbeda dengan Quant Model
+            if conflict_ml_vs_quant and ml_signal != quant_model_signal:
                 ml_display = ml_signal
-                # Infer position dari signal untuk ML
                 if ml_signal == "BUY":
                     ml_display = f"{ml_signal} (LONG)"
                 elif ml_signal == "SELL":
                     ml_display = f"{ml_signal} (SHORT)"
+                lines.append(f"   - ML Prediction: {ml_display} ({ml_prob:.1f}% probability) - berbeda dengan Trading Setup")
                 
-                lines.append("⚠️ <b>KONFLIKT:</b>")
-                lines.append(f"   - AI Strategy: {ai_display} ({ai_confidence}% confidence)")
-                lines.append(f"   - Quant Model: {ml_display} ({ml_prob:.1f}% probability)")
                 lines.append("")
         
         # Rekomendasi final (prioritas AI Strategy jika ada konflik)
@@ -888,17 +1215,29 @@ class TelegramBot:
             lines.append(f"📊 <b>REKOMENDASI:</b> {final_action} ({final_reason})")
         lines.append("")
         
-        # Trading Setup (disederhanakan - hanya 2 entry dan 2 TP)
+        # Trading Setup dari Quant Model
         if trading_setup:
             direction = trading_setup.get('direction', 'N/A')
-            action_text = "SELL" if direction == "SHORT" else "BUY" if direction == "LONG" else "HOLD"
-            
-            lines.append(f"💰 <b>SETUP:</b>")
             
             # Entry levels (3 level: agresif, konservatif, sangat konservatif)
             entry1 = trading_setup.get('entry1')  # Agresif
             entry2 = trading_setup.get('entry2')  # Konservatif (recommended)
             entry3 = trading_setup.get('entry3')  # Sangat Konservatif
+            
+            # Stop Loss
+            stop_loss = trading_setup.get('stop_loss')
+            risk_pct = trading_setup.get('risk_pct', 0)
+            
+            # Targets (3 TP dalam satu baris)
+            tp1 = trading_setup.get('tp1')
+            tp2 = trading_setup.get('tp2')
+            tp3 = trading_setup.get('tp3')
+            
+            # Direction sudah diperbaiki di awal (termasuk adjustment dengan AI Strategy), gunakan yang sudah diperbaiki
+            direction = trading_setup.get('direction', 'N/A')
+            action_text = "SELL" if direction == "SHORT" else "BUY" if direction == "LONG" else "HOLD"
+            
+            lines.append(f"💰 <b>SETUP (Quant Model):</b>")
             
             # Hanya tampilkan entry jika nilainya valid (> 0)
             if entry1 and entry1 > 0 and entry2 and entry2 > 0 and entry3 and entry3 > 0:
@@ -915,16 +1254,19 @@ class TelegramBot:
             elif entry1 and entry1 > 0:
                 lines.append(f"   Entry: {format_price_with_comma(entry1)}")
             
-            # Stop Loss
-            stop_loss = trading_setup.get('stop_loss')
-            risk_pct = trading_setup.get('risk_pct', 0)
+            # Stop Loss - hitung persentase berdasarkan direction
             if stop_loss and stop_loss > 0:
-                lines.append(f"   Stop Loss: {format_price_with_comma(stop_loss)} (-{risk_pct:.1f}%)")
-            
-            # Targets (3 TP dalam satu baris)
-            tp1 = trading_setup.get('tp1')
-            tp2 = trading_setup.get('tp2')
-            tp3 = trading_setup.get('tp3')
+                if entry2 and isinstance(entry2, (int, float)) and entry2 > 0:
+                    if direction == "LONG":
+                        # Untuk LONG: SL di bawah entry = loss negatif
+                        sl_pct = ((stop_loss - entry2) / entry2) * 100
+                    else:  # SHORT
+                        # Untuk SHORT: SL di atas entry = loss positif (harga naik = loss)
+                        sl_pct = ((stop_loss - entry2) / entry2) * 100
+                    lines.append(f"   Stop Loss: {format_price_with_comma(stop_loss)} ({sl_pct:+.2f}%)")
+                else:
+                    # Fallback: gunakan risk_pct jika entry2 tidak tersedia
+                    lines.append(f"   Stop Loss: {format_price_with_comma(stop_loss)} (-{risk_pct:.1f}%)")
             
             # Hanya tampilkan TP jika nilainya valid (> 0)
             # Take Profit dengan format list
@@ -982,6 +1324,61 @@ class TelegramBot:
                     lines.append(f"      - TP1: {format_price_with_comma(tp1)}")
             
             lines.append("")
+        
+        # Trading Setup dari AI (DeepSeek)
+        if deepseek_recommendation:
+            ai_action = deepseek_recommendation.get('action', '').upper()
+            ai_entry = deepseek_recommendation.get('entry_price')
+            ai_stop_loss = deepseek_recommendation.get('stop_loss')
+            ai_targets = deepseek_recommendation.get('targets', [])
+            ai_confidence = deepseek_recommendation.get('confidence', 0)
+            ai_reason = deepseek_recommendation.get('reason', '')
+            
+            # Hanya tampilkan jika action bukan HOLD dan ada entry/targets/stop_loss
+            if ai_action and ai_action != 'HOLD' and (ai_entry or ai_targets or ai_stop_loss):
+                lines.append(f"🤖 <b>SETUP (AI Strategy):</b>")
+                lines.append(f"   Confidence: {ai_confidence}%")
+                
+                # Entry Price
+                if ai_entry and isinstance(ai_entry, (int, float)) and ai_entry > 0:
+                    lines.append(f"   Entry: {format_price_with_comma(ai_entry)}")
+                
+                # Stop Loss
+                if ai_stop_loss and isinstance(ai_stop_loss, (int, float)) and ai_stop_loss > 0:
+                    # Calculate stop loss percentage
+                    if ai_entry and isinstance(ai_entry, (int, float)) and ai_entry > 0:
+                        if ai_action == "BUY":
+                            # Untuk BUY: stop loss di bawah entry
+                            sl_pct = ((ai_stop_loss - ai_entry) / ai_entry) * 100
+                        else:  # SELL
+                            # Untuk SELL: stop loss di atas entry
+                            sl_pct = ((ai_stop_loss - ai_entry) / ai_entry) * 100
+                        lines.append(f"   Stop Loss: {format_price_with_comma(ai_stop_loss)} ({sl_pct:+.2f}%)")
+                    else:
+                        lines.append(f"   Stop Loss: {format_price_with_comma(ai_stop_loss)}")
+                
+                # Targets
+                if ai_targets and isinstance(ai_targets, list) and len(ai_targets) > 0:
+                    lines.append(f"   Take Profit:")
+                    for i, target in enumerate(ai_targets, 1):
+                        if isinstance(target, (int, float)) and target > 0:
+                            # Calculate target percentage
+                            if ai_entry and isinstance(ai_entry, (int, float)) and ai_entry > 0:
+                                if ai_action == "BUY":
+                                    # Untuk BUY: target di atas entry
+                                    target_pct = ((target - ai_entry) / ai_entry) * 100
+                                else:  # SELL
+                                    # Untuk SELL: target di bawah entry
+                                    target_pct = ((ai_entry - target) / ai_entry) * 100
+                                lines.append(f"      - TP{i}: {format_price_with_comma(target)} ({target_pct:+.2f}%)")
+                            else:
+                                lines.append(f"      - TP{i}: {format_price_with_comma(target)}")
+                
+                # Reason (jika ada)
+                if ai_reason:
+                    lines.append(f"   💡 Reason: {ai_reason}")
+                
+                lines.append("")
         
         # Quant Metrics (ringkas dalam satu baris)
         # SELALU tambahkan Quant Metrics, bahkan jika ml_prediction adalah None
@@ -1102,6 +1499,171 @@ class TelegramBot:
             lines.append(metrics_line)
             lines.append("")
             print(f"✅ [TELEGRAM] Quant Metrics placeholder ditambahkan (fallback): {metrics_line}")
+        
+        # Reversal Detection (prioritas tertinggi)
+        if pullback_status and pullback_status.get('has_reversal', False):
+            lines.append("🔄 <b>REVERSAL DETECTION:</b>")
+            
+            reversal_type = pullback_status.get('reversal_type', 'N/A')
+            reversal_signal = pullback_status.get('reversal_signal', 0)
+            reversal_confidence = pullback_status.get('reversal_confidence', 0) * 100
+            
+            # Emoji berdasarkan signal
+            if reversal_signal == 1:
+                signal_emoji = "🟢"
+                signal_text = "BULLISH REVERSAL (LONG)"
+            elif reversal_signal == -1:
+                signal_emoji = "🔴"
+                signal_text = "BEARISH REVERSAL (SHORT)"
+            else:
+                signal_emoji = "🟡"
+                signal_text = "Reversal Detected"
+            
+            lines.append(f"   {signal_emoji} <b>{signal_text}</b>")
+            lines.append(f"   Type: {reversal_type}")
+            lines.append(f"   Confidence: {reversal_confidence:.1f}%")
+            lines.append(f"   ⚠️  <i>WARNING: Trend berubah! Ini bukan pullback, tapi reversal sebenarnya</i>")
+            lines.append("")
+        
+        # Breakout Detection (prioritas kedua)
+        elif pullback_status and pullback_status.get('has_breakout', False):
+            lines.append("🚀 <b>BREAKOUT DETECTION:</b>")
+            
+            breakout_type = pullback_status.get('breakout_type', 'N/A')
+            breakout_signal = pullback_status.get('breakout_signal', 0)
+            breakout_confidence = pullback_status.get('breakout_confidence', 0) * 100
+            breakout_level = pullback_status.get('breakout_level', 0)
+            
+            # Emoji berdasarkan signal
+            if breakout_signal == 1:
+                signal_emoji = "🟢"
+                signal_text = "BULLISH BREAKOUT (LONG)"
+            elif breakout_signal == -1:
+                signal_emoji = "🔴"
+                signal_text = "BEARISH BREAKOUT (SHORT)"
+            else:
+                signal_emoji = "🟡"
+                signal_text = "Breakout Detected"
+            
+            lines.append(f"   {signal_emoji} <b>{signal_text}</b>")
+            lines.append(f"   Type: {breakout_type}")
+            if breakout_level > 0:
+                lines.append(f"   Level: {format_price_with_comma(breakout_level)}")
+            lines.append(f"   Confidence: {breakout_confidence:.1f}%")
+            lines.append("")
+        
+        # Impulse Move Detection (prioritas ketiga)
+        elif pullback_status and pullback_status.get('has_impulse', False):
+            lines.append("⚡ <b>IMPULSE MOVE DETECTION:</b>")
+            
+            impulse_type = pullback_status.get('impulse_type', 'N/A')
+            impulse_signal = pullback_status.get('impulse_signal', 0)
+            impulse_confidence = pullback_status.get('impulse_confidence', 0) * 100
+            impulse_strength = pullback_status.get('impulse_strength', 0) * 100
+            
+            # Emoji berdasarkan signal
+            if impulse_signal == 1:
+                signal_emoji = "🟢"
+                signal_text = "BULLISH IMPULSE (LONG)"
+            elif impulse_signal == -1:
+                signal_emoji = "🔴"
+                signal_text = "BEARISH IMPULSE (SHORT)"
+            else:
+                signal_emoji = "🟡"
+                signal_text = "Impulse Detected"
+            
+            lines.append(f"   {signal_emoji} <b>{signal_text}</b>")
+            lines.append(f"   Type: {impulse_type}")
+            lines.append(f"   Strength: {impulse_strength:.1f}%")
+            lines.append(f"   Confidence: {impulse_confidence:.1f}%")
+            lines.append("")
+        
+        # Pullback Detection (prioritas terendah)
+        elif pullback_status and pullback_status.get('has_pullback', False):
+            lines.append("📊 <b>PULLBACK DETECTION:</b>")
+            
+            pullback_type = pullback_status.get('pullback_type', 'N/A')
+            pullback_depth = pullback_status.get('pullback_depth', 0) * 100
+            pullback_signal = pullback_status.get('pullback_signal', 0)
+            pullback_confidence = pullback_status.get('pullback_confidence', 0) * 100
+            
+            # Emoji berdasarkan signal
+            if pullback_signal == 1:
+                signal_emoji = "🟢"
+                signal_text = "LONG Opportunity"
+            elif pullback_signal == -1:
+                signal_emoji = "🔴"
+                signal_text = "SHORT Opportunity"
+            else:
+                signal_emoji = "🟡"
+                signal_text = "No Clear Signal"
+            
+            lines.append(f"   {signal_emoji} <b>{signal_text}</b>")
+            lines.append(f"   Type: {pullback_type} ({pullback_depth:.1f}% retracement)")
+            lines.append(f"   Confidence: {pullback_confidence:.1f}%")
+            
+            # Entry levels dari pullback (saran tambahan)
+            entry_levels = pullback_status.get('entry_levels', {})
+            if entry_levels.get('pullback_entry_1'):
+                lines.append(f"   💡 <i>Suggested Entry Levels:</i>")
+                if entry_levels.get('pullback_entry_1'):
+                    lines.append(f"      - {format_price_with_comma(entry_levels['pullback_entry_1'])} (Shallow)")
+                if entry_levels.get('pullback_entry_2'):
+                    lines.append(f"      - {format_price_with_comma(entry_levels['pullback_entry_2'])} (Medium)")
+                if entry_levels.get('pullback_entry_3'):
+                    lines.append(f"      - {format_price_with_comma(entry_levels['pullback_entry_3'])} (Deep)")
+            
+            lines.append("")
+        
+        # Recent Trades Analysis (Market Aggression & Momentum)
+        if recent_trades_analysis:
+            aggression = recent_trades_analysis.get('market_aggression', 0)
+            buyer_dominance = recent_trades_analysis.get('buyer_dominance', 50)
+            momentum = recent_trades_analysis.get('momentum', 0)
+            trade_count = recent_trades_analysis.get('trade_count', 0)
+            
+            # Determine aggression level
+            if aggression >= 70:
+                aggression_emoji = "🔥"
+                aggression_text = "Sangat Tinggi"
+            elif aggression >= 50:
+                aggression_emoji = "⚡"
+                aggression_text = "Tinggi"
+            elif aggression >= 30:
+                aggression_emoji = "📊"
+                aggression_text = "Sedang"
+            else:
+                aggression_emoji = "😴"
+                aggression_text = "Rendah"
+            
+            # Determine buyer/seller dominance
+            if buyer_dominance >= 60:
+                dominance_emoji = "🟢"
+                dominance_text = f"Buyer {buyer_dominance:.1f}%"
+            elif buyer_dominance <= 40:
+                dominance_emoji = "🔴"
+                dominance_text = f"Seller {100 - buyer_dominance:.1f}%"
+            else:
+                dominance_emoji = "🟡"
+                dominance_text = "Seimbang"
+            
+            # Determine momentum direction
+            if momentum > 0.1:
+                momentum_emoji = "📈"
+                momentum_text = f"+{momentum:.2f}%"
+            elif momentum < -0.1:
+                momentum_emoji = "📉"
+                momentum_text = f"{momentum:.2f}%"
+            else:
+                momentum_emoji = "➡️"
+                momentum_text = f"{momentum:+.2f}%"
+            
+            lines.append("🔥 <b>Market Activity (Recent Trades):</b>")
+            lines.append(f"   {aggression_emoji} Aggression: {aggression_text} ({aggression:.1f}/100)")
+            lines.append(f"   {dominance_emoji} Dominance: {dominance_text}")
+            lines.append(f"   {momentum_emoji} Momentum: {momentum_text}")
+            lines.append(f"   📊 Trades: {trade_count} recent")
+            lines.append("")
         
         return "\n".join(lines)
 

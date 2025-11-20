@@ -838,48 +838,118 @@ signal_text = "BELI" if last_signal == 1 else ("JUAL" if last_signal == -1 else 
 
 # Get real-time current price dari ticker endpoint (untuk Futures API)
 current_price_realtime = None
+price_fetch_error = None
 try:
     # Cek apakah menggunakan Binance Futures API
     from src.utils.config import BINANCE_API_TYPE, DATA_SOURCE
     if DATA_SOURCE == "binance" and BINANCE_API_TYPE and BINANCE_API_TYPE.lower() == "futures":
         from src.data.binance_futures_data import get_futures_ticker_price
         
-        # Convert symbol format: DOGE-USD -> DOGEUSDT
+        # Convert symbol format: DOGE-USD -> DOGEUSDT atau XPIN-USD -> XPINUSDT
         if SYMBOL and SYMBOL.endswith("-USD"):
             binance_symbol = SYMBOL.replace("-USD", "") + "USDT"
         elif TRADING_SYMBOL:
-            binance_symbol = TRADING_SYMBOL
+            # Handle TRADING_SYMBOL yang mungkin sudah dalam format USDT atau masih -USD
+            if TRADING_SYMBOL.endswith("-USD"):
+                binance_symbol = TRADING_SYMBOL.replace("-USD", "") + "USDT"
+            elif TRADING_SYMBOL.endswith("USDT"):
+                binance_symbol = TRADING_SYMBOL
+            else:
+                binance_symbol = TRADING_SYMBOL + "USDT"
         else:
             binance_symbol = None
         
         if binance_symbol:
             print(f"💰 [REAL-TIME PRICE] Fetching current price from ticker endpoint for {binance_symbol}...")
-            price_data = get_futures_ticker_price(symbol=binance_symbol)
-            
-            if price_data:
-                if isinstance(price_data, dict) and 'price' in price_data:
-                    current_price_realtime = float(price_data['price'])
-                    print(f"   ✅ Real-time price: {current_price_realtime}")
-                elif isinstance(price_data, list) and len(price_data) > 0:
-                    # Jika return list, cari symbol yang sesuai
-                    for item in price_data:
-                        if isinstance(item, dict) and item.get('symbol') == binance_symbol:
-                            current_price_realtime = float(item.get('price', 0))
-                            print(f"   ✅ Real-time price: {current_price_realtime}")
+            # Retry mechanism: coba 3 kali
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    price_data = get_futures_ticker_price(symbol=binance_symbol)
+                    
+                    if price_data:
+                        if isinstance(price_data, dict) and 'price' in price_data:
+                            current_price_realtime = float(price_data['price'])
+                            print(f"   ✅ Real-time price: {current_price_realtime} (attempt {attempt + 1})")
                             break
+                        elif isinstance(price_data, list) and len(price_data) > 0:
+                            # Jika return list, cari symbol yang sesuai
+                            for item in price_data:
+                                if isinstance(item, dict) and item.get('symbol') == binance_symbol.upper():
+                                    current_price_realtime = float(item.get('price', 0))
+                                    print(f"   ✅ Real-time price: {current_price_realtime} (attempt {attempt + 1})")
+                                    break
+                            if current_price_realtime:
+                                break
+                    
+                    if attempt < max_retries - 1:
+                        import time
+                        time.sleep(0.5)  # Wait 0.5 second before retry
+                except Exception as retry_error:
+                    price_fetch_error = str(retry_error)
+                    if attempt < max_retries - 1:
+                        import time
+                        time.sleep(0.5)  # Wait 0.5 second before retry
+                    else:
+                        print(f"   ❌ Failed after {max_retries} attempts: {retry_error}")
             
             if current_price_realtime is None:
-                print(f"   ⚠️  Failed to get real-time price, using klines price as fallback")
+                print(f"   ⚠️  Failed to get real-time price after {max_retries} attempts")
+                if price_fetch_error:
+                    print(f"   ⚠️  Error: {price_fetch_error}")
+                print(f"   ⚠️  Using klines price as fallback: {last_close}")
+    elif DATA_SOURCE == "binance" and BINANCE_API_TYPE and BINANCE_API_TYPE.lower() == "spot":
+        # Untuk spot API, juga coba ambil real-time price
+        from src.data.binance_data import get_ticker_price
+        
+        # Convert symbol format
+        if SYMBOL and SYMBOL.endswith("-USD"):
+            binance_symbol = SYMBOL.replace("-USD", "") + "USDT"
+        elif TRADING_SYMBOL:
+            if TRADING_SYMBOL.endswith("-USD"):
+                binance_symbol = TRADING_SYMBOL.replace("-USD", "") + "USDT"
+            elif TRADING_SYMBOL.endswith("USDT"):
+                binance_symbol = TRADING_SYMBOL
+            else:
+                binance_symbol = TRADING_SYMBOL + "USDT"
+        else:
+            binance_symbol = None
+        
+        if binance_symbol:
+            print(f"💰 [REAL-TIME PRICE] Fetching current price from spot ticker for {binance_symbol}...")
+            try:
+                current_price_realtime = get_ticker_price(symbol=binance_symbol)
+                if current_price_realtime:
+                    print(f"   ✅ Real-time price: {current_price_realtime}")
+                else:
+                    print(f"   ⚠️  Failed to get real-time price, using klines price as fallback")
+            except Exception as spot_error:
+                print(f"   ⚠️  Error fetching spot price: {spot_error}, using klines price as fallback")
 except Exception as e:
+    price_fetch_error = str(e)
     print(f"   ⚠️  Error fetching real-time price: {e}, using klines price as fallback")
 
 # Gunakan real-time price jika tersedia, fallback ke last_close
 if current_price_realtime is not None and current_price_realtime > 0:
     current_price = current_price_realtime
     price_source = "real-time (ticker)"
+    
+    # Validasi: cek apakah harga real-time berbeda terlalu jauh dari klines price
+    # Jika berbeda lebih dari 5%, mungkin ada masalah dengan data klines (stale)
+    if last_close and last_close > 0:
+        price_diff_pct = abs((current_price - last_close) / last_close) * 100
+        if price_diff_pct > 5.0:
+            print(f"   ⚠️  WARNING: Real-time price ({current_price}) berbeda {price_diff_pct:.2f}% dari klines price ({last_close})")
+            print(f"   ⚠️  Kemungkinan: data klines sudah lama atau symbol berbeda")
+            print(f"   ⚠️  Menggunakan real-time price sebagai sumber utama")
+        elif price_diff_pct > 1.0:
+            print(f"   ℹ️  Real-time price berbeda {price_diff_pct:.2f}% dari klines price (normal untuk volatile market)")
 else:
     current_price = last_close
     price_source = "klines (last close)"
+    print(f"   ⚠️  WARNING: Menggunakan harga dari klines (mungkin tidak real-time)")
+    print(f"   ⚠️  Harga klines: {last_close} (timestamp: {last_idx})")
+    print(f"   ⚠️  Pastikan data klines selalu up-to-date untuk akurasi signal")
 
 print("POSISI TRADING:")
 print(f"  - Periode dalam posisi BELI: {buy_periods} ({buy_periods/len(data)*100:.1f}%)")
@@ -1135,52 +1205,77 @@ def generate_trading_setup(symbol, current_price, support, resistance, signal,
         risk = entry_price - stop_loss
         risk_pct = (risk / entry_price) * 100
         
+        # Validasi: Pastikan risk positif (stop_loss < entry_price)
+        if risk <= 0:
+            print(f"⚠️  [LONG] Warning: risk <= 0, force stop_loss < entry_min")
+            entry_min = min(entry1, entry2, entry3)
+            stop_loss = entry_min * (1 - risk_percent / 100)
+            risk = entry_price - stop_loss
+            risk_pct = (risk / entry_price) * 100
+        
         # Untuk LONG: TP harus lebih tinggi dari SEMUA entry levels
-        # Gunakan entry tertinggi (entry1) sebagai referensi untuk memastikan TP > semua entry
+        # Gunakan entry tertinggi (entry_max) dan terendah (entry_min) sebagai referensi
+        entry_min = min(entry1, entry2, entry3)
         entry_max = max(entry1, entry2, entry3)
         
         # Take Profit levels (berdasarkan resistance atau R:R ratio)
         if resistance is not None:
             # TP1: Target pertama (berdasarkan multiplier atau 50% ke resistance)
             # Hitung TP berdasarkan entry_price (entry2) untuk konsistensi
-            tp1_option1 = entry_price + (risk * tp_multipliers[0])
-            tp1_option2 = entry_price + ((resistance - entry_price) * 0.5)
-            tp1 = min(tp1_option1, tp1_option2)
-            # Validasi: TP1 harus > entry tertinggi (entry1) untuk memastikan semua entry profit
+            tp1_option1 = entry_price + (risk * tp_multipliers[0])  # Berdasarkan R:R ratio
+            tp1_option2 = entry_price + ((resistance - entry_price) * 0.5)  # 50% ke resistance
+            # Untuk LONG: ambil yang lebih TINGGI (lebih agresif untuk TP)
+            tp1 = max(tp1_option1, tp1_option2)
+            # Validasi: TP1 harus > entry_max untuk memastikan semua entry profit
             if tp1 <= entry_max:
-                # Jika TP1 <= entry_max, gunakan entry_max + margin kecil
-                tp1 = entry_max * 1.002  # 0.2% di atas entry tertinggi
+                # Jika TP1 <= entry_max, gunakan entry_max + margin yang cukup
+                tp1 = entry_max * (1 + max(risk_percent * tp_multipliers[0] / 100, 0.005))  # Minimal 0.5% di atas entry_max
             
             # TP2: Target kedua (berdasarkan multiplier atau 75% ke resistance)
             tp2_option1 = entry_price + (risk * tp_multipliers[1])
-            tp2_option2 = entry_price + ((resistance - entry_price) * 0.75)
-            tp2 = min(tp2_option1, tp2_option2)
-            # Validasi: TP2 harus > TP1 dan > entry tertinggi
+            tp2_option2 = entry_price + ((resistance - entry_price) * 0.75)  # 75% ke resistance
+            # Untuk LONG: ambil yang lebih TINGGI
+            tp2 = max(tp2_option1, tp2_option2)
+            # Validasi: TP2 harus > TP1 dan > entry_max
             if tp2 <= tp1 or tp2 <= entry_max:
-                tp2 = max(tp1 * 1.002, entry_max * 1.005)  # Lebih tinggi dari TP1
+                tp2 = max(tp1 * 1.002, entry_max * (1 + max(risk_percent * tp_multipliers[1] / 100, 0.01)))  # Minimal 1% di atas entry_max
             
             # TP3: Target ketiga (berdasarkan multiplier atau resistance)
             tp3_option1 = entry_price + (risk * tp_multipliers[2])
-            tp3 = min(tp3_option1, resistance)
-            # Validasi: TP3 harus > TP2 dan > entry tertinggi
+            # Untuk LONG: TP3 bisa di resistance atau sedikit di atas resistance
+            tp3_option2 = resistance * 1.002  # 0.2% di atas resistance
+            tp3 = min(max(tp3_option1, tp3_option2), resistance * 1.01)  # Maksimal 1% di atas resistance
+            # Validasi: TP3 harus > TP2 dan > entry_max
             if tp3 <= tp2 or tp3 <= entry_max:
-                tp3 = max(tp2 * 1.002, entry_max * 1.008)  # Lebih tinggi dari TP2
+                tp3 = max(tp2 * 1.002, entry_max * (1 + max(risk_percent * tp_multipliers[2] / 100, 0.015)))  # Minimal 1.5% di atas entry_max
         else:
             # Jika tidak ada resistance, gunakan R:R ratio saja
             tp1 = entry_price + (risk * tp_multipliers[0])
-            # Validasi: TP1 harus > entry tertinggi
+            # Validasi: TP1 harus > entry_max
             if tp1 <= entry_max:
-                tp1 = entry_max * 1.002
+                tp1 = entry_max * (1 + max(risk_percent * tp_multipliers[0] / 100, 0.005))
             
             tp2 = entry_price + (risk * tp_multipliers[1])
-            # Validasi: TP2 harus > TP1 dan > entry tertinggi
+            # Validasi: TP2 harus > TP1 dan > entry_max
             if tp2 <= tp1 or tp2 <= entry_max:
-                tp2 = max(tp1 * 1.002, entry_max * 1.005)
+                tp2 = max(tp1 * 1.002, entry_max * (1 + max(risk_percent * tp_multipliers[1] / 100, 0.01)))
             
             tp3 = entry_price + (risk * tp_multipliers[2])
-            # Validasi: TP3 harus > TP2 dan > entry tertinggi
+            # Validasi: TP3 harus > TP2 dan > entry_max
             if tp3 <= tp2 or tp3 <= entry_max:
-                tp3 = max(tp2 * 1.002, entry_max * 1.008)
+                tp3 = max(tp2 * 1.002, entry_max * (1 + max(risk_percent * tp_multipliers[2] / 100, 0.015)))
+        
+        # Final validation: Pastikan semua TP > entry_max dan stop_loss < entry_min
+        if tp1 <= entry_max:
+            tp1 = entry_max * 1.005
+        if tp2 <= tp1:
+            tp2 = tp1 * 1.002
+        if tp3 <= tp2:
+            tp3 = tp2 * 1.002
+        if stop_loss >= entry_min:
+            stop_loss = entry_min * (1 - risk_percent / 100)
+            risk = entry_price - stop_loss
+            risk_pct = (risk / entry_price) * 100
         
     else:  # SHORT/SELL
         direction = "SHORT"
@@ -1256,68 +1351,101 @@ def generate_trading_setup(symbol, current_price, support, resistance, signal,
         # Gunakan entry2 sebagai entry utama (konservatif)
         entry_price = entry2
         
-        # Stop Loss (di atas resistance atau berdasarkan risk %)
+        # Untuk SHORT: TP harus lebih rendah dari SEMUA entry levels
+        # Gunakan entry terendah (entry_min) dan tertinggi (entry_max) sebagai referensi
+        entry_min = min(entry1, entry2, entry3)
+        entry_max = max(entry1, entry2, entry3)
+        
+        # Stop Loss untuk SHORT: HARUS di ATAS entry (harga naik = loss)
+        # Stop Loss = entry + risk_percent
         if resistance is not None:
+            # Option 1: Berdasarkan resistance (lebih konservatif)
             sl_based_on_resistance = resistance * 1.005  # 0.5% di atas resistance
+            # Option 2: Berdasarkan risk percentage dari entry
             sl_based_on_risk = entry_price * (1 + risk_percent / 100)
-            stop_loss = max(sl_based_on_resistance, sl_based_on_risk)  # Ambil yang lebih konservatif
+            # Ambil yang lebih TINGGI (lebih konservatif untuk SHORT = stop loss lebih tinggi)
+            stop_loss = max(sl_based_on_resistance, sl_based_on_risk)
+            # Pastikan stop_loss > entry_max (harus di atas semua entry)
+            if stop_loss <= entry_max:
+                stop_loss = entry_max * (1 + risk_percent / 100)
         else:
             stop_loss = entry_price * (1 + risk_percent / 100)
+            # Pastikan stop_loss > entry_max
+            if stop_loss <= entry_max:
+                stop_loss = entry_max * (1 + risk_percent / 100)
         
-        # Calculate risk (distance from entry to stop loss) - gunakan entry2 sebagai referensi
+        # Calculate risk (distance from entry to stop loss) - untuk SHORT: risk = stop_loss - entry_price
         risk = stop_loss - entry_price
         risk_pct = (risk / entry_price) * 100
         
-        # Untuk SHORT: TP harus lebih rendah dari SEMUA entry levels
-        # Gunakan entry terendah (entry1) sebagai referensi untuk memastikan TP < semua entry
-        entry_min = min(entry1, entry2, entry3)
+        # Validasi: Pastikan risk positif (stop_loss > entry_price)
+        if risk <= 0:
+            print(f"⚠️  [SHORT] Warning: risk <= 0, force stop_loss > entry_max")
+            stop_loss = entry_max * (1 + risk_percent / 100)
+            risk = stop_loss - entry_price
+            risk_pct = (risk / entry_price) * 100
         
         # Take Profit levels (berdasarkan support atau R:R ratio)
         # Untuk SHORT: TP harus lebih RENDAH dari entry (harga turun = profit)
         if support is not None:
             # TP1: Target pertama (berdasarkan multiplier atau 50% ke support)
             # Hitung TP berdasarkan entry_price (entry2) untuk konsistensi
-            tp1_option1 = entry_price - (risk * tp_multipliers[0])
-            tp1_option2 = entry_price - ((entry_price - support) * 0.5)
+            tp1_option1 = entry_price - (risk * tp_multipliers[0])  # Berdasarkan R:R ratio
+            # 50% dari entry ke support = entry - (50% dari jarak entry ke support)
+            tp1_option2 = entry_price - ((entry_price - support) * 0.5)  # 50% dari entry ke support
             # Untuk SHORT: ambil yang lebih RENDAH (lebih konservatif untuk TP)
             tp1 = min(tp1_option1, tp1_option2)
-            # Validasi: TP1 harus < entry terendah (entry1) untuk memastikan semua entry profit
+            # Validasi: TP1 harus < entry_min untuk memastikan semua entry profit
             if tp1 >= entry_min:
                 # Jika TP1 >= entry_min, gunakan entry_min - margin kecil
                 tp1 = entry_min * 0.998  # 0.2% di bawah entry terendah
             
             # TP2: Target kedua (berdasarkan multiplier atau 75% ke support)
             tp2_option1 = entry_price - (risk * tp_multipliers[1])
-            tp2_option2 = entry_price - ((entry_price - support) * 0.75)
+            # 75% dari entry ke support = entry - (75% dari jarak entry ke support)
+            tp2_option2 = entry_price - ((entry_price - support) * 0.75)  # 75% dari entry ke support
             # Untuk SHORT: ambil yang lebih RENDAH
             tp2 = min(tp2_option1, tp2_option2)
-            # Validasi: TP2 harus < TP1 dan < entry terendah
+            # Validasi: TP2 harus < TP1 dan < entry_min
             if tp2 >= tp1 or tp2 >= entry_min:
                 tp2 = min(tp1 * 0.998, entry_min * 0.995)  # Lebih rendah dari TP1
             
             # TP3: Target ketiga (berdasarkan multiplier atau support)
             tp3_option1 = entry_price - (risk * tp_multipliers[2])
-            # Untuk SHORT: TP3 bisa di support atau lebih rendah
-            tp3 = min(tp3_option1, support)
-            # Validasi: TP3 harus < TP2 dan < entry terendah
+            # Untuk SHORT: TP3 bisa di support atau sedikit di bawah support
+            tp3_option2 = support * 0.998  # 0.2% di bawah support
+            tp3 = min(tp3_option1, tp3_option2)
+            # Validasi: TP3 harus < TP2 dan < entry_min
             if tp3 >= tp2 or tp3 >= entry_min:
                 tp3 = min(tp2 * 0.998, entry_min * 0.992)  # Lebih rendah dari TP2
         else:
             # Jika tidak ada support, gunakan R:R ratio saja
             tp1 = entry_price - (risk * tp_multipliers[0])
-            # Validasi: TP1 harus < entry terendah
+            # Validasi: TP1 harus < entry_min
             if tp1 >= entry_min:
                 tp1 = entry_min * 0.998
             
             tp2 = entry_price - (risk * tp_multipliers[1])
-            # Validasi: TP2 harus < TP1 dan < entry terendah
+            # Validasi: TP2 harus < TP1 dan < entry_min
             if tp2 >= tp1 or tp2 >= entry_min:
                 tp2 = min(tp1 * 0.998, entry_min * 0.995)
             
             tp3 = entry_price - (risk * tp_multipliers[2])
-            # Validasi: TP3 harus < TP2 dan < entry terendah
+            # Validasi: TP3 harus < TP2 dan < entry_min
             if tp3 >= tp2 or tp3 >= entry_min:
                 tp3 = min(tp2 * 0.998, entry_min * 0.992)
+        
+        # Final validation: Pastikan semua TP < entry_min dan stop_loss > entry_max
+        if tp1 >= entry_min:
+            tp1 = entry_min * 0.998
+        if tp2 >= tp1:
+            tp2 = tp1 * 0.998
+        if tp3 >= tp2:
+            tp3 = tp2 * 0.998
+        if stop_loss <= entry_max:
+            stop_loss = entry_max * (1 + risk_percent / 100)
+            risk = stop_loss - entry_price
+            risk_pct = (risk / entry_price) * 100
     
     return {
         'symbol': symbol,
@@ -1335,7 +1463,81 @@ def generate_trading_setup(symbol, current_price, support, resistance, signal,
     }
 
 # Generate trading setup jika ada support dan resistance
+# Gunakan Multiple Timeframe Analysis jika tersedia untuk konfirmasi signal
+mtf_trend_consensus = 0
+mtf_alignment_score = 0
+mtf_confidence = 0
+
+# Cek multiple timeframe analysis dari market_context
+if market_context and 'multiple_timeframe' in market_context:
+    mtf_analysis = market_context['multiple_timeframe']
+    mtf_trend_consensus = mtf_analysis.get('trend_consensus', 0)
+    mtf_alignment_score = mtf_analysis.get('alignment_score', 0)
+    mtf_confidence = mtf_analysis.get('confidence', 0)
+    
+    # Gunakan primary support/resistance dari multiple TF jika tersedia
+    mtf_sr = mtf_analysis.get('support_resistance', {})
+    if mtf_sr.get('primary_support') and mtf_sr['primary_support'].get('level'):
+        # Prioritize higher timeframe support
+        mtf_support = mtf_sr['primary_support']['level']
+        if last_support is None or mtf_sr['primary_support'].get('strength', 0) > 50:
+            last_support = mtf_support
+            print(f"💡 Menggunakan Primary Support dari Multiple TF: {mtf_support:.6f} (from {mtf_sr['primary_support'].get('timeframe', 'Unknown')})")
+    
+    if mtf_sr.get('primary_resistance') and mtf_sr['primary_resistance'].get('level'):
+        # Prioritize higher timeframe resistance
+        mtf_resistance = mtf_sr['primary_resistance']['level']
+        if last_resistance is None or mtf_sr['primary_resistance'].get('strength', 0) > 50:
+            last_resistance = mtf_resistance
+            print(f"💡 Menggunakan Primary Resistance dari Multiple TF: {mtf_resistance:.6f} (from {mtf_sr['primary_resistance'].get('timeframe', 'Unknown')})")
+
+# ============================================
+# LOAD ML PREDICTION SIGNAL (jika ada dari run sebelumnya)
+# ============================================
+ml_signal_for_setup = None
+ml_buy_prob = None
+ml_sell_prob = None
+ml_signal_strength = None
+
+try:
+    # Coba load ML prediction dari file JSON (jika ada dari run sebelumnya)
+    import json
+    import glob
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(script_dir))
+    json_file = os.path.join(project_root, "ml_prediction_result.json")
+    json_file_current = "ml_prediction_result.json"
+    
+    json_file_to_check = json_file if os.path.exists(json_file) else (json_file_current if os.path.exists(json_file_current) else None)
+    
+    if json_file_to_check and os.path.exists(json_file_to_check):
+        try:
+            with open(json_file_to_check, 'r') as f:
+                ml_data = json.load(f)
+                ml_signal_raw = ml_data.get('signal', '')
+                ml_buy_prob = ml_data.get('buy_probability', ml_data.get('buy_prob', 0))
+                ml_sell_prob = ml_data.get('sell_probability', ml_data.get('sell_prob', 0))
+                ml_signal_strength = ml_data.get('signal_strength', 'UNKNOWN')
+                
+                # Convert ML signal to numeric: BELI = 1, JUAL = -1, HOLD = 0
+                if ml_signal_raw == "BELI":
+                    ml_signal_for_setup = 1
+                elif ml_signal_raw == "JUAL":
+                    ml_signal_for_setup = -1
+                else:
+                    ml_signal_for_setup = 0
+                
+                if ml_signal_for_setup != 0:
+                    print(f"📊 ML Prediction Signal ditemukan: {ml_signal_raw} ({ml_buy_prob:.1f}% buy, {ml_sell_prob:.1f}% sell, strength: {ml_signal_strength})")
+        except Exception as e:
+            print(f"⚠️  Error reading ML prediction for setup: {e}")
+            ml_signal_for_setup = None
+except Exception as e:
+    # ML prediction tidak tersedia, lanjutkan dengan technical signal saja
+    pass
+
 # Tentukan signal untuk setup: gunakan last_signal jika ada, atau tentukan berdasarkan posisi harga
+# PRIORITAS: Multiple TF > ML Prediction (jika kuat) > Technical Signal > Position-based
 if last_support is not None and last_resistance is not None:
     # Pastikan last_support dan last_resistance adalah float
     if not isinstance(last_support, (int, float)):
@@ -1343,23 +1545,71 @@ if last_support is not None and last_resistance is not None:
     if not isinstance(last_resistance, (int, float)):
         last_resistance = float(last_resistance) if last_resistance is not None else None
     
-    # Jika signal = 0 (NETRAL), tentukan berdasarkan posisi harga relatif terhadap support/resistance
-    if last_signal == 0:
-        # Jika harga lebih dekat ke support, bias ke LONG
-        # Jika harga lebih dekat ke resistance, bias ke SHORT
-        if current_price > 0:
-            dist_to_support = abs(current_price - last_support) / current_price
-            dist_to_resistance = abs(last_resistance - current_price) / current_price
+    # MULTIPLE TIMEFRAME CONFIRMATION (PRIORITAS TERTINGGI)
+    # Jika multiple TF analysis tersedia, gunakan untuk konfirmasi signal
+    if mtf_trend_consensus != 0 and mtf_alignment_score >= 66:
+        # Strong alignment dari multiple TF - gunakan consensus
+        print(f"✅ Multiple TF Alignment: {mtf_alignment_score:.1f}% - Menggunakan trend consensus: {'BULLISH' if mtf_trend_consensus == 1 else 'BEARISH'}")
+        setup_signal = mtf_trend_consensus
+    # ML PREDICTION SIGNAL (PRIORITAS KEDUA - jika signal kuat)
+    elif ml_signal_for_setup != 0 and ml_signal_strength == "STRONG":
+        # ML signal kuat - gunakan ML signal
+        setup_signal = ml_signal_for_setup
+        print(f"✅ Menggunakan ML Prediction Signal: {'LONG' if setup_signal == 1 else 'SHORT'} (strength: STRONG, {ml_buy_prob:.1f}% buy prob)")
+    elif last_signal == 0:
+        # Jika signal = 0 (NETRAL), prioritaskan ML signal jika ada, lalu tentukan berdasarkan posisi harga
+        if ml_signal_for_setup != 0:
+            # Gunakan ML signal jika technical signal netral
+            setup_signal = ml_signal_for_setup
+            print(f"💡 Technical signal NETRAL - Menggunakan ML Prediction Signal: {'LONG' if setup_signal == 1 else 'SHORT'} ({ml_buy_prob:.1f}% buy prob)")
         else:
-            dist_to_support = float('inf')
-            dist_to_resistance = float('inf')
-        
-        if dist_to_support < dist_to_resistance:
-            setup_signal = 1  # LONG (harga dekat support, kemungkinan bounce)
-        else:
-            setup_signal = -1  # SHORT (harga dekat resistance, kemungkinan rejection)
+            # Tentukan berdasarkan posisi harga relatif terhadap support/resistance
+            # Jika harga lebih dekat ke support, bias ke LONG
+            # Jika harga lebih dekat ke resistance, bias ke SHORT
+            if current_price > 0:
+                dist_to_support = abs(current_price - last_support) / current_price
+                dist_to_resistance = abs(last_resistance - current_price) / current_price
+            else:
+                dist_to_support = float('inf')
+                dist_to_resistance = float('inf')
+            
+            if dist_to_support < dist_to_resistance:
+                setup_signal = 1  # LONG (harga dekat support, kemungkinan bounce)
+            else:
+                setup_signal = -1  # SHORT (harga dekat resistance, kemungkinan rejection)
     else:
-        setup_signal = last_signal
+        # Gunakan last_signal, tapi cek alignment dengan multiple TF dan ML prediction
+        if mtf_trend_consensus != 0:
+            if last_signal == mtf_trend_consensus:
+                print(f"✅ Signal align dengan Multiple TF ({mtf_alignment_score:.1f}% alignment)")
+                setup_signal = last_signal
+            else:
+                print(f"⚠️  Signal conflict dengan Multiple TF - Signal: {last_signal}, MTF Consensus: {mtf_trend_consensus}")
+                # Jika alignment score tinggi, prioritaskan multiple TF
+                if mtf_alignment_score >= 66:
+                    print(f"   💡 Menggunakan Multiple TF consensus karena alignment tinggi")
+                    setup_signal = mtf_trend_consensus
+                else:
+                    # Cek ML prediction sebagai tie-breaker
+                    if ml_signal_for_setup != 0 and ml_signal_strength == "STRONG":
+                        setup_signal = ml_signal_for_setup
+                        print(f"   💡 Menggunakan ML Prediction Signal sebagai tie-breaker: {'LONG' if setup_signal == 1 else 'SHORT'}")
+                    else:
+                        setup_signal = last_signal
+        else:
+            # Tidak ada multiple TF, cek ML prediction
+            if ml_signal_for_setup != 0 and last_signal != ml_signal_for_setup:
+                if ml_signal_strength == "STRONG":
+                    # ML signal kuat dan berbeda dengan technical signal - gunakan ML signal
+                    setup_signal = ml_signal_for_setup
+                    print(f"💡 Technical signal ({'LONG' if last_signal == 1 else 'SHORT' if last_signal == -1 else 'NEUTRAL'}) berbeda dengan ML signal - Menggunakan ML Prediction Signal: {'LONG' if setup_signal == 1 else 'SHORT'} (strength: STRONG)")
+                else:
+                    # ML signal lemah tapi berbeda dengan technical signal - prioritaskan technical signal tapi beri warning
+                    setup_signal = last_signal
+                    print(f"⚠️  ML Prediction Signal ({'LONG' if ml_signal_for_setup == 1 else 'SHORT'}, {ml_buy_prob:.1f}% prob, WEAK) berbeda dengan Technical Signal ({'LONG' if last_signal == 1 else 'SHORT' if last_signal == -1 else 'NEUTRAL'})")
+                    print(f"   💡 Menggunakan Technical Signal karena ML signal lemah - Pertimbangkan konfirmasi dari AI Strategy")
+            else:
+                setup_signal = last_signal
     
     # Tentukan risk_percent dan tp_multipliers berdasarkan TRADING_STYLE
     if SETUP_RISK_PERCENT is not None:
@@ -2150,56 +2400,324 @@ if RUN_PREDICTION:
             from src.data.collect_analysis_data import collect_analysis_data, add_trading_setup_to_analysis
             
             if ENABLE_DEEPSEEK_AI and DEEPSEEK_API_KEY:
-                print("\n" + "=" * 70)
-                print("🤖 MENGIRIM DATA KE DEEPSEEK AI...")
-                print("=" * 70)
+                # ============================================
+                # FILTER BERDASARKAN ML METRICS (Hemat Token DeepSeek)
+                # ============================================
+                # Baca ML prediction result untuk filter sebelum kirim ke DeepSeek
+                ml_result_for_filter = None
+                json_file_to_check = json_file if os.path.exists(json_file) else (json_file_current if os.path.exists(json_file_current) else None)
                 
-                # Collect all analysis data
-                analysis_data = collect_analysis_data(data, market_context, enhanced_metrics)
+                if json_file_to_check and os.path.exists(json_file_to_check):
+                    try:
+                        import json
+                        with open(json_file_to_check, 'r') as f:
+                            ml_result_for_filter = json.load(f)
+                    except Exception as e:
+                        print(f"⚠️  Error reading ML result for filter: {e}")
                 
-                # Add trading setup if available
-                if 'setup' in locals():
-                    add_trading_setup_to_analysis(analysis_data, {
-                        'direction': setup.get('direction', 'N/A'),
-                        'action': setup.get('action', 'N/A'),
-                        'limit_entry': setup.get('entry', 'N/A'),
-                        'stop_loss': setup.get('stop_loss', 'N/A'),
-                        'stop_loss_pct': f"{setup.get('risk_pct', 0):.2f}%",
-                        'targets': [
-                            {'price': setup.get('tp1', 0), 'pct': 'N/A'},
-                            {'price': setup.get('tp2', 0), 'pct': 'N/A'},
-                            {'price': setup.get('tp3', 0), 'pct': 'N/A'}
-                        ],
-                        'risk_reward_ratios': []
-                    })
+                # Fungsi filter: cek apakah metrics bagus
+                def should_send_to_deepseek(ml_result) -> bool:
+                    """
+                    Filter coin berdasarkan ML metrics sebelum kirim ke DeepSeek
+                    Hanya kirim jika metrics bagus untuk hemat token
+                    
+                    Criteria (Fleksibel - konsisten dengan filter di analyze_screened_coins.py):
+                    - Minimal 2 dari 3 metrik harus memenuhi:
+                      - Accuracy >= 50%
+                      - Sharpe Ratio >= 0.5
+                      - Expected Value >= 0%
+                    - Atau semua 3 metrik memenuhi kriteria ketat:
+                      - Accuracy >= 50%
+                      - Sharpe Ratio >= 0.5
+                      - Expected Value > 0%
+                    
+                    Returns:
+                    - True jika metrics bagus, False jika tidak
+                    """
+                    if ml_result is None:
+                        # Jika tidak ada ML result, tetap kirim (fallback)
+                        print("   ⚠️  ML result tidak ditemukan, tetap kirim ke DeepSeek")
+                        return True
+                    
+                    accuracy = ml_result.get('accuracy')
+                    sharpe = ml_result.get('sharpe_ratio')
+                    expected_value = ml_result.get('expected_value')
+                    
+                    # Validasi nilai
+                    if accuracy is None or sharpe is None or expected_value is None:
+                        print("   ⚠️  ML metrics tidak lengkap, tetap kirim ke DeepSeek")
+                        return True
+                    
+                    try:
+                        accuracy = float(accuracy)
+                        sharpe = float(sharpe)
+                        expected_value = float(expected_value)
+                    except (TypeError, ValueError):
+                        print("   ⚠️  ML metrics tidak valid, tetap kirim ke DeepSeek")
+                        return True
+                    
+                    # Filter criteria (fleksibel - konsisten dengan analyze_screened_coins.py)
+                    min_accuracy_relaxed = 50.0  # Threshold lebih rendah
+                    min_sharpe_relaxed = 0.5     # Threshold lebih rendah
+                    min_expected_value_relaxed = 0.0  # Boleh 0 atau positif
+                    
+                    # Kriteria ketat (jika semua memenuhi, pasti lolos)
+                    min_accuracy_strict = 50.0
+                    min_sharpe_strict = 0.5
+                    min_expected_value_strict = 0.0
+                    
+                    # Cek kriteria ketat (semua harus memenuhi)
+                    meets_strict = (
+                        accuracy >= min_accuracy_strict and
+                        sharpe >= min_sharpe_strict and
+                        expected_value > min_expected_value_strict
+                    )
+                    
+                    # Cek kriteria fleksibel (minimal 2 dari 3 harus memenuhi)
+                    meets_accuracy = accuracy >= min_accuracy_relaxed
+                    meets_sharpe = sharpe >= min_sharpe_relaxed
+                    meets_expected = expected_value >= min_expected_value_relaxed
+                    
+                    score = sum([meets_accuracy, meets_sharpe, meets_expected])
+                    meets_criteria = meets_strict or score >= 2
+                    
+                    if meets_criteria:
+                        criteria_type = "STRICT" if meets_strict else "FLEXIBLE"
+                        print(f"   ✅ Metrics bagus [{criteria_type}]: Accuracy={accuracy:.1f}%, Sharpe={sharpe:.2f}, EV={expected_value:.2f}% (Score: {score}/3)")
+                        print("   ✅ Coin memenuhi kriteria, akan dikirim ke DeepSeek")
+                        return True
+                    else:
+                        print(f"   ❌ Metrics tidak memenuhi kriteria (Score: {score}/3):")
+                        print(f"      - Accuracy: {accuracy:.1f}% (min: {min_accuracy_relaxed}%) {'✅' if meets_accuracy else '❌'}")
+                        print(f"      - Sharpe: {sharpe:.2f} (min: {min_sharpe_relaxed}) {'✅' if meets_sharpe else '❌'}")
+                        print(f"      - Expected Value: {expected_value:.2f}% (min: {min_expected_value_relaxed}%) {'✅' if meets_expected else '❌'}")
+                        print("   ⏭️  Skip DeepSeek untuk hemat token (coin ini tidak akan dapat AI recommendation)")
+                        return False
                 
-                # Note: ML prediction results are already printed above
-                # We can add them to analysis_data if needed, but for now
-                # the AI will see them in the prompt context
+                # Cek apakah coin memenuhi kriteria
+                # Deteksi apakah ini batch request atau single coin request
+                is_batch_request = os.environ.get('RUN_FROM_MASTER_SCRIPT') == '1'
                 
-                # Initialize DeepSeek advisor dengan model dari config
-                advisor = DeepSeekTradingAdvisor(api_key=DEEPSEEK_API_KEY)
+                should_send = should_send_to_deepseek(ml_result_for_filter)
                 
-                # Get recommendation (model akan digunakan dari config via get_trading_recommendation)
-                recommendation = advisor.get_trading_recommendation(analysis_data, model=DEEPSEEK_MODEL)
+                # Untuk batch request (/analyze), SKIP AI di sini
+                # AI akan dipanggil SETELAH filter di analyze_screened_coins.py
+                # Ini untuk hemat token - hanya coin yang lolos kriteria ketat yang dapat AI recommendation
+                if is_batch_request:
+                    if not should_send:
+                        print("\n" + "=" * 70)
+                        print("⏭️  SKIP DEEPSEEK AI (Batch Request)")
+                        print("=" * 70)
+                        print("💡 Ini adalah batch request (/analyze)")
+                        print("   AI akan dipanggil SETELAH coin lolos filter ketat di analyze_screened_coins.py")
+                        print("   Ini untuk hemat token - hanya coin yang memenuhi semua kriteria yang dapat AI recommendation")
+                        # Skip AI untuk batch request
+                        should_send = False
+                    else:
+                        print("\n" + "=" * 70)
+                        print("⚠️  Batch Request Detected - AI akan dipanggil setelah filter")
+                        print("=" * 70)
+                        print("💡 Meskipun metrics bagus, untuk batch request:")
+                        print("   AI akan dipanggil SETELAH coin lolos semua kriteria ketat (ML + Backtesting)")
+                        print("   Ini untuk memastikan hanya coin terbaik yang dapat AI recommendation")
+                        # Tetap skip untuk batch request - AI akan dipanggil setelah filter
+                        should_send = False
+                else:
+                    # Untuk single coin request, selalu kirim ke DeepSeek dan Telegram (tidak ada filter)
+                    # Filter/threshold hanya berlaku untuk batch request di analyze_screened_coins.py
+                    if not should_send:
+                        print("\n" + "=" * 70)
+                        print("⚠️  Metrics tidak memenuhi kriteria, tapi tetap lanjutkan (single coin request)")
+                        print("=" * 70)
+                        print("💡 Untuk single coin request, semua hasil akan dikirim ke Telegram dan DeepSeek")
+                        print("   Filter/threshold hanya berlaku untuk batch request (/analyze)")
+                        # Tetap lanjutkan ke DeepSeek dan Telegram (tidak skip)
+                        should_send = True  # Override untuk single coin request
                 
-                # Get current price from analysis data
-                current_price = None
-                support = None
-                resistance = None
-                timeframe = None
-                symbol = None
+                # Lanjutkan ke DeepSeek AI (untuk single coin request, selalu True)
+                if should_send:
+                    print("\n" + "=" * 70)
+                    print("🤖 MENGIRIM DATA KE DEEPSEEK AI...")
+                    print("=" * 70)
+                    
+                    # Get recent trades analysis (untuk market aggression & momentum)
+                    recent_trades_analysis = None
+                    try:
+                        from src.data.binance_futures_data import get_futures_recent_trades, analyze_recent_trades
+                        
+                        # Convert symbol format: BTC-USD -> BTCUSDT atau langsung gunakan SYMBOL
+                        binance_symbol = SYMBOL.replace('-USD', 'USDT').replace('-', '') if SYMBOL else None
+                        
+                        if binance_symbol:
+                            print(f"📊 Mengambil recent trades untuk {binance_symbol}...")
+                            trades = get_futures_recent_trades(
+                                symbol=binance_symbol,
+                                limit=500,  # Ambil 500 recent trades untuk akurasi lebih baik
+                                testnet=False
+                            )
+                            
+                            if trades:
+                                recent_trades_analysis = analyze_recent_trades(trades)
+                                print(f"✅ Recent trades analysis ditemukan")
+                                print(f"   Market Aggression: {recent_trades_analysis['market_aggression']:.1f}/100")
+                                print(f"   Buyer Dominance: {recent_trades_analysis['buyer_dominance']:.1f}%")
+                                print(f"   Momentum: {recent_trades_analysis['momentum']:+.2f}%")
+                            else:
+                                print(f"⚠️  Recent trades tidak ditemukan untuk {binance_symbol}")
+                    except Exception as e:
+                        print(f"⚠️  Error mengambil recent trades: {e}")
+                        # Continue tanpa recent trades analysis
+                    
+                    # Get Open Interest analysis (untuk trend strength)
+                    open_interest_analysis = None
+                    try:
+                        from src.data.binance_futures_data import get_futures_open_interest, analyze_open_interest
+                        
+                        # Convert symbol format: BTC-USD -> BTCUSDT
+                        binance_symbol = SYMBOL.replace('-USD', 'USDT').replace('-', '') if SYMBOL else None
+                        
+                        if binance_symbol:
+                            print(f"📊 Mengambil Open Interest untuk {binance_symbol}...")
+                            oi_data = get_futures_open_interest(
+                                symbol=binance_symbol,
+                                testnet=False
+                            )
+                            
+                            if oi_data:
+                                # Ambil current price dan previous price untuk analisis
+                                current_price_oi = float(current_price) if current_price else None
+                                previous_price_oi = None
+                                previous_oi = None
+                                
+                                # Coba ambil previous price dari data (harga 1 periode sebelumnya)
+                                if len(data) >= 2:
+                                    previous_price_oi = float(data['Close'].iloc[-2]) if 'Close' in data.columns else None
+                                
+                                # Untuk sekarang, kita tidak punya previous OI, jadi hanya analisis current OI
+                                open_interest_analysis = analyze_open_interest(
+                                    oi_data,
+                                    current_price=current_price_oi,
+                                    previous_oi=previous_oi,
+                                    previous_price=previous_price_oi
+                                )
+                                print(f"✅ Open Interest analysis ditemukan")
+                                print(f"   Open Interest: {open_interest_analysis['open_interest']:.2f}")
+                                if open_interest_analysis.get('oi_change_pct', 0) != 0:
+                                    print(f"   OI Change: {open_interest_analysis['oi_change_pct']:+.2f}%")
+                                print(f"   Trend Direction: {open_interest_analysis['trend_direction']}")
+                                print(f"   Trend Strength: {open_interest_analysis['trend_strength']}")
+                            else:
+                                print(f"⚠️  Open Interest tidak ditemukan untuk {binance_symbol}")
+                    except Exception as e:
+                        print(f"⚠️  Error mengambil Open Interest: {e}")
+                        # Continue tanpa open interest analysis
+                    
+                    # Get Orderbook Depth analysis (untuk orderbook imbalance, buy/sell walls, whales)
+                    orderbook_analysis = None
+                    try:
+                        from src.data.binance_futures_data import get_futures_orderbook, analyze_orderbook_depth
+                        
+                        # Convert symbol format: BTC-USD -> BTCUSDT
+                        binance_symbol = SYMBOL.replace('-USD', 'USDT').replace('-', '') if SYMBOL else None
+                        
+                        if binance_symbol:
+                            print(f"📊 Mengambil Orderbook Depth untuk {binance_symbol}...")
+                            orderbook_data = get_futures_orderbook(
+                                symbol=binance_symbol,
+                                limit=100,  # Ambil 100 levels untuk analisis yang lebih baik
+                                testnet=False
+                            )
+                            
+                            if orderbook_data:
+                                # Ambil current price untuk analisis
+                                current_price_ob = float(current_price) if current_price else None
+                                
+                                orderbook_analysis = analyze_orderbook_depth(
+                                    orderbook_data,
+                                    current_price=current_price_ob
+                                )
+                                print(f"✅ Orderbook analysis ditemukan")
+                                print(f"   Bid/Ask Ratio: {orderbook_analysis['bid_ask_ratio']:.2f}")
+                                print(f"   Orderbook Imbalance: {orderbook_analysis['orderbook_imbalance']:+.2%}")
+                                print(f"   Buy Wall: {orderbook_analysis['buy_wall_size']:.2f} @ {orderbook_analysis['buy_wall_price']:.4f}")
+                                print(f"   Sell Wall: {orderbook_analysis['sell_wall_size']:.2f} @ {orderbook_analysis['sell_wall_price']:.4f}")
+                                print(f"   Big Orders (Whales): {orderbook_analysis['big_orders_count']}")
+                                print(f"   Signal: {orderbook_analysis['signal']}")
+                            else:
+                                print(f"⚠️  Orderbook tidak ditemukan untuk {binance_symbol}")
+                    except Exception as e:
+                        print(f"⚠️  Error mengambil Orderbook: {e}")
+                        # Continue tanpa orderbook analysis
+                    
+                    # Collect all analysis data
+                    analysis_data = collect_analysis_data(
+                        data, 
+                        market_context, 
+                        enhanced_metrics,
+                        recent_trades_analysis=recent_trades_analysis,
+                        open_interest_analysis=open_interest_analysis,
+                        orderbook_analysis=orderbook_analysis
+                    )
+                    
+                    # Update current_price dan price_source di analysis_data dengan real-time price
+                    # (price_source sudah didefinisikan sebelumnya di line ~932-952)
+                    if 'current_position' in analysis_data:
+                        # Update dengan real-time price jika tersedia
+                        if 'current_price' in locals() and current_price:
+                            analysis_data['current_position']['current_price'] = current_price
+                        # Update price_source jika tersedia
+                        if 'price_source' in locals() and price_source:
+                            analysis_data['current_position']['price_source'] = price_source
+                    
+                    # Add trading setup if available
+                    if 'setup' in locals():
+                        add_trading_setup_to_analysis(analysis_data, {
+                            'direction': setup.get('direction', 'N/A'),
+                            'action': setup.get('action', 'N/A'),
+                            'limit_entry': setup.get('entry', 'N/A'),
+                            'stop_loss': setup.get('stop_loss', 'N/A'),
+                            'stop_loss_pct': f"{setup.get('risk_pct', 0):.2f}%",
+                            'targets': [
+                                {'price': setup.get('tp1', 0), 'pct': 'N/A'},
+                                {'price': setup.get('tp2', 0), 'pct': 'N/A'},
+                                {'price': setup.get('tp3', 0), 'pct': 'N/A'}
+                            ],
+                            'risk_reward_ratios': []
+                        })
+                    
+                    # Note: ML prediction results are already printed above
+                    # We can add them to analysis_data if needed, but for now
+                    # the AI will see them in the prompt context
+                    
+                    # Initialize DeepSeek advisor dengan model dari config
+                    advisor = DeepSeekTradingAdvisor(api_key=DEEPSEEK_API_KEY)
+                    
+                    # Get recommendation (model akan digunakan dari config via get_trading_recommendation)
+                    recommendation = advisor.get_trading_recommendation(analysis_data, model=DEEPSEEK_MODEL)
+                    
+                    # Get current price from analysis data (untuk format output)
+                    if 'current_position' in analysis_data:
+                        current_price = analysis_data['current_position'].get('current_price')
+                        support = analysis_data['current_position'].get('support')
+                        resistance = analysis_data['current_position'].get('resistance')
+                        # Get price_source dari analysis_data jika tersedia, atau dari variable global
+                        price_source_from_data = analysis_data['current_position'].get('price_source')
+                        if price_source_from_data:
+                            price_source = price_source_from_data
+                    
+                    if 'basic_info' in analysis_data:
+                        timeframe = analysis_data['basic_info'].get('interval')
                 
-                # Prioritaskan SYMBOL dari config (yang di-update oleh user)
-                # Ini memastikan symbol yang dikirim ke Telegram sesuai dengan yang diminta user
+                # Get symbol (prioritaskan dari config)
                 symbol = SYMBOL if SYMBOL else None
                 
-                if 'current_position' in analysis_data:
+                # Get current price, support, resistance jika belum di-set (fallback)
+                if current_price is None and 'analysis_data' in locals() and analysis_data and 'current_position' in analysis_data:
                     current_price = analysis_data['current_position'].get('current_price')
                     support = analysis_data['current_position'].get('support')
                     resistance = analysis_data['current_position'].get('resistance')
                 
-                if 'basic_info' in analysis_data:
+                if timeframe is None and 'analysis_data' in locals() and analysis_data and 'basic_info' in analysis_data:
                     timeframe = analysis_data['basic_info'].get('interval')
                     # Gunakan symbol dari basic_info hanya jika symbol dari config tidak ada
                     if not symbol:
@@ -2221,6 +2739,8 @@ if RUN_PREDICTION:
                 
                 print(f"📌 Symbol untuk Telegram: {symbol} (dari config: {SYMBOL if SYMBOL else 'None'})")
                 
+                # Untuk single coin request, selalu kirim ke Telegram (meskipun recommendation None)
+                # Filter/threshold hanya berlaku untuk batch request
                 if recommendation:
                     print(format_recommendation_output(
                         recommendation, 
@@ -2230,248 +2750,6 @@ if RUN_PREDICTION:
                         timeframe,
                         symbol
                     ))
-                    
-                    # ============================================
-                    # TELEGRAM BOT INTEGRATION
-                    # ============================================
-                    try:
-                        from src.utils.config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-                        from src.integration.telegram_bot import TelegramBot
-                        
-                        if ENABLE_TELEGRAM_BOT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-                            print("\n" + "=" * 70)
-                            print("📱 MENGIRIM KE TELEGRAM...")
-                            print("=" * 70)
-                            
-                            bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
-                            
-                            # Kumpulkan semua data untuk format simplified
-                            trading_setup_data = None
-                            if 'setup' in locals() and setup:
-                                trading_setup_data = setup
-                            
-                            # Ambil ML prediction results jika ada
-                            ml_result = None
-                            try:
-                                from src.models.ml_prediction_helper import get_ml_prediction_from_file
-                                import time
-                                
-                                # Retry mechanism: coba baca file beberapa kali dengan delay
-                                max_retries = 3
-                                retry_delay = 1.0
-                                
-                                for attempt in range(max_retries):
-                                    if attempt > 0:
-                                        print(f"   🔄 Retry {attempt}/{max_retries-1} membaca file JSON...")
-                                        time.sleep(retry_delay)
-                                    
-                                    print(f"🔍 [DEBUG] Mencoba membaca ml_prediction_result.json (attempt {attempt+1}/{max_retries})...")
-                                    print(f"   Current directory: {os.getcwd()}")
-                                    
-                                    ml_result = get_ml_prediction_from_file()
-                                    if ml_result:
-                                        print("✅ ML prediction results ditemukan")
-                                        break
-                                
-                                if ml_result:
-                                    # Debug: print metrics yang ditemukan
-                                    print(f"   📊 Metrics found: accuracy={ml_result.get('accuracy')}, sharpe={ml_result.get('sharpe_ratio')}, expected_value={ml_result.get('expected_value')}")
-                                    print(f"   🔍 [DEBUG] ml_result type: {type(ml_result)}")
-                                    print(f"   🔍 [DEBUG] ml_result keys: {list(ml_result.keys()) if isinstance(ml_result, dict) else 'N/A'}")
-                                    
-                                    # Validasi: pastikan key yang diperlukan ada
-                                    if isinstance(ml_result, dict):
-                                        required_keys = ['accuracy', 'sharpe_ratio', 'expected_value']
-                                        missing_keys = [key for key in required_keys if key not in ml_result]
-                                        if missing_keys:
-                                            print(f"   ⚠️  Key yang tidak ditemukan: {missing_keys}")
-                                            # Set default values untuk key yang hilang (None, bukan 0, agar bisa ditampilkan sebagai N/A)
-                                            for key in missing_keys:
-                                                ml_result[key] = None
-                                                print(f"   💡 Set {key} = None sebagai default")
-                                    
-                                    print(f"   🔍 [DEBUG] Full ml_result: {json.dumps(ml_result, indent=2) if isinstance(ml_result, dict) else ml_result}")
-                                else:
-                                    print("⚠️  ML prediction results tidak ditemukan setelah semua retry")
-                                    print("   💡 Kemungkinan penyebab:")
-                                    print("      - prediksi_next_day.py belum dijalankan atau gagal")
-                                    print("      - File ml_prediction_result.json tidak dibuat")
-                                    print("      - File JSON tidak terbaca dengan benar")
-                                    print("      - Timing issue: file belum ter-write saat dibaca")
-                                    
-                                    # Cek apakah file ada di berbagai lokasi
-                                    import glob
-                                    json_files = glob.glob("**/ml_prediction_result.json", recursive=True)
-                                    if json_files:
-                                        print(f"   📁 File ditemukan di lokasi lain: {json_files}")
-                                        print(f"   💡 Coba baca file dari lokasi yang ditemukan...")
-                                        try:
-                                            import json
-                                            with open(json_files[0], 'r') as f:
-                                                ml_result = json.load(f)
-                                                print(f"   ✅ Berhasil membaca file dari: {json_files[0]}")
-                                        except Exception as e:
-                                            print(f"   ⚠️  Gagal membaca file: {e}")
-                                    else:
-                                        print("   📁 File tidak ditemukan di manapun")
-                                    
-                                    # Cek apakah RUN_PREDICTION diaktifkan
-                                    if not RUN_PREDICTION:
-                                        print("   ⚠️  RUN_PREDICTION = False di config.py")
-                                        print("      Set RUN_PREDICTION = True untuk menjalankan prediksi")
-                                    else:
-                                        print("   ⚠️  RUN_PREDICTION = True, tapi file JSON tidak ditemukan")
-                                        print("      Kemungkinan prediksi_next_day.py error atau tidak membuat file JSON")
-                            except ImportError as e:
-                                print(f"ℹ️  ml_prediction_helper tidak tersedia: {e}")
-                            except Exception as e:
-                                print(f"⚠️  ML prediction results tidak tersedia: {e}")
-                                import traceback
-                                traceback.print_exc()
-                            
-                            # ============================================
-                            # LOGGING SEBELUM KIRIM KE TELEGRAM
-                            # ============================================
-                            print("\n" + "=" * 70)
-                            print("📋 PRE-TELEGRAM LOGGING - Verifikasi Data")
-                            print("=" * 70)
-                            print(f"📌 Symbol: {symbol}")
-                            print(f"📌 Timeframe: {timeframe}")
-                            print(f"📌 Current Price: {current_price}")
-                            print(f"📌 Support: {support}")
-                            print(f"📌 Resistance: {resistance}")
-                            print(f"📌 Trading Setup: {trading_setup_data is not None}")
-                            if trading_setup_data:
-                                print(f"   - Direction: {trading_setup_data.get('direction')}")
-                                print(f"   - Entry: {trading_setup_data.get('entry')}")
-                                print(f"   - Stop Loss: {trading_setup_data.get('stop_loss')}")
-                            print(f"📌 DeepSeek Recommendation: {recommendation is not None}")
-                            if recommendation:
-                                print(f"   - Action: {recommendation.get('action')}")
-                                print(f"   - Confidence: {recommendation.get('confidence')}")
-                            
-                            # LOGGING ML PREDICTION / QUANT METRICS
-                            print(f"\n📊 ML PREDICTION / QUANT METRICS:")
-                            print(f"   ml_result is None: {ml_result is None}")
-                            if ml_result:
-                                print(f"   ✅ ml_result ditemukan!")
-                                print(f"   Type: {type(ml_result)}")
-                                if isinstance(ml_result, dict):
-                                    print(f"   Keys: {list(ml_result.keys())}")
-                                    print(f"   📈 Accuracy: {ml_result.get('accuracy')} (type: {type(ml_result.get('accuracy'))})")
-                                    print(f"   📈 Sharpe Ratio: {ml_result.get('sharpe_ratio')} (type: {type(ml_result.get('sharpe_ratio'))})")
-                                    print(f"   📈 Expected Value: {ml_result.get('expected_value')} (type: {type(ml_result.get('expected_value'))})")
-                                    
-                                    # Validasi: pastikan metrics tidak None
-                                    accuracy = ml_result.get('accuracy')
-                                    sharpe = ml_result.get('sharpe_ratio')
-                                    expected_val = ml_result.get('expected_value')
-                                    
-                                    print(f"\n   🔍 Validasi Metrics:")
-                                    print(f"      - accuracy is None: {accuracy is None}")
-                                    print(f"      - sharpe_ratio is None: {sharpe is None}")
-                                    print(f"      - expected_value is None: {expected_val is None}")
-                                    
-                                    if accuracy is not None:
-                                        print(f"      ✅ Accuracy valid: {accuracy}")
-                                    else:
-                                        print(f"      ❌ Accuracy is None!")
-                                    
-                                    if sharpe is not None:
-                                        print(f"      ✅ Sharpe valid: {sharpe}")
-                                    else:
-                                        print(f"      ❌ Sharpe is None!")
-                                    
-                                    if expected_val is not None:
-                                        print(f"      ✅ Expected Value valid: {expected_val}")
-                                    else:
-                                        print(f"      ❌ Expected Value is None!")
-                                    
-                                    # Full dump untuk debugging
-                                    import json
-                                    print(f"\n   📄 Full ml_result JSON:")
-                                    print(f"   {json.dumps(ml_result, indent=2, default=str)}")
-                                else:
-                                    print(f"   ⚠️  ml_result bukan dict: {ml_result}")
-                            else:
-                                print(f"   ❌ ml_result is None - Quant Metrics TIDAK AKAN muncul di Telegram!")
-                                print(f"   💡 Kemungkinan penyebab:")
-                                print(f"      - File ml_prediction_result.json tidak ditemukan")
-                                print(f"      - File JSON kosong atau corrupt")
-                                print(f"      - get_ml_prediction_from_file() return None")
-                            
-                            print("=" * 70)
-                            print()
-                            
-                            # Kirim satu pesan dengan format simplified
-                            print("📤 Mengirim trading signal (format simplified) ke Telegram...")
-                            message = bot.format_simplified_trading_signal(
-                                symbol=symbol,
-                                timeframe=timeframe,
-                                current_price=current_price,
-                                support=support,
-                                resistance=resistance,
-                                trading_setup=trading_setup_data,
-                                deepseek_recommendation=recommendation,
-                                ml_prediction=ml_result
-                            )
-                            
-                            # Log message sebelum kirim
-                            print("🔍 [DEBUG] Message yang akan dikirim ke Telegram:")
-                            print("=" * 70)
-                            # Tampilkan preview message (max 500 chars untuk tidak spam)
-                            message_preview = message[:500] + "..." if len(message) > 500 else message
-                            print(message_preview)
-                            if "Quant Metrics" in message:
-                                print("✅ Quant Metrics DITEMUKAN di message!")
-                            else:
-                                print("❌ Quant Metrics TIDAK DITEMUKAN di message!")
-                            print("=" * 70)
-                            
-                            success = bot.send_message(message)
-                            
-                            if success:
-                                print("✅ Trading signal berhasil dikirim ke Telegram (format simplified)")
-                                # Hapus file temporary ML prediction jika ada
-                                if ml_result:
-                                    try:
-                                        os.remove('ml_prediction_result.json')
-                                    except:
-                                        pass
-                            else:
-                                print("⚠️  Gagal mengirim trading signal ke Telegram")
-                            
-                            # Kirim chart ke Telegram jika ada (baik success maupun tidak)
-                            if chart_filename and os.path.exists(chart_filename):
-                                print("📊 Mengirim chart ke Telegram...")
-                                chart_success = bot.send_photo(
-                                    chart_filename,
-                                    caption=f"📊 Trading Chart - {symbol} ({timeframe})"
-                                )
-                                if chart_success:
-                                    print("✅ Chart berhasil dikirim ke Telegram")
-                                else:
-                                    print("⚠️  Gagal mengirim chart ke Telegram")
-                                
-                                # SELALU hapus file chart setelah dikirim (berhasil atau gagal)
-                                try:
-                                    os.remove(chart_filename)
-                                    print(f"🗑️  File chart dihapus: {chart_filename}")
-                                except Exception as e:
-                                    print(f"⚠️  Gagal menghapus file chart {chart_filename}: {e}")
-                        else:
-                            if not ENABLE_TELEGRAM_BOT:
-                                print("ℹ️  Telegram Bot integration dinonaktifkan di config.py")
-                            elif not TELEGRAM_BOT_TOKEN:
-                                print("ℹ️  Telegram Bot Token tidak ditemukan di config.py")
-                            elif not TELEGRAM_CHAT_ID:
-                                print("ℹ️  Telegram Chat ID tidak ditemukan di config.py")
-                    except ImportError as e:
-                        print(f"ℹ️  Telegram Bot integration tidak tersedia: {e}")
-                    except Exception as e:
-                        print(f"⚠️  Error dalam Telegram Bot integration: {e}")
-                else:
-                    print("⚠️  Tidak dapat mendapatkan rekomendasi dari DeepSeek AI")
             else:
                 if not ENABLE_DEEPSEEK_AI:
                     print("ℹ️  DeepSeek AI integration dinonaktifkan di config.py")
@@ -2484,6 +2762,273 @@ if RUN_PREDICTION:
             import traceback
             print(f"📋 Traceback:")
             traceback.print_exc()
+        
+        # ============================================
+        # TELEGRAM BOT INTEGRATION
+        # ============================================
+        # Untuk single coin request, selalu kirim ke Telegram (tidak peduli recommendation ada atau tidak)
+        # Dipindahkan keluar dari blok DeepSeek agar selalu dikirim
+        try:
+            from src.utils.config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+            from src.integration.telegram_bot import TelegramBot
+                
+            if ENABLE_TELEGRAM_BOT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+                print("\n" + "=" * 70)
+                print("📱 MENGIRIM KE TELEGRAM...")
+                print("=" * 70)
+                
+                bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+                
+                # Kumpulkan semua data untuk format simplified
+                trading_setup_data = None
+                if 'setup' in locals() and setup:
+                    trading_setup_data = setup
+                
+                # Ambil ML prediction results jika ada
+                ml_result = None
+                try:
+                    from src.models.ml_prediction_helper import get_ml_prediction_from_file
+                    import time
+                    
+                    # Retry mechanism: coba baca file beberapa kali dengan delay
+                    max_retries = 3
+                    retry_delay = 1.0
+                    
+                    for attempt in range(max_retries):
+                        if attempt > 0:
+                            print(f"   🔄 Retry {attempt}/{max_retries-1} membaca file JSON...")
+                            time.sleep(retry_delay)
+                        
+                        print(f"🔍 [DEBUG] Mencoba membaca ml_prediction_result.json (attempt {attempt+1}/{max_retries})...")
+                        print(f"   Current directory: {os.getcwd()}")
+                        
+                        ml_result = get_ml_prediction_from_file()
+                        if ml_result:
+                            print("✅ ML prediction results ditemukan")
+                            break
+                    
+                    if ml_result:
+                        # Debug: print metrics yang ditemukan
+                        print(f"   📊 Metrics found: accuracy={ml_result.get('accuracy')}, sharpe={ml_result.get('sharpe_ratio')}, expected_value={ml_result.get('expected_value')}")
+                        print(f"   🔍 [DEBUG] ml_result type: {type(ml_result)}")
+                        print(f"   🔍 [DEBUG] ml_result keys: {list(ml_result.keys()) if isinstance(ml_result, dict) else 'N/A'}")
+                        
+                        # Validasi: pastikan key yang diperlukan ada
+                        if isinstance(ml_result, dict):
+                            required_keys = ['accuracy', 'sharpe_ratio', 'expected_value']
+                            missing_keys = [key for key in required_keys if key not in ml_result]
+                            if missing_keys:
+                                print(f"   ⚠️  Key yang tidak ditemukan: {missing_keys}")
+                                # Set default values untuk key yang hilang (None, bukan 0, agar bisa ditampilkan sebagai N/A)
+                                for key in missing_keys:
+                                    ml_result[key] = None
+                                    print(f"   💡 Set {key} = None sebagai default")
+                        
+                        print(f"   🔍 [DEBUG] Full ml_result: {json.dumps(ml_result, indent=2) if isinstance(ml_result, dict) else ml_result}")
+                    else:
+                        print("⚠️  ML prediction results tidak ditemukan setelah semua retry")
+                        print("   💡 Kemungkinan penyebab:")
+                        print("      - prediksi_next_day.py belum dijalankan atau gagal")
+                        print("      - File ml_prediction_result.json tidak dibuat")
+                        print("      - File JSON tidak terbaca dengan benar")
+                        print("      - Timing issue: file belum ter-write saat dibaca")
+                        
+                        # Cek apakah file ada di berbagai lokasi
+                        import glob
+                        json_files = glob.glob("**/ml_prediction_result.json", recursive=True)
+                        if json_files:
+                            print(f"   📁 File ditemukan di lokasi lain: {json_files}")
+                            print(f"   💡 Coba baca file dari lokasi yang ditemukan...")
+                            try:
+                                import json
+                                with open(json_files[0], 'r') as f:
+                                    ml_result = json.load(f)
+                                    print(f"   ✅ Berhasil membaca file dari: {json_files[0]}")
+                            except Exception as e:
+                                print(f"   ⚠️  Gagal membaca file: {e}")
+                        else:
+                            print("   📁 File tidak ditemukan di manapun")
+                        
+                        # Cek apakah RUN_PREDICTION diaktifkan
+                        if not RUN_PREDICTION:
+                            print("   ⚠️  RUN_PREDICTION = False di config.py")
+                            print("      Set RUN_PREDICTION = True untuk menjalankan prediksi")
+                        else:
+                            print("   ⚠️  RUN_PREDICTION = True, tapi file JSON tidak ditemukan")
+                            print("      Kemungkinan prediksi_next_day.py error atau tidak membuat file JSON")
+                except ImportError as e:
+                    print(f"ℹ️  ml_prediction_helper tidak tersedia: {e}")
+                except Exception as e:
+                    print(f"⚠️  ML prediction results tidak tersedia: {e}")
+                    import traceback
+                    traceback.print_exc()
+                
+                # ============================================
+                # LOGGING SEBELUM KIRIM KE TELEGRAM
+                # ============================================
+                print("\n" + "=" * 70)
+                print("📋 PRE-TELEGRAM LOGGING - Verifikasi Data")
+                print("=" * 70)
+                print(f"📌 Symbol: {symbol}")
+                print(f"📌 Timeframe: {timeframe}")
+                print(f"📌 Current Price: {current_price}")
+                print(f"📌 Support: {support}")
+                print(f"📌 Resistance: {resistance}")
+                print(f"📌 Trading Setup: {trading_setup_data is not None}")
+                if trading_setup_data:
+                    print(f"   - Direction: {trading_setup_data.get('direction')}")
+                    print(f"   - Entry: {trading_setup_data.get('entry')}")
+                    print(f"   - Stop Loss: {trading_setup_data.get('stop_loss')}")
+                print(f"📌 DeepSeek Recommendation: {recommendation is not None}")
+                if recommendation:
+                    print(f"   - Action: {recommendation.get('action')}")
+                    print(f"   - Confidence: {recommendation.get('confidence')}")
+                
+                # LOGGING ML PREDICTION / QUANT METRICS
+                print(f"\n📊 ML PREDICTION / QUANT METRICS:")
+                print(f"   ml_result is None: {ml_result is None}")
+                if ml_result:
+                    print(f"   ✅ ml_result ditemukan!")
+                    print(f"   Type: {type(ml_result)}")
+                    if isinstance(ml_result, dict):
+                        print(f"   Keys: {list(ml_result.keys())}")
+                        print(f"   📈 Accuracy: {ml_result.get('accuracy')} (type: {type(ml_result.get('accuracy'))})")
+                        print(f"   📈 Sharpe Ratio: {ml_result.get('sharpe_ratio')} (type: {type(ml_result.get('sharpe_ratio'))})")
+                        print(f"   📈 Expected Value: {ml_result.get('expected_value')} (type: {type(ml_result.get('expected_value'))})")
+                        
+                        # Validasi: pastikan metrics tidak None
+                        accuracy = ml_result.get('accuracy')
+                        sharpe = ml_result.get('sharpe_ratio')
+                        expected_val = ml_result.get('expected_value')
+                        
+                        print(f"\n   🔍 Validasi Metrics:")
+                        print(f"      - accuracy is None: {accuracy is None}")
+                        print(f"      - sharpe_ratio is None: {sharpe is None}")
+                        print(f"      - expected_value is None: {expected_val is None}")
+                        
+                        if accuracy is not None:
+                            print(f"      ✅ Accuracy valid: {accuracy}")
+                        else:
+                            print(f"      ❌ Accuracy is None!")
+                        
+                        if sharpe is not None:
+                            print(f"      ✅ Sharpe valid: {sharpe}")
+                        else:
+                            print(f"      ❌ Sharpe is None!")
+                        
+                        if expected_val is not None:
+                            print(f"      ✅ Expected Value valid: {expected_val}")
+                        else:
+                            print(f"      ❌ Expected Value is None!")
+                        
+                        # Full dump untuk debugging
+                        import json
+                        print(f"\n   📄 Full ml_result JSON:")
+                        print(f"   {json.dumps(ml_result, indent=2, default=str)}")
+                    else:
+                        print(f"   ⚠️  ml_result bukan dict: {ml_result}")
+                else:
+                    print(f"   ❌ ml_result is None - Quant Metrics TIDAK AKAN muncul di Telegram!")
+                    print(f"   💡 Kemungkinan penyebab:")
+                    print(f"      - File ml_prediction_result.json tidak ditemukan")
+                    print(f"      - File JSON kosong atau corrupt")
+                    print(f"      - get_ml_prediction_from_file() return None")
+                
+                print("=" * 70)
+                print()
+                
+                # Get pullback status jika data tersedia
+                pullback_status_data = None
+                try:
+                    if 'data' in locals() and data is not None and len(data) > 0:
+                        from src.utils.pullback_detection import get_current_pullback_status
+                        pullback_status_data = get_current_pullback_status(data)
+                        if pullback_status_data.get('has_pullback'):
+                            print(f"   📊 Pullback detected: {pullback_status_data.get('pullback_type')} - akan ditambahkan ke Telegram")
+                except Exception as e:
+                    print(f"   ⚠️  Error getting pullback status: {e}")
+                
+                # Kirim satu pesan dengan format simplified
+                print("📤 Mengirim trading signal (format simplified) ke Telegram...")
+                # Get price_source dari variable yang sudah di-set sebelumnya
+                price_source_info = price_source if 'price_source' in locals() else None
+                message = bot.format_simplified_trading_signal(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    current_price=current_price,
+                    support=support,
+                    resistance=resistance,
+                    trading_setup=trading_setup_data,
+                    deepseek_recommendation=recommendation,
+                    ml_prediction=ml_result,
+                    recent_trades_analysis=recent_trades_analysis if 'recent_trades_analysis' in locals() else None,
+                    pullback_status=pullback_status_data,
+                    price_source=price_source_info
+                )
+                
+                # Log message sebelum kirim
+                print("🔍 [DEBUG] Message yang akan dikirim ke Telegram:")
+                print("=" * 70)
+                # Tampilkan preview message (max 500 chars untuk tidak spam)
+                message_preview = message[:500] + "..." if len(message) > 500 else message
+                print(message_preview)
+                if "Quant Metrics" in message:
+                    print("✅ Quant Metrics DITEMUKAN di message!")
+                else:
+                    print("❌ Quant Metrics TIDAK DITEMUKAN di message!")
+                print("=" * 70)
+                
+                success = bot.send_message(message)
+                
+                if success:
+                    print("✅ Trading signal berhasil dikirim ke Telegram (format simplified)")
+                    # Hapus file temporary ML prediction jika ada
+                    if ml_result:
+                        try:
+                            os.remove('ml_prediction_result.json')
+                        except:
+                            pass
+                else:
+                    print("⚠️  Gagal mengirim trading signal ke Telegram")
+                
+                # Kirim chart ke Telegram jika ada (baik success maupun tidak)
+                # DISABLED: Comment untuk tidak mengirim gambar ke Telegram
+                # if chart_filename and os.path.exists(chart_filename):
+                #     print("📊 Mengirim chart ke Telegram...")
+                #     chart_success = bot.send_photo(
+                #         chart_filename,
+                #         caption=f"📊 Trading Chart - {symbol} ({timeframe})"
+                #     )
+                #     if chart_success:
+                #         print("✅ Chart berhasil dikirim ke Telegram")
+                #     else:
+                #         print("⚠️  Gagal mengirim chart ke Telegram")
+                #     
+                #     # SELALU hapus file chart setelah dikirim (berhasil atau gagal)
+                #     try:
+                #         os.remove(chart_filename)
+                #         print(f"🗑️  File chart dihapus: {chart_filename}")
+                #     except Exception as e:
+                #         print(f"⚠️  Gagal menghapus file chart {chart_filename}: {e}")
+                
+                # Hapus file chart tanpa mengirim ke Telegram
+                if chart_filename and os.path.exists(chart_filename):
+                    try:
+                        os.remove(chart_filename)
+                        print(f"🗑️  File chart dihapus (tidak dikirim ke Telegram): {chart_filename}")
+                    except Exception as e:
+                        print(f"⚠️  Gagal menghapus file chart {chart_filename}: {e}")
+            else:
+                if not ENABLE_TELEGRAM_BOT:
+                    print("ℹ️  Telegram Bot integration dinonaktifkan di config.py")
+                elif not TELEGRAM_BOT_TOKEN:
+                    print("ℹ️  Telegram Bot Token tidak ditemukan di config.py")
+                elif not TELEGRAM_CHAT_ID:
+                    print("ℹ️  Telegram Chat ID tidak ditemukan di config.py")
+        except ImportError as e:
+            print(f"ℹ️  Telegram Bot integration tidak tersedia: {e}")
+        except Exception as e:
+            print(f"⚠️  Error dalam Telegram Bot integration: {e}")
     except Exception as e:
         print(f"\n❌ ERROR menjalankan prediksi: {e}")
         print("   Analisis strategi sudah selesai, jalankan prediksi secara manual jika perlu")

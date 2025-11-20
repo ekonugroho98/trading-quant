@@ -47,7 +47,7 @@ except Exception as e:
 # - "SWING_TRADING": Trading beberapa hari-minggu, sinyal lebih jarang tapi lebih reliable
 # - "POSITION_TRADING": Trading jangka panjang (minggu-bulan), sinyal sangat jarang
 
-TRADING_STYLE = "INTRADAY_TRADING"  # Pilihan: "SCALPING", "DAY_TRADING", "INTRADAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
+TRADING_STYLE = "DAY_TRADING"  # Pilihan: "SCALPING", "DAY_TRADING", "INTRADAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
 
 # ============================================
 # KONFIGURASI DATA
@@ -61,7 +61,7 @@ FILTER_YEAR = 2025  # Filter data hanya tahun tertentu (None = tidak filter)
 # KONFIGURASI DATA HISTORICAL
 # ============================================
 DATA_SOURCE = "binance"  # Pilihan: "yfinance", "binance", "coingecko", "indodax", "freecryptoapi"
-SYMBOL = "GRIFFAIN-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
+SYMBOL = "BSV-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
 
 # ============================================
 # KONFIGURASI BINANCE API TYPE
@@ -95,12 +95,26 @@ DAYS_BACK = None  # Auto berdasarkan TRADING_STYLE (60 hari)
 # Jika ingin manual override, set nilai setelah section AUTO-CONFIGURATION EXECUTION
 
 # Mapping DAYS_BACK berdasarkan TRADING_STYLE
+# OPTIMIZED untuk akurasi maksimal (menggunakan maksimal data yang tersedia)
+# 
+# Catatan:
+# - Untuk yfinance: Akan auto-adjust jika melebihi limit berdasarkan interval
+# - Untuk Binance API: Sangat fleksibel, bisa request data tahun-tahun sebelumnya!
+#   - Limit per request: 1500 klines
+#   - Dengan pagination: Bisa dapat data berapa tahun pun (otomatis di get_futures_data)
+#   - Rate limit: 2400 requests/minute (dengan API key)
+#   - TIDAK ADA LIMIT WAKTU: Bisa ambil data sejak coin listing
+# 
+# Rekomendasi untuk akurasi maksimal:
+# - Untuk interval kecil (1m, 5m, 15m): 60-180 hari sudah cukup (banyak data)
+# - Untuk interval sedang (1h, 2h, 4h): 365-730 hari optimal (1-2 tahun)
+# - Untuk interval besar (1d): 365-1095 hari optimal (1-3 tahun, bisa lebih)
 TRADING_STYLE_DAYS_BACK = {
-    "SCALPING": 7,           # 7 hari untuk scalping
-    "DAY_TRADING": 30,       # 30 hari untuk day trading
-    "INTRADAY_TRADING": 60,  # 60 hari untuk intraday trading (2h timeframe)
-    "SWING_TRADING": 365,    # 365 hari untuk swing trading
-    "POSITION_TRADING": 365  # 365 hari untuk position trading
+    "SCALPING": 7,           # 7 hari untuk scalping (cukup untuk 5m, 1m terbatas)
+    "DAY_TRADING": 60,       # 60 hari untuk day trading (optimal untuk 15m, meningkatkan akurasi)
+    "INTRADAY_TRADING": 180, # 180 hari untuk intraday trading (2h timeframe, optimal balance)
+    "SWING_TRADING": 365,    # 365 hari untuk swing trading (4h timeframe, optimal untuk pattern jangka panjang)
+    "POSITION_TRADING": 730  # 730 hari (2 tahun) untuk position trading (1d timeframe, lebih banyak data = lebih akurat)
 }
 
 def get_days_back():
@@ -145,7 +159,7 @@ FREECRYPTOAPI_KEY = os.getenv("FREECRYPTOAPI_KEY", None)  # Load dari .env
 # Format: "BTC", "ETH", "XRP", "DOGE", "BNB", "ADA", "SOL", dll (tanpa "-USD")
 # Cek daftar lengkap di: https://freecryptoapi.com/api/v1/getCryptoList
 # Atau gunakan endpoint: GET https://freecryptoapi.com/api/v1/getCryptoList?api_key=YOUR_KEY
-FREECRYPTOAPI_SYMBOL = "GRIFFAIN-USD"  # Symbol untuk FreeCryptoAPI (default: BTC)
+FREECRYPTOAPI_SYMBOL = "XAN-USD"  # Symbol untuk FreeCryptoAPI (default: BTC)
 
 # Interval akan otomatis disesuaikan berdasarkan TRADING_STYLE
 # Tapi bisa di-override manual jika perlu
@@ -175,7 +189,7 @@ def get_interval():
 # ============================================
 # KONFIGURASI TRADING SETUP
 # ============================================
-TRADING_SYMBOL = "GRIFFAIN-USD"  # Symbol untuk trading setup (contoh: BTCUSDT, XRPUSDT, DOGEUSDT, ENAUSDT, MAGICUSDT, dll)
+TRADING_SYMBOL = "XAN-USD"  # Symbol untuk trading setup (contoh: BTCUSDT, XRPUSDT, DOGEUSDT, ENAUSDT, MAGICUSDT, dll)
 
 # Konfigurasi Risk & Reward untuk Trading Setup
 # Sesuaikan berdasarkan TRADING_STYLE:
@@ -219,6 +233,17 @@ ML_MODELS_CONFIG = [
     {
         "model": "moving_avg",
         "weight": 0.2,  # 20% weight untuk Moving Average
+        "enabled": True
+    },
+    # Optional: Uncomment untuk enable XGBoost dan LSTM
+    {
+        "model": "xgboost",
+        "weight": 0.3,
+        "enabled": True
+    },
+    {
+        "model": "lstm",
+        "weight": 0.2,
         "enabled": True
     }
 ]
@@ -295,6 +320,40 @@ OUTLIER_ZSCORE_THRESHOLD = 3.0  # Z-score threshold untuk outlier detection
 ENABLE_TIME_SERIES_MODELS = True  # ARIMA + GARCH
 ARIMA_MAX_ORDER = (2, 1, 2)  # Maximum ARIMA order (p, d, q)
 GARCH_ORDER = (1, 1)  # GARCH order (p, q)
+
+# ============================================
+# KONFIGURASI LSTM/GRU MODELS
+# ============================================
+# Konfigurasi untuk LSTM/GRU neural networks
+# Catatan: LSTM/GRU memerlukan data cukup banyak (minimal 100+ data points)
+# dan training lebih lama dibanding model lain
+
+# Enable LSTM/GRU models
+ENABLE_LSTM = True  # True = enable LSTM, False = disable (akan lebih cepat)
+
+# LSTM/GRU Parameters
+LSTM_SEQUENCE_LENGTH = 60  # Length of input sequences (60 periods = melihat 60 data points sebelumnya)
+LSTM_UNITS = 50  # Number of LSTM/GRU units (lebih banyak = lebih kompleks, tapi lebih lambat)
+LSTM_DROPOUT_RATE = 0.2  # Dropout rate untuk prevent overfitting (0.0 - 1.0)
+LSTM_EPOCHS = 50  # Number of training epochs (lebih banyak = lebih lama training)
+LSTM_BATCH_SIZE = 32  # Batch size untuk training (32, 64, 128, dll)
+LSTM_USE_GRU = False  # True = gunakan GRU, False = gunakan LSTM (GRU lebih cepat, LSTM lebih powerful)
+
+# Catatan:
+# - sequence_length: 60 = melihat 60 periods sebelumnya untuk prediksi
+#   - Untuk data 15m: 60 periods = 15 jam
+#   - Untuk data 1h: 60 periods = 60 jam (2.5 hari)
+#   - Untuk data 1d: 60 periods = 60 hari
+# - lstm_units: 50 = 50 neurons per layer (bisa 25, 50, 100, 200)
+#   - Lebih banyak = lebih powerful tapi lebih lambat
+# - dropout_rate: 0.2 = 20% neurons di-dropout untuk prevent overfitting
+#   - 0.0 = no dropout, 0.5 = 50% dropout
+# - epochs: 50 = train 50 kali (bisa 20, 50, 100, 200)
+#   - Early stopping akan stop jika tidak improve
+# - batch_size: 32 = process 32 samples sekaligus
+#   - 16, 32, 64, 128 (lebih besar = lebih cepat tapi butuh lebih banyak memory)
+# - use_gru: False = LSTM, True = GRU
+#   - GRU lebih cepat tapi biasanya LSTM lebih akurat untuk time series
 
 # ============================================
 # KONFIGURASI ADVANCED TRADING STRATEGIES

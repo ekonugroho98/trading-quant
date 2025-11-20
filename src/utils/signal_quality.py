@@ -155,6 +155,137 @@ def filter_signals_by_market_conditions(signals: pd.Series,
     return filtered
 
 
+def calculate_dynamic_threshold(signals: pd.Series,
+                               returns: pd.Series,
+                               window: int = 30,
+                               min_threshold: float = 0.5,
+                               max_threshold: float = 0.7) -> float:
+    """
+    Calculate dynamic threshold berdasarkan historical performance
+    
+    Args:
+        signals: Trading signals
+        returns: Returns series
+        window: Window untuk calculate performance
+        min_threshold: Minimum threshold
+        max_threshold: Maximum threshold
+    
+    Returns:
+        Optimal threshold
+    """
+    if len(signals) < window or len(returns) < window:
+        return min_threshold
+    
+    # Test berbagai threshold
+    best_threshold = min_threshold
+    best_sharpe = -np.inf
+    
+    for threshold in np.arange(min_threshold, max_threshold + 0.01, 0.01):
+        # Filter signals dengan threshold
+        filtered_signals = signals.copy()
+        filtered_signals[filtered_signals < threshold] = 0
+        
+        # Calculate returns untuk filtered signals
+        strategy_returns = returns[filtered_signals != 0]
+        
+        if len(strategy_returns) > 10:
+            # Calculate Sharpe ratio
+            if strategy_returns.std() > 0:
+                sharpe = strategy_returns.mean() / strategy_returns.std() * np.sqrt(252)
+                if sharpe > best_sharpe:
+                    best_sharpe = sharpe
+                    best_threshold = threshold
+    
+    return best_threshold
+
+
+def multi_signal_confirmation(ml_signal: int,
+                             technical_signal: int,
+                             volume_confirmed: bool,
+                             market_aligned: bool,
+                             require_all: bool = False) -> Tuple[int, float]:
+    """
+    Multi-signal confirmation - hanya ambil signal jika multiple sources konfirmasi
+    
+    Args:
+        ml_signal: Signal dari ML model (1, -1, 0)
+        technical_signal: Signal dari technical indicators (1, -1, 0)
+        volume_confirmed: Volume confirmation
+        market_aligned: Market alignment
+        require_all: True = semua harus konfirmasi, False = minimal 2 dari 4
+    
+    Returns:
+        Tuple of (confirmed_signal, confidence_score)
+    """
+    if ml_signal == 0:
+        return (0, 0.0)
+    
+    confirmations = 0
+    total_checks = 4
+    
+    # Check ML signal
+    if ml_signal != 0:
+        confirmations += 1
+    
+    # Check technical signal alignment
+    if technical_signal == ml_signal:
+        confirmations += 1
+    
+    # Check volume confirmation
+    if volume_confirmed:
+        confirmations += 1
+    
+    # Check market alignment
+    if market_aligned:
+        confirmations += 1
+    
+    # Determine if signal is confirmed
+    if require_all:
+        confirmed = (confirmations == total_checks)
+    else:
+        confirmed = (confirmations >= 2)  # Minimal 2 dari 4
+    
+    if confirmed:
+        confidence = confirmations / total_checks
+        return (ml_signal, confidence)
+    else:
+        return (0, confirmations / total_checks)  # No signal, tapi return confidence untuk info
+
+
+def apply_signal_decay(signals: pd.Series,
+                       decay_rate: float = 0.1,
+                       max_age: int = 10) -> pd.Series:
+    """
+    Apply signal decay over time - signal yang lebih fresh lebih reliable
+    
+    Args:
+        signals: Trading signals
+        decay_rate: Decay rate per period
+        max_age: Maximum age sebelum signal dianggap expired
+    
+    Returns:
+        Signals dengan decay applied
+    """
+    decayed_signals = signals.copy()
+    
+    for i in range(len(signals)):
+        if signals.iloc[i] != 0:
+            # Check how long signal has been active
+            age = 0
+            for j in range(i-1, max(0, i-max_age)-1, -1):
+                if signals.iloc[j] == signals.iloc[i]:
+                    age += 1
+                else:
+                    break
+            
+            # Apply decay
+            if age > 0:
+                decay_factor = (1 - decay_rate) ** age
+                decayed_signals.iloc[i] = signals.iloc[i] * decay_factor
+    
+    return decayed_signals
+
+
 def calculate_signal_quality_score(signal: int,
                                    confidence: float,
                                    volume_confirmed: bool,

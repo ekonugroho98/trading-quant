@@ -110,21 +110,36 @@ def get_max_days_by_interval(interval: str) -> Optional[int]:
     Returns:
         Maksimal days atau None jika tidak ada limit
     """
-    # Binance memiliki limit berbeda dari yfinance
-    # Binance bisa fetch lebih banyak data untuk interval yang sama
+    # Binance API lebih fleksibel daripada yfinance
+    # - Limit per request: max 1500 klines
+    # - Tapi bisa multiple requests dengan pagination (otomatis di get_historical_klines)
+    # - Rate limit: 2400 requests/minute (dengan API key)
+    # - TIDAK ADA LIMIT WAKTU: Bisa ambil data tahun-tahun sebelumnya (sejak coin listing)
+    # 
+    # Untuk akurasi maksimal, kita bisa request data berapa tahun pun:
+    # - 1m: ~7 hari per request (tapi bisa pagination untuk tahun-tahun sebelumnya)
+    # - 5m, 15m, 30m: Bisa pagination untuk tahun-tahun sebelumnya
+    # - 1h, 2h, 4h: Bisa pagination untuk tahun-tahun sebelumnya
+    # - 1d: Sangat efisien, bisa ambil data 5-10 tahun ke belakang
+    # 
+    # Catatan: Limit praktis hanya berdasarkan:
+    # 1. Kapan coin listing (data tersedia sejak listing)
+    # 2. Rate limit (2400 requests/minute)
+    # 3. Waktu download (semakin lama semakin banyak waktu)
     max_days_by_interval = {
-        "1m": 7,      # Binance limit: maksimal 7 hari untuk 1m
-        "2m": 30,    # Gunakan 3m, maksimal 30 hari
-        "5m": 30,    # Maksimal 30 hari
-        "15m": 30,   # Maksimal 30 hari
-        "30m": 30,   # Maksimal 30 hari
-        "60m": 365,  # Maksimal 365 hari (1h)
-        "90m": 365,  # Gunakan 1h, maksimal 365 hari
-        "1h": 365,   # Maksimal 365 hari
-        "4h": 365,   # Maksimal 365 hari
-        "1d": None,  # Tidak ada limit (bisa sampai 1000+ hari)
-        "1w": None,  # Tidak ada limit
-        "1mo": None  # Tidak ada limit
+        "1m": None,   # Bisa pagination untuk tahun-tahun sebelumnya (tapi butuh banyak requests)
+        "2m": None,   # Bisa pagination untuk tahun-tahun sebelumnya
+        "5m": None,   # Bisa pagination untuk tahun-tahun sebelumnya
+        "15m": None,  # Bisa pagination untuk tahun-tahun sebelumnya
+        "30m": None,  # Bisa pagination untuk tahun-tahun sebelumnya
+        "60m": None,  # Bisa pagination untuk tahun-tahun sebelumnya (1h)
+        "90m": None,  # Gunakan 1h, bisa pagination untuk tahun-tahun sebelumnya
+        "1h": None,   # Bisa pagination untuk tahun-tahun sebelumnya
+        "2h": None,   # Bisa pagination untuk tahun-tahun sebelumnya
+        "4h": None,   # Bisa pagination untuk tahun-tahun sebelumnya
+        "1d": None,   # Sangat efisien, bisa ambil data 5-10 tahun ke belakang
+        "1w": None,   # Sangat efisien, bisa ambil data 10+ tahun ke belakang
+        "1mo": None   # Sangat efisien, bisa ambil data 10+ tahun ke belakang
     }
     
     return max_days_by_interval.get(interval.lower())
@@ -182,10 +197,20 @@ def get_data_binance(symbol: str, days_back: int, interval: str,
         print(f"   Menggunakan default interval: 1h")
         binance_interval = Client.KLINE_INTERVAL_1HOUR
     
-    # Validasi dan auto-adjust DAYS_BACK berdasarkan interval
+    # Validasi DAYS_BACK untuk Binance (tidak ada limit, tapi warn jika terlalu besar)
     max_days = get_max_days_by_interval(interval)
-    if max_days is not None and days_back > max_days:
-        print(f"\n⚠️  PERINGATAN: Interval {interval} hanya mendukung maksimal {max_days} hari")
+    if max_days is None:
+        # Binance tidak ada limit, tapi warn jika request terlalu besar
+        if days_back > 3650:  # > 10 tahun
+            print(f"\n⚠️  PERINGATAN: Request data {days_back} hari ({days_back/365:.1f} tahun)")
+            print(f"   Ini akan membutuhkan banyak API requests dan waktu download lama")
+            print(f"   Pastikan coin sudah listing sejak {days_back} hari yang lalu")
+        elif days_back > 1825:  # > 5 tahun
+            print(f"\n💡 Info: Request data {days_back} hari ({days_back/365:.1f} tahun)")
+            print(f"   Ini akan membutuhkan beberapa API requests (pagination otomatis)")
+    elif days_back > max_days:
+        # Fallback untuk interval yang masih punya limit (seharusnya tidak terjadi)
+        print(f"\n⚠️  PERINGATAN: Interval {interval} memiliki limit praktis {max_days} hari")
         print(f"   DAYS_BACK ({days_back}) akan disesuaikan menjadi {max_days} hari")
         days_back = max_days
     

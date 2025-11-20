@@ -48,6 +48,10 @@ FUTURES_TESTNET_URL = "https://demo-fapi.binance.com"
 MIN_REQUEST_DELAY = 0.1  # 100ms delay minimum antara requests
 _last_request_time = 0  # Track waktu request terakhir
 
+# Column name constants for klines DataFrame
+COL_OPEN_TIME = 'Open time'
+COL_CLOSE_TIME = 'Close time'
+
 
 def _rate_limit_delay():
     """Delay untuk rate limiting"""
@@ -58,6 +62,99 @@ def _rate_limit_delay():
         sleep_time = MIN_REQUEST_DELAY - time_since_last
         time.sleep(sleep_time)
     _last_request_time = time.time()
+
+
+def _parse_error_response(response) -> Tuple[Optional[dict], str, int]:
+    """
+    Parse error response dari Binance API
+    
+    Returns:
+        Tuple (error_data: dict or None, error_msg: str, error_code: int)
+    """
+    try:
+        error_data = response.json()
+        error_msg = error_data.get('msg', response.text[:200]) if isinstance(error_data, dict) else response.text[:200]
+        error_code = error_data.get('code', response.status_code) if isinstance(error_data, dict) else response.status_code
+        return error_data, error_msg, error_code
+    except Exception:
+        return None, response.text[:200], response.status_code
+
+
+def _parse_ban_time(error_msg: str) -> Optional[float]:
+    """
+    Parse ban time dari error message
+    
+    Returns:
+        Ban timestamp in seconds atau None jika tidak ditemukan
+    """
+    if 'banned until' not in error_msg.lower():
+        return None
+    
+    import re
+    match = re.search(r'until (\d+)', error_msg)
+    if not match:
+        return None
+    
+    ban_until = int(match.group(1)) / 1000  # Convert dari ms ke seconds
+    return ban_until
+
+
+def _handle_ip_ban(error_msg: str, endpoint_name: str) -> Tuple[bool, str]:
+    """
+    Handle IP ban error (418)
+    
+    Returns:
+        Tuple (should_retry: bool, error_message: str)
+    """
+    ban_until = _parse_ban_time(error_msg)
+    
+    if ban_until:
+        ban_until_dt = datetime.fromtimestamp(ban_until)
+        print(f"🚫 [RATE LIMIT] IP banned until: {ban_until_dt}")
+        print(f"   Current time: {datetime.now()}")
+        wait_time = ban_until - time.time()
+        if wait_time > 0:
+            print(f"   ⏳ Please wait {int(wait_time / 60)} minutes before retrying")
+        else:
+            print("   ✅ Ban period should be over, but API still returns 418")
+    
+    print(f"❌ [RATE LIMIT] IP banned (418) for endpoint: {endpoint_name}")
+    print(f"   Error: {error_msg}")
+    print("   💡 Solutions:")
+    print("      1. Wait for the ban to expire (check ban_until time above)")
+    print("      2. Use Binance API key for higher rate limits")
+    print("      3. Reduce request frequency (add delays between requests)")
+    print("      4. Use WebSocket for live updates instead of REST API")
+    return False, f"IP banned: {error_msg}"
+
+
+def _handle_rate_limit(error_msg: str, endpoint_name: str) -> Tuple[bool, str]:
+    """Handle rate limit error (429)"""
+    print(f"⚠️  [RATE LIMIT] Rate limit exceeded (429) for endpoint: {endpoint_name}")
+    print(f"   Error: {error_msg}")
+    print("   💡 Wait a few seconds before retrying")
+    return True, f"Rate limit exceeded: {error_msg}"
+
+
+def _handle_bad_request(error_msg: str, endpoint_name: str) -> Tuple[bool, str]:
+    """Handle bad request error (400)"""
+    print(f"❌ [ERROR] Bad request (400) for endpoint: {endpoint_name}")
+    print(f"   Error: {error_msg}")
+    return False, f"Bad request: {error_msg}"
+
+
+def _handle_unauthorized(error_msg: str, endpoint_name: str) -> Tuple[bool, str]:
+    """Handle unauthorized error (401)"""
+    print(f"❌ [ERROR] Unauthorized (401) for endpoint: {endpoint_name}")
+    print(f"   Error: {error_msg}")
+    return False, f"Unauthorized: {error_msg}"
+
+
+def _handle_other_error(status_code: int, error_msg: str, endpoint_name: str) -> Tuple[bool, str]:
+    """Handle other HTTP errors"""
+    print(f"❌ [ERROR] HTTP {status_code} for endpoint: {endpoint_name}")
+    print(f"   Error: {error_msg}")
+    return False, f"HTTP {status_code}: {error_msg}"
 
 
 def _handle_binance_error(response, endpoint_name: str):
@@ -76,69 +173,20 @@ def _handle_binance_error(response, endpoint_name: str):
     if status_code == 200:
         return False, None
     
-    error_data = None
-    try:
-        error_data = response.json()
-        error_msg = error_data.get('msg', response.text[:200]) if isinstance(error_data, dict) else response.text[:200]
-        error_code = error_data.get('code', status_code) if isinstance(error_data, dict) else status_code
-    except:
-        error_msg = response.text[:200]
-        error_code = status_code
+    _, error_msg, _ = _parse_error_response(response)
     
-    # 418: IP banned
-    if status_code == 418:
-        # Parse ban time dari response jika ada
-        ban_until = None
-        if error_data and isinstance(error_data, dict) and 'banned until' in error_msg.lower():
-            # Extract timestamp dari message jika ada
-            import re
-            match = re.search(r'until (\d+)', error_msg)
-            if match:
-                ban_until = int(match.group(1)) / 1000  # Convert dari ms ke seconds
-                from datetime import datetime
-                ban_until_dt = datetime.fromtimestamp(ban_until)
-                print(f"🚫 [RATE LIMIT] IP banned until: {ban_until_dt}")
-                print(f"   Current time: {datetime.now()}")
-                wait_time = ban_until - time.time()
-                if wait_time > 0:
-                    print(f"   ⏳ Please wait {int(wait_time / 60)} minutes before retrying")
-                else:
-                    print(f"   ✅ Ban period should be over, but API still returns 418")
-        
-        print(f"❌ [RATE LIMIT] IP banned (418) for endpoint: {endpoint_name}")
-        print(f"   Error: {error_msg}")
-        print(f"   💡 Solutions:")
-        print(f"      1. Wait for the ban to expire (check ban_until time above)")
-        print(f"      2. Use Binance API key for higher rate limits")
-        print(f"      3. Reduce request frequency (add delays between requests)")
-        print(f"      4. Use WebSocket for live updates instead of REST API")
-        return False, f"IP banned: {error_msg}"
+    # Status code handlers
+    handlers = {
+        418: lambda: _handle_ip_ban(error_msg, endpoint_name),
+        429: lambda: _handle_rate_limit(error_msg, endpoint_name),
+        400: lambda: _handle_bad_request(error_msg, endpoint_name),
+        401: lambda: _handle_unauthorized(error_msg, endpoint_name),
+    }
     
-    # 429: Rate limit exceeded
-    elif status_code == 429:
-        print(f"⚠️  [RATE LIMIT] Rate limit exceeded (429) for endpoint: {endpoint_name}")
-        print(f"   Error: {error_msg}")
-        print(f"   💡 Wait a few seconds before retrying")
-        # Bisa retry setelah delay
-        return True, f"Rate limit exceeded: {error_msg}"
+    if status_code in handlers:
+        return handlers[status_code]()
     
-    # 400: Bad request
-    elif status_code == 400:
-        print(f"❌ [ERROR] Bad request (400) for endpoint: {endpoint_name}")
-        print(f"   Error: {error_msg}")
-        return False, f"Bad request: {error_msg}"
-    
-    # 401: Unauthorized
-    elif status_code == 401:
-        print(f"❌ [ERROR] Unauthorized (401) for endpoint: {endpoint_name}")
-        print(f"   Error: {error_msg}")
-        return False, f"Unauthorized: {error_msg}"
-    
-    # Other errors
-    else:
-        print(f"❌ [ERROR] HTTP {status_code} for endpoint: {endpoint_name}")
-        print(f"   Error: {error_msg}")
-        return False, f"HTTP {status_code}: {error_msg}"
+    return _handle_other_error(status_code, error_msg, endpoint_name)
 
 
 def get_futures_client(api_key: Optional[str] = None, 
@@ -179,17 +227,13 @@ def get_futures_client(api_key: Optional[str] = None,
         return None
 
 
-def get_futures_exchange_info(api_key: Optional[str] = None,
-                              api_secret: Optional[str] = None,
-                              testnet: bool = False) -> Optional[Dict]:
+def get_futures_exchange_info(testnet: bool = False) -> Optional[Dict]:
     """
     Get exchange information for USDⓈ-M Futures
     
     Endpoint: GET /fapi/v1/exchangeInfo
     
     Args:
-        api_key: Binance API Key (optional, untuk rate limit lebih tinggi)
-        api_secret: Binance API Secret (optional)
         testnet: Use testnet (default: False)
     
     Returns:
@@ -198,7 +242,7 @@ def get_futures_exchange_info(api_key: Optional[str] = None,
     base_url = FUTURES_TESTNET_URL if testnet else FUTURES_BASE_URL
     url = f"{base_url}/fapi/v1/exchangeInfo"
     
-    print(f"🔵 [FUTURES API] Hitting endpoint: GET /fapi/v1/exchangeInfo")
+    print("🔵 [FUTURES API] Hitting endpoint: GET /fapi/v1/exchangeInfo")
     print(f"   URL: {url}")
     print(f"   Testnet: {testnet}")
     
@@ -219,22 +263,18 @@ def get_futures_exchange_info(api_key: Optional[str] = None,
 
 
 def get_futures_symbols(quote_asset: str = "USDT",
-                       api_key: Optional[str] = None,
-                       api_secret: Optional[str] = None,
                        testnet: bool = False) -> List[str]:
     """
     Get list of symbols available in USDⓈ-M Futures
     
     Args:
         quote_asset: Quote asset filter (default: "USDT")
-        api_key: Binance API Key (optional)
-        api_secret: Binance API Secret (optional)
         testnet: Use testnet (default: False)
     
     Returns:
         List of symbols (e.g., ["BTCUSDT", "ETHUSDT", ...])
     """
-    exchange_info = get_futures_exchange_info(api_key, api_secret, testnet)
+    exchange_info = get_futures_exchange_info(testnet)
     
     if not exchange_info:
         return []
@@ -245,6 +285,117 @@ def get_futures_symbols(quote_asset: str = "USDT",
             symbols.append(symbol_info.get('symbol'))
     
     return sorted(symbols)
+
+
+def _make_klines_request(url: str, params: dict, max_retries: int = 1) -> Optional[requests.Response]:
+    """
+    Make klines API request with retry logic for rate limits
+    
+    Returns:
+        Response object or None if failed
+    """
+    _rate_limit_delay()
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        print(f"   ✅ Response status: {response.status_code}")
+        
+        if response.status_code != 200:
+            should_retry, _ = _handle_binance_error(response, "GET /fapi/v1/klines")
+            if response.status_code == 418:
+                return None
+            elif should_retry and response.status_code == 429 and max_retries > 0:
+                print("   ⏳ Waiting 5 seconds before retry...")
+                time.sleep(5)
+                return _make_klines_request(url, params, max_retries - 1)
+            return None
+        
+        return response
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Request Error: {e}")
+        return None
+
+
+def _convert_klines_to_dataframe(klines: List) -> pd.DataFrame:
+    """
+    Convert klines JSON data to pandas DataFrame
+    
+    Returns:
+        DataFrame with columns: date, Open, High, Low, Close, Volume
+    """
+    if not klines:
+        print("   ⚠️  No klines data returned")
+        return pd.DataFrame()
+    
+    df = pd.DataFrame(klines, columns=[
+        COL_OPEN_TIME, 'Open', 'High', 'Low', 'Close', 'Volume',
+        COL_CLOSE_TIME, 'Quote volume', 'Trades',
+        'Taker buy base', 'Taker buy quote', 'Ignore'
+    ])
+    
+    df[COL_OPEN_TIME] = pd.to_datetime(df[COL_OPEN_TIME], unit='ms')
+    df[COL_CLOSE_TIME] = pd.to_datetime(df[COL_CLOSE_TIME], unit='ms')
+    
+    price_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+    for col in price_columns:
+        df[col] = df[col].astype(float)
+    
+    df = df.rename(columns={COL_OPEN_TIME: 'date'})
+    df = df[['date', 'Open', 'High', 'Low', 'Close', 'Volume']]
+    df = df.sort_values('date')
+    df.reset_index(drop=True, inplace=True)
+    
+    return df
+
+
+def _validate_klines_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Validate and clean klines DataFrame
+    
+    Returns:
+        Validated DataFrame
+    """
+    print("   🔍 [DEBUG] Validating DataFrame:")
+    print(f"      - Shape: {df.shape}")
+    print(f"      - Columns: {list(df.columns)}")
+    print(f"      - Date range: {df['date'].min()} to {df['date'].max()}")
+    print(f"      - Price range: Close min={df['Close'].min():.8f}, max={df['Close'].max():.8f}")
+    print(f"      - Volume range: min={df['Volume'].min():.2f}, max={df['Volume'].max():.2f}")
+    print(f"      - Null values: {df.isnull().sum().to_dict()}")
+    print("      - Sample data (first 3 rows):")
+    for idx, row in df.head(3).iterrows():
+        print(f"         Row {idx}: date={row['date']}, Close={row['Close']:.8f}, Volume={row['Volume']:.2f}")
+    
+    if df['Close'].isnull().any():
+        print(f"   ⚠️  WARNING: Found null values in Close column!")
+        df = df.dropna(subset=['Close'])
+        print(f"      After dropna: {len(df)} rows")
+    
+    if len(df) == 0:
+        print(f"   ❌ ERROR: DataFrame is empty after processing!")
+        return pd.DataFrame()
+    
+    print(f"   ✅ DataFrame validation passed: {len(df)} valid rows")
+    return df
+
+
+def _print_klines_request_info(url: str, symbol: str, interval: str, limit: int,
+                               start_time: Optional[datetime], end_time: Optional[datetime],
+                               testnet: bool):
+    """Print request information for klines API call"""
+    print(f"🔵 [FUTURES API] Hitting endpoint: GET /fapi/v1/klines")
+    print(f"   URL: {url}")
+    print(f"   Symbol: {symbol.upper()}, Interval: {interval}, Limit: {limit}")
+    if start_time:
+        print(f"   Start time: {start_time}")
+    if end_time:
+        current_time = datetime.now()
+        if end_time > current_time:
+            print(f"   ⚠️  WARNING: End time ({end_time}) di masa depan! Current time: {current_time}")
+            print(f"   End time: {end_time} (INVALID - di masa depan)")
+        else:
+            print(f"   End time: {end_time} (current_time: {current_time})")
+    print(f"   Testnet: {testnet}")
 
 
 def get_futures_klines(symbol: str,
@@ -280,7 +431,7 @@ def get_futures_klines(symbol: str,
     params = {
         'symbol': symbol.upper(),
         'interval': interval,
-        'limit': min(limit, 1500)  # Max 1500
+        'limit': min(limit, 1500)
     }
     
     if start_time:
@@ -288,112 +439,41 @@ def get_futures_klines(symbol: str,
     if end_time:
         params['endTime'] = int(end_time.timestamp() * 1000)
     
-    print(f"🔵 [FUTURES API] Hitting endpoint: GET /fapi/v1/klines")
-    print(f"   URL: {url}")
-    print(f"   Symbol: {symbol.upper()}, Interval: {interval}, Limit: {params['limit']}")
-    if start_time:
-        print(f"   Start time: {start_time}")
-    if end_time:
-        print(f"   End time: {end_time}")
-    print(f"   Testnet: {testnet}")
-    
-    # Rate limiting: delay sebelum request
-    _rate_limit_delay()
+    _print_klines_request_info(url, symbol, interval, params['limit'], start_time, end_time, testnet)
     
     try:
-        response = requests.get(url, params=params, timeout=30)
-        print(f"   ✅ Response status: {response.status_code}")
-        
-        # Handle errors (418, 429, dll)
-        if response.status_code != 200:
-            should_retry, error_msg = _handle_binance_error(response, "GET /fapi/v1/klines")
-            if response.status_code == 418:
-                # IP banned - tidak bisa retry, return None
-                return None
-            elif should_retry and response.status_code == 429:
-                # Rate limit - retry setelah delay
-                print(f"   ⏳ Waiting 5 seconds before retry...")
-                time.sleep(5)
-                response = requests.get(url, params=params, timeout=30)
-                print(f"   ✅ Retry response status: {response.status_code}")
-                if response.status_code != 200:
-                    should_retry, error_msg = _handle_binance_error(response, "GET /fapi/v1/klines (retry)")
-                    if response.status_code != 200:
-                        return None
-        
-        if response.status_code == 200:
-            klines = response.json()
-            print(f"   📊 Received {len(klines)} klines")
-            
-            if not klines:
-                print(f"   ⚠️  No klines data returned")
-                return pd.DataFrame()
-            
-            # Convert klines to DataFrame
-            # Format: [Open time, Open, High, Low, Close, Volume, Close time, Quote volume, Trades, ...]
-            df = pd.DataFrame(klines, columns=[
-                'Open time', 'Open', 'High', 'Low', 'Close', 'Volume',
-                'Close time', 'Quote volume', 'Trades',
-                'Taker buy base', 'Taker buy quote', 'Ignore'
-            ])
-            
-            # Convert data types
-            df['Open time'] = pd.to_datetime(df['Open time'], unit='ms')
-            df['Close time'] = pd.to_datetime(df['Close time'], unit='ms')
-            
-            # Convert price columns to float
-            price_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-            for col in price_columns:
-                df[col] = df[col].astype(float)
-            
-            # Rename columns untuk kompatibilitas dengan spot API
-            df = df.rename(columns={
-                'Open time': 'date',
-                'Open': 'Open',
-                'High': 'High',
-                'Low': 'Low',
-                'Close': 'Close',
-                'Volume': 'Volume'
-            })
-            
-            # Pilih kolom yang diperlukan (date sebagai kolom, bukan index untuk kompatibilitas)
-            df = df[['date', 'Open', 'High', 'Low', 'Close', 'Volume']]
-            
-            # Sort by date
-            df = df.sort_values('date')
-            
-            # Reset index untuk memastikan date adalah kolom
-            df.reset_index(drop=True, inplace=True)
-            
-            print(f"   ✅ Successfully converted to DataFrame: {len(df)} rows")
-            
-            # Debug: Validasi data yang diterima
-            print(f"   🔍 [DEBUG] Validating DataFrame:")
-            print(f"      - Shape: {df.shape}")
-            print(f"      - Columns: {list(df.columns)}")
-            print(f"      - Date range: {df['date'].min()} to {df['date'].max()}")
-            print(f"      - Price range: Close min={df['Close'].min():.8f}, max={df['Close'].max():.8f}")
-            print(f"      - Volume range: min={df['Volume'].min():.2f}, max={df['Volume'].max():.2f}")
-            print(f"      - Null values: {df.isnull().sum().to_dict()}")
-            print(f"      - Sample data (first 3 rows):")
-            for idx, row in df.head(3).iterrows():
-                print(f"         Row {idx}: date={row['date']}, Close={row['Close']:.8f}, Volume={row['Volume']:.2f}")
-            
-            # Validasi: pastikan tidak ada null values di kolom penting
-            if df['Close'].isnull().any():
-                print(f"   ⚠️  WARNING: Found null values in Close column!")
-                df = df.dropna(subset=['Close'])
-                print(f"      After dropna: {len(df)} rows")
-            
-            if len(df) == 0:
-                print(f"   ❌ ERROR: DataFrame is empty after processing!")
-                return pd.DataFrame()
-            
-            print(f"   ✅ DataFrame validation passed: {len(df)} valid rows")
-            return df
-        else:
-            # Error sudah di-handle di atas
+        response = _make_klines_request(url, params)
+        if not response:
             return None
+        
+        klines = response.json()
+        print(f"   📊 Received {len(klines)} klines")
+        
+        df = _convert_klines_to_dataframe(klines)
+        if df.empty:
+            return df
+        
+        print(f"   ✅ Successfully converted to DataFrame: {len(df)} rows")
+        df = _validate_klines_dataframe(df)
+        return df
+        
+    except requests.exceptions.ConnectionError as e:
+        print(f"❌ Connection Error: Cannot connect to Binance Futures API")
+        print(f"   Error: {e}")
+        print(f"   💡 Possible causes:")
+        print(f"      - No internet connection")
+        print(f"      - DNS resolution failed (cannot resolve fapi.binance.com)")
+        print(f"      - Firewall blocking connection")
+        print(f"      - Binance API is down")
+        return None
+    except requests.exceptions.Timeout as e:
+        print(f"❌ Timeout Error: Request to Binance Futures API timed out")
+        print(f"   Error: {e}")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Request Error: Failed to get data from Binance Futures API")
+        print(f"   Error: {e}")
+        return None
     except Exception as e:
         print(f"❌ Exception getting futures klines: {e}")
         import traceback
@@ -539,6 +619,11 @@ def get_futures_orderbook(symbol: str,
     base_url = FUTURES_TESTNET_URL if testnet else FUTURES_BASE_URL
     url = f"{base_url}/fapi/v1/depth"
     
+    # Validate limit
+    valid_limits = [5, 10, 20, 50, 100, 500, 1000]
+    if limit not in valid_limits:
+        limit = 100  # Default to 100
+    
     params = {
         'symbol': symbol.upper(),
         'limit': limit
@@ -549,6 +634,9 @@ def get_futures_orderbook(symbol: str,
     print(f"   Symbol: {symbol.upper()}, Limit: {limit}")
     print(f"   Testnet: {testnet}")
     
+    # Rate limiting: delay sebelum request
+    _rate_limit_delay()
+    
     try:
         response = requests.get(url, params=params, timeout=30)
         print(f"   ✅ Response status: {response.status_code}")
@@ -557,12 +645,544 @@ def get_futures_orderbook(symbol: str,
             data = response.json()
             return data
         else:
+            should_retry, error_msg = _handle_binance_error(response, "get_futures_orderbook")
+            if should_retry:
+                print(f"   ⏳ Retrying after delay...")
+                time.sleep(2)
+                _rate_limit_delay()
+                response = requests.get(url, params=params, timeout=30)
+                if response.status_code == 200:
+                    data = response.json()
+                    return data
+            
             print(f"❌ Error getting futures orderbook: {response.status_code}")
             print(f"   Response: {response.text[:200]}")
             return None
     except Exception as e:
         print(f"❌ Exception getting futures orderbook: {e}")
+        import traceback
+        traceback.print_exc()
         return None
+
+
+def analyze_orderbook_depth(orderbook_data: Dict, current_price: Optional[float] = None) -> Dict:
+    """
+    Analisis orderbook depth untuk mendapatkan market insights
+    
+    Args:
+        orderbook_data: Dictionary dari get_futures_orderbook dengan bids dan asks
+        current_price: Current price (optional, untuk analisis relatif terhadap price)
+    
+    Returns:
+        Dictionary dengan:
+        - total_bid_volume: Total volume dari bids (buy orders)
+        - total_ask_volume: Total volume dari asks (sell orders)
+        - bid_ask_ratio: Ratio bid/ask volume (1.0 = balanced, >1.0 = more bids, <1.0 = more asks)
+        - orderbook_imbalance: Imbalance score (-1 to 1, positive = more bids, negative = more asks)
+        - buy_wall_size: Size of largest buy wall (biggest bid cluster)
+        - sell_wall_size: Size of largest sell wall (biggest ask cluster)
+        - buy_wall_price: Price level of largest buy wall
+        - sell_wall_price: Price level of largest sell wall
+        - liquidity_clusters: List of liquidity clusters (big orders/whales)
+        - big_orders_count: Count of big orders (whales)
+        - signal: Trading signal berdasarkan orderbook analysis
+        - interpretation: Interpretasi dari orderbook analysis
+    """
+    if not orderbook_data:
+        return {
+            'total_bid_volume': 0,
+            'total_ask_volume': 0,
+            'bid_ask_ratio': 1.0,
+            'orderbook_imbalance': 0,
+            'buy_wall_size': 0,
+            'sell_wall_size': 0,
+            'buy_wall_price': 0,
+            'sell_wall_price': 0,
+            'liquidity_clusters': [],
+            'big_orders_count': 0,
+            'signal': 'NEUTRAL',
+            'interpretation': 'No orderbook data available'
+        }
+    
+    bids = orderbook_data.get('bids', [])
+    asks = orderbook_data.get('asks', [])
+    
+    if not bids or not asks:
+        return {
+            'total_bid_volume': 0,
+            'total_ask_volume': 0,
+            'bid_ask_ratio': 1.0,
+            'orderbook_imbalance': 0,
+            'buy_wall_size': 0,
+            'sell_wall_size': 0,
+            'buy_wall_price': 0,
+            'sell_wall_price': 0,
+            'liquidity_clusters': [],
+            'big_orders_count': 0,
+            'signal': 'NEUTRAL',
+            'interpretation': 'Insufficient orderbook data'
+        }
+    
+    # Calculate total volumes
+    total_bid_volume = sum(float(bid[1]) for bid in bids)  # bid[1] = quantity
+    total_ask_volume = sum(float(ask[1]) for ask in asks)  # ask[1] = quantity
+    
+    # Calculate bid/ask ratio
+    total_volume = total_bid_volume + total_ask_volume
+    bid_ask_ratio = total_bid_volume / total_ask_volume if total_ask_volume > 0 else 1.0
+    
+    # Calculate orderbook imbalance (-1 to 1)
+    # Positive = more bids (buy pressure), Negative = more asks (sell pressure)
+    orderbook_imbalance = (total_bid_volume - total_ask_volume) / total_volume if total_volume > 0 else 0
+    
+    # Find buy walls and sell walls (large orders at specific price levels)
+    # Buy wall = large bid order
+    # Sell wall = large ask order
+    buy_wall_size = 0
+    buy_wall_price = 0
+    sell_wall_size = 0
+    sell_wall_price = 0
+    
+    # Threshold untuk "big order" (whale): 1% dari total volume atau minimum threshold
+    big_order_threshold = max(total_volume * 0.01, 1000)  # At least 1% or 1000 units
+    
+    liquidity_clusters = []
+    big_orders_count = 0
+    
+    # Analyze bids (buy orders)
+    for bid in bids:
+        price = float(bid[0])
+        qty = float(bid[1])
+        volume = price * qty
+        
+        if qty > buy_wall_size:
+            buy_wall_size = qty
+            buy_wall_price = price
+        
+        if volume >= big_order_threshold:
+            big_orders_count += 1
+            liquidity_clusters.append({
+                'type': 'BUY',
+                'price': price,
+                'quantity': qty,
+                'volume': volume,
+                'size_category': 'WHALE' if volume >= big_order_threshold * 5 else 'BIG'
+            })
+    
+    # Analyze asks (sell orders)
+    for ask in asks:
+        price = float(ask[0])
+        qty = float(ask[1])
+        volume = price * qty
+        
+        if qty > sell_wall_size:
+            sell_wall_size = qty
+            sell_wall_price = price
+        
+        if volume >= big_order_threshold:
+            big_orders_count += 1
+            liquidity_clusters.append({
+                'type': 'SELL',
+                'price': price,
+                'quantity': qty,
+                'volume': volume,
+                'size_category': 'WHALE' if volume >= big_order_threshold * 5 else 'BIG'
+            })
+    
+    # Determine signal based on orderbook analysis
+    signal = 'NEUTRAL'
+    interpretation = ''
+    
+    # Jika buy wall besar → potensi Long
+    if buy_wall_size > sell_wall_size * 1.5 and orderbook_imbalance > 0.1:
+        signal = 'LONG'
+        interpretation = f'Buy wall besar ({buy_wall_size:.2f} vs sell wall {sell_wall_size:.2f}) + orderbook imbalance positif → potensi Long'
+    # Jika sell wall besar → potensi Short
+    elif sell_wall_size > buy_wall_size * 1.5 and orderbook_imbalance < -0.1:
+        signal = 'SHORT'
+        interpretation = f'Sell wall besar ({sell_wall_size:.2f} vs buy wall {buy_wall_size:.2f}) + orderbook imbalance negatif → potensi Short'
+    # Jika balanced
+    elif abs(orderbook_imbalance) < 0.05:
+        signal = 'NEUTRAL'
+        interpretation = 'Orderbook balanced, tidak ada tekanan signifikan'
+    # Jika slight imbalance
+    elif orderbook_imbalance > 0.05:
+        signal = 'WEAK_LONG'
+        interpretation = f'Slight buy pressure (imbalance: {orderbook_imbalance:.2%}), buy wall: {buy_wall_size:.2f}'
+    else:
+        signal = 'WEAK_SHORT'
+        interpretation = f'Slight sell pressure (imbalance: {orderbook_imbalance:.2%}), sell wall: {sell_wall_size:.2f}'
+    
+    return {
+        'total_bid_volume': total_bid_volume,
+        'total_ask_volume': total_ask_volume,
+        'bid_ask_ratio': bid_ask_ratio,
+        'orderbook_imbalance': orderbook_imbalance,
+        'buy_wall_size': buy_wall_size,
+        'sell_wall_size': sell_wall_size,
+        'buy_wall_price': buy_wall_price,
+        'sell_wall_price': sell_wall_price,
+        'liquidity_clusters': liquidity_clusters[:10],  # Limit to top 10
+        'big_orders_count': big_orders_count,
+        'signal': signal,
+        'interpretation': interpretation
+    }
+
+
+def get_futures_recent_trades(symbol: str,
+                              limit: int = 100,
+                              api_key: Optional[str] = None,
+                              api_secret: Optional[str] = None,
+                              testnet: bool = False) -> Optional[List[Dict]]:
+    """
+    Get recent trades from USDⓈ-M Futures
+    
+    Endpoint: GET /fapi/v1/trades
+    
+    Args:
+        symbol: Trading symbol (e.g., "BTCUSDT")
+        limit: Number of trades to return (default: 100, max: 1000)
+        api_key: Binance API Key (optional, not needed for public endpoint)
+        api_secret: Binance API Secret (optional, not needed for public endpoint)
+        testnet: Use testnet (default: False)
+    
+    Returns:
+        List of trade dictionaries dengan fields:
+        - id: Trade ID
+        - price: Price
+        - qty: Quantity
+        - quoteQty: Quote quantity (price * qty)
+        - time: Trade time (timestamp in ms)
+        - isBuyerMaker: True if buyer is maker, False if buyer is taker
+    """
+    base_url = FUTURES_TESTNET_URL if testnet else FUTURES_BASE_URL
+    url = f"{base_url}/fapi/v1/trades"
+    
+    params = {
+        'symbol': symbol.upper(),
+        'limit': min(limit, 1000)  # Max 1000
+    }
+    
+    print(f"🔵 [FUTURES API] Hitting endpoint: GET /fapi/v1/trades")
+    print(f"   URL: {url}")
+    print(f"   Symbol: {symbol.upper()}, Limit: {params['limit']}")
+    print(f"   Testnet: {testnet}")
+    
+    # Rate limiting: delay sebelum request
+    _rate_limit_delay()
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        print(f"   ✅ Response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            return data
+        else:
+            should_retry, error_msg = _handle_binance_error(response, "get_futures_recent_trades")
+            if should_retry:
+                print(f"   ⏳ Retrying after delay...")
+                time.sleep(2)
+                _rate_limit_delay()
+                response = requests.get(url, params=params, timeout=30)
+                if response.status_code == 200:
+                    data = response.json()
+                    return data
+            
+            print(f"❌ Error getting futures recent trades: {response.status_code}")
+            print(f"   Response: {response.text[:200]}")
+            return None
+    except Exception as e:
+        print(f"❌ Exception getting futures recent trades: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def get_futures_open_interest(symbol: str,
+                               api_key: Optional[str] = None,
+                               api_secret: Optional[str] = None,
+                               testnet: bool = False) -> Optional[Dict]:
+    """
+    Get open interest for symbol in USDⓈ-M Futures
+    
+    Endpoint: GET /fapi/v1/openInterest
+    
+    Args:
+        symbol: Trading symbol (e.g., "BTCUSDT")
+        api_key: Binance API Key (optional, not needed for public endpoint)
+        api_secret: Binance API Secret (optional, not needed for public endpoint)
+        testnet: Use testnet (default: False)
+    
+    Returns:
+        Dictionary dengan:
+        - openInterest: Open interest value
+        - symbol: Trading symbol
+    """
+    base_url = FUTURES_TESTNET_URL if testnet else FUTURES_BASE_URL
+    url = f"{base_url}/fapi/v1/openInterest"
+    
+    params = {
+        'symbol': symbol.upper()
+    }
+    
+    print(f"🔵 [FUTURES API] Hitting endpoint: GET /fapi/v1/openInterest")
+    print(f"   URL: {url}")
+    print(f"   Symbol: {symbol.upper()}")
+    print(f"   Testnet: {testnet}")
+    
+    # Rate limiting: delay sebelum request
+    _rate_limit_delay()
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        print(f"   ✅ Response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            return data
+        else:
+            should_retry, error_msg = _handle_binance_error(response, "get_futures_open_interest")
+            if should_retry:
+                print(f"   ⏳ Retrying after delay...")
+                time.sleep(2)
+                _rate_limit_delay()
+                response = requests.get(url, params=params, timeout=30)
+                if response.status_code == 200:
+                    data = response.json()
+                    return data
+            
+            print(f"❌ Error getting futures open interest: {response.status_code}")
+            print(f"   Response: {response.text[:200]}")
+            return None
+    except Exception as e:
+        print(f"❌ Exception getting futures open interest: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def analyze_open_interest(oi_data: Dict, current_price: Optional[float] = None, 
+                          previous_oi: Optional[float] = None,
+                          previous_price: Optional[float] = None) -> Dict:
+    """
+    Analisis Open Interest untuk mendapatkan trend strength
+    
+    Args:
+        oi_data: Dictionary dari get_futures_open_interest
+        current_price: Current price (optional, untuk analisis OI vs Price)
+        previous_oi: Previous OI value (optional, untuk menghitung perubahan)
+        previous_price: Previous price (optional, untuk menghitung perubahan)
+    
+    Returns:
+        Dictionary dengan:
+        - open_interest: Current open interest value
+        - oi_change: Perubahan OI (jika previous_oi tersedia)
+        - oi_change_pct: Persentase perubahan OI
+        - trend_strength: Trend strength analysis
+        - trend_direction: "BULLISH", "BEARISH", atau "NEUTRAL"
+        - signal: Trading signal berdasarkan OI analysis
+        - interpretation: Interpretasi dari OI analysis
+    """
+    if not oi_data:
+        return {
+            'open_interest': 0,
+            'oi_change': 0,
+            'oi_change_pct': 0,
+            'trend_strength': 'UNKNOWN',
+            'trend_direction': 'NEUTRAL',
+            'signal': 'NEUTRAL',
+            'interpretation': 'No OI data available'
+        }
+    
+    current_oi = float(oi_data.get('openInterest', 0))
+    
+    # Calculate OI change jika previous_oi tersedia
+    oi_change = 0
+    oi_change_pct = 0
+    if previous_oi is not None and previous_oi > 0:
+        oi_change = current_oi - previous_oi
+        oi_change_pct = (oi_change / previous_oi) * 100
+    
+    # Analyze trend strength berdasarkan OI dan price movement
+    trend_strength = 'UNKNOWN'
+    trend_direction = 'NEUTRAL'
+    signal = 'NEUTRAL'
+    interpretation = 'Insufficient data for OI analysis'
+    
+    # Jika ada previous_oi dan previous_price, lakukan analisis lengkap
+    if previous_oi is not None and previous_oi > 0 and current_price and previous_price:
+        price_change = ((current_price - previous_price) / previous_price) * 100
+        
+        # OI naik + harga naik → trend bullish kuat (Long)
+        if oi_change > 0 and price_change > 0:
+            trend_direction = 'BULLISH'
+            if oi_change_pct > 5 and price_change > 1:
+                trend_strength = 'VERY_STRONG'
+                signal = 'STRONG_LONG'
+                interpretation = 'OI naik + harga naik → trend bullish sangat kuat (posisi long bertambah banyak)'
+            elif oi_change_pct > 2 and price_change > 0.5:
+                trend_strength = 'STRONG'
+                signal = 'LONG'
+                interpretation = 'OI naik + harga naik → trend bullish kuat (posisi long bertambah)'
+            else:
+                trend_strength = 'MODERATE'
+                signal = 'WEAK_LONG'
+                interpretation = 'OI naik + harga naik → trend bullish sedang (posisi long bertambah sedikit)'
+        
+        # OI naik + harga turun → trend bearish kuat (Short)
+        elif oi_change > 0 and price_change < 0:
+            trend_direction = 'BEARISH'
+            if oi_change_pct > 5 and price_change < -1:
+                trend_strength = 'VERY_STRONG'
+                signal = 'STRONG_SHORT'
+                interpretation = 'OI naik + harga turun → trend bearish sangat kuat (posisi short bertambah banyak)'
+            elif oi_change_pct > 2 and price_change < -0.5:
+                trend_strength = 'STRONG'
+                signal = 'SHORT'
+                interpretation = 'OI naik + harga turun → trend bearish kuat (posisi short bertambah)'
+            else:
+                trend_strength = 'MODERATE'
+                signal = 'WEAK_SHORT'
+                interpretation = 'OI naik + harga turun → trend bearish sedang (posisi short bertambah sedikit)'
+        
+        # OI turun + harga naik → long liquidation atau profit taking
+        elif oi_change < 0 and price_change > 0:
+            trend_direction = 'BULLISH'
+            trend_strength = 'WEAK'
+            signal = 'CAUTION_LONG'
+            interpretation = 'OI turun + harga naik → profit taking atau short covering (trend melemah, caution)'
+        
+        # OI turun + harga turun → short liquidation atau profit taking
+        elif oi_change < 0 and price_change < 0:
+            trend_direction = 'BEARISH'
+            trend_strength = 'WEAK'
+            signal = 'CAUTION_SHORT'
+            interpretation = 'OI turun + harga turun → profit taking atau long liquidation (trend melemah, caution)'
+        
+        # OI stabil
+        else:
+            trend_direction = 'NEUTRAL'
+            trend_strength = 'NEUTRAL'
+            signal = 'NEUTRAL'
+            interpretation = 'OI stabil, tidak ada perubahan signifikan'
+    
+    # Jika hanya ada current OI tanpa previous data, hanya return current OI
+    elif current_oi > 0:
+        interpretation = f'Current OI: {current_oi:.2f} (tidak ada data perubahan untuk analisis trend)'
+    
+    return {
+        'open_interest': current_oi,
+        'oi_change': oi_change,
+        'oi_change_pct': oi_change_pct,
+        'trend_strength': trend_strength,
+        'trend_direction': trend_direction,
+        'signal': signal,
+        'interpretation': interpretation
+    }
+
+
+def analyze_recent_trades(trades: List[Dict]) -> Dict:
+    """
+    Analisis recent trades untuk mendapatkan market insights
+    
+    Args:
+        trades: List of trade dictionaries dari get_futures_recent_trades
+    
+    Returns:
+        Dictionary dengan:
+        - total_volume: Total volume dalam quote currency
+        - buy_volume: Volume dari buyer (taker buys)
+        - sell_volume: Volume dari seller (taker sells)
+        - buy_ratio: Ratio buyer volume (0-1)
+        - sell_ratio: Ratio seller volume (0-1)
+        - trade_count: Jumlah trades
+        - avg_trade_size: Average trade size
+        - market_aggression: Market aggression score (0-100)
+        - buyer_dominance: Buyer dominance score (0-100, >50 = buyer dominant)
+        - momentum: Short-term momentum (positive = bullish, negative = bearish)
+        - price_trend: Price trend dari trades pertama ke terakhir
+    """
+    if not trades or len(trades) == 0:
+        return {
+            'total_volume': 0,
+            'buy_volume': 0,
+            'sell_volume': 0,
+            'buy_ratio': 0.5,
+            'sell_ratio': 0.5,
+            'trade_count': 0,
+            'avg_trade_size': 0,
+            'market_aggression': 0,
+            'buyer_dominance': 50,
+            'momentum': 0,
+            'price_trend': 0
+        }
+    
+    total_volume = 0
+    buy_volume = 0
+    sell_volume = 0
+    trade_count = len(trades)
+    prices = []
+    
+    for trade in trades:
+        price = float(trade.get('price', 0))
+        qty = float(trade.get('qty', 0))
+        quote_qty = float(trade.get('quoteQty', price * qty))
+        is_buyer_maker = trade.get('isBuyerMaker', False)
+        
+        total_volume += quote_qty
+        prices.append(price)
+        
+        # isBuyerMaker = True berarti buyer adalah maker (sell order)
+        # isBuyerMaker = False berarti buyer adalah taker (buy order)
+        if is_buyer_maker:
+            # Buyer adalah maker = seller adalah taker = sell order
+            sell_volume += quote_qty
+        else:
+            # Buyer adalah taker = buy order
+            buy_volume += quote_qty
+    
+    # Calculate ratios
+    buy_ratio = buy_volume / total_volume if total_volume > 0 else 0.5
+    sell_ratio = sell_volume / total_volume if total_volume > 0 else 0.5
+    
+    # Average trade size
+    avg_trade_size = total_volume / trade_count if trade_count > 0 else 0
+    
+    # Market aggression: berdasarkan volume dan frequency
+    # Semakin tinggi volume dan frequency, semakin tinggi aggression
+    volume_score = min(total_volume / 1000000, 1.0) * 50  # Normalize to 0-50
+    frequency_score = min(trade_count / 100, 1.0) * 50  # Normalize to 0-50
+    market_aggression = volume_score + frequency_score
+    
+    # Buyer dominance: 0-100, >50 = buyer dominant, <50 = seller dominant
+    buyer_dominance = buy_ratio * 100
+    
+    # Short-term momentum: berdasarkan price trend
+    if len(prices) >= 2:
+        first_price = prices[0]
+        last_price = prices[-1]
+        price_change = ((last_price - first_price) / first_price) * 100
+        momentum = price_change
+    else:
+        momentum = 0
+    
+    # Price trend: positive = uptrend, negative = downtrend
+    price_trend = momentum
+    
+    return {
+        'total_volume': total_volume,
+        'buy_volume': buy_volume,
+        'sell_volume': sell_volume,
+        'buy_ratio': buy_ratio,
+        'sell_ratio': sell_ratio,
+        'trade_count': trade_count,
+        'avg_trade_size': avg_trade_size,
+        'market_aggression': market_aggression,
+        'buyer_dominance': buyer_dominance,
+        'momentum': momentum,
+        'price_trend': price_trend
+    }
 
 
 def _generate_signature(query_string: str, api_secret: str) -> str:
@@ -713,23 +1333,193 @@ def get_futures_data(symbol: str,
     print(f"   🔍 [DEBUG] Symbol conversion: {symbol} -> {binance_symbol}")
     
     # Calculate time range
-    end_time = datetime.now()
+    current_time = datetime.now()
+    end_time = current_time  # Pastikan end_time = current_time (tidak pernah di masa depan)
     start_time = end_time - timedelta(days=days_back)
     
-    print(f"   Time range: {start_time} to {end_time}")
-    print(f"   Testnet: {testnet}")
+    # Validasi: pastikan start_time tidak terlalu jauh ke belakang (coin mungkin belum listing)
+    # Tapi untuk Binance, kita biarkan saja karena pagination akan handle
     
-    # Get klines
-    df = get_futures_klines(
-        symbol=binance_symbol,
-        interval=interval,
-        start_time=start_time,
-        end_time=end_time,
-        limit=1500,  # Max limit
-        api_key=api_key,
-        api_secret=api_secret,
-        testnet=testnet
-    )
+    print(f"   ⏰ Current time: {current_time}")
+    print(f"   📅 Time range: {start_time} to {end_time}")
+    print(f"   📊 Days back: {days_back}")
+    print(f"   🔍 Calculated: end_time ({end_time}) - {days_back} days = start_time ({start_time})")
+    
+    # Validasi: cek apakah perhitungan benar
+    calculated_days = (end_time - start_time).days
+    if abs(calculated_days - days_back) > 1:  # Allow 1 day tolerance untuk timezone
+        print(f"   ⚠️  WARNING: Calculated days ({calculated_days}) tidak sesuai dengan days_back ({days_back})!")
+        print(f"      Perbedaan: {abs(calculated_days - days_back)} hari")
+    
+    print(f"   🧪 Testnet: {testnet}")
+    
+    # Calculate estimated klines needed
+    # Estimate: berapa klines yang dibutuhkan untuk days_back
+    interval_minutes_map = {
+        '1m': 1, '3m': 3, '5m': 5, '15m': 15, '30m': 30,
+        '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720,
+        '1d': 1440, '3d': 4320, '1w': 10080, '1M': 43200
+    }
+    interval_minutes = interval_minutes_map.get(interval.lower(), 60)
+    estimated_klines = (days_back * 24 * 60) // interval_minutes
+    
+    print(f"   Estimated klines needed: ~{estimated_klines} (for {days_back} days with {interval} interval)")
+    
+    # Jika estimated klines > 1500, perlu pagination
+    if estimated_klines > 1500:
+        print(f"   📦 Data besar ({estimated_klines} klines), menggunakan pagination...")
+        all_klines = []
+        current_start = start_time
+        chunk_count = 0
+        
+        # Calculate chunk size (berapa hari per request untuk dapat ~1500 klines)
+        klines_per_day = (24 * 60) // interval_minutes
+        days_per_chunk = max(1, 1500 // klines_per_day - 1)  # -1 untuk safety margin
+        
+        # Pastikan end_time tidak di masa depan (update setiap loop untuk akurasi)
+        current_time = datetime.now()
+        if end_time > current_time:
+            print(f"   ⚠️  end_time ({end_time}) di masa depan, cap ke current_time ({current_time})")
+            end_time = current_time
+        
+        while current_start < end_time:
+            chunk_count += 1
+            
+            # Update current_time di setiap iterasi untuk akurasi
+            current_time = datetime.now()
+            
+            # PASTIKAN end_time juga di-update ke current_time di setiap iterasi (penting!)
+            if end_time > current_time:
+                end_time = current_time
+                print(f"   🔄 end_time di-update ke current_time: {end_time}")
+            
+            # Pastikan current_start tidak di masa depan
+            if current_start > current_time:
+                print(f"   📦 Chunk {chunk_count}: SKIP (current_start di masa depan: {current_start})")
+                break
+            
+            # Calculate chunk_end (tapi jangan melebihi current_time atau end_time)
+            # IMPORTANT: Cap ke minimum antara: (current_start + days_per_chunk), end_time, current_time
+            # Ini memastikan chunk_end TIDAK PERNAH di masa depan
+            proposed_chunk_end = current_start + timedelta(days=days_per_chunk)
+            
+            # PASTIKAN chunk_end TIDAK PERNAH melebihi current_time
+            # Cap ke current_time jika melebihi, atau ke min(proposed, end_time) jika tidak
+            if proposed_chunk_end > current_time:
+                chunk_end = current_time
+                print(f"   ⚠️  proposed_chunk_end ({proposed_chunk_end}) di masa depan, cap ke current_time ({current_time})")
+            else:
+                # Baru cap ke end_time jika tidak melebihi current_time
+                chunk_end = min(proposed_chunk_end, end_time)
+            
+            # FINAL VALIDATION: Pastikan chunk_end TIDAK PERNAH melebihi current_time
+            # Ini adalah safety check terakhir sebelum digunakan
+            if chunk_end > current_time:
+                print(f"   ❌ CRITICAL ERROR: chunk_end ({chunk_end}) masih di masa depan setelah semua validasi!")
+                print(f"      current_time: {current_time}")
+                print(f"      end_time: {end_time}")
+                print(f"      proposed_chunk_end: {proposed_chunk_end}")
+                print(f"      days_per_chunk: {days_per_chunk}")
+                chunk_end = current_time  # Force cap sebagai last resort
+                print(f"   ✅ Force cap chunk_end ke current_time: {chunk_end}")
+            
+            # Additional check: Jika ini chunk terakhir (mendekati end_time atau current_time), pastikan = current_time
+            # Cek apakah chunk berikutnya akan melewati end_time atau current_time
+            next_chunk_start = chunk_end
+            next_proposed_end = next_chunk_start + timedelta(days=days_per_chunk)
+            
+            # Jika chunk berikutnya akan melewati end_time atau current_time, ini adalah chunk terakhir
+            is_last_chunk = (next_proposed_end >= end_time) or (next_proposed_end >= current_time) or (chunk_end >= end_time)
+            
+            if is_last_chunk:
+                # Untuk chunk terakhir, PASTIKAN chunk_end = current_time (tidak boleh lebih kecil)
+                if chunk_end < current_time:
+                    print(f"   🔄 Chunk terakhir: update chunk_end dari {chunk_end} ke current_time ({current_time})")
+                    chunk_end = current_time
+                elif chunk_end > current_time:
+                    # Ini seharusnya tidak terjadi karena sudah di-cap di atas, tapi double check
+                    print(f"   ⚠️  Chunk terakhir: chunk_end ({chunk_end}) > current_time ({current_time}), force cap")
+                    chunk_end = current_time
+                else:
+                    print(f"   ✅ Chunk terakhir: chunk_end sudah = current_time ({current_time})")
+            
+            # Skip jika chunk_start >= chunk_end (tidak ada data)
+            if current_start >= chunk_end:
+                print(f"   📦 Chunk {chunk_count}: SKIP (start >= end atau sudah mencapai current_time)")
+                break
+            
+            # Debug: cek apakah chunk_end valid
+            if chunk_end > current_time:
+                print(f"   ❌ ERROR: chunk_end ({chunk_end}) masih di masa depan setelah validasi!")
+                print(f"      current_time: {current_time}")
+                print(f"      end_time: {end_time}")
+                print(f"      days_per_chunk: {days_per_chunk}")
+                break
+            
+            print(f"   📦 Chunk {chunk_count}: {current_start} to {chunk_end} (current_time: {current_time})")
+            
+            chunk_df = get_futures_klines(
+                symbol=binance_symbol,
+                interval=interval,
+                start_time=current_start,
+                end_time=chunk_end,
+                limit=1500,
+                api_key=api_key,
+                api_secret=api_secret,
+                testnet=testnet
+            )
+            
+            if chunk_df is not None and not chunk_df.empty:
+                all_klines.append(chunk_df)
+                print(f"      ✅ Got {len(chunk_df)} klines")
+            else:
+                # Cek apakah ini karena data tidak tersedia atau karena di masa depan
+                if chunk_end > current_time:
+                    print(f"      ⚠️  No data (chunk_end di masa depan: {chunk_end})")
+                else:
+                    # Coin mungkin belum listing di periode ini
+                    # Cek apakah ini chunk pertama yang tidak ada data (kemungkinan coin belum listing)
+                    if chunk_count == 1:
+                        print(f"      ⚠️  No data untuk chunk pertama")
+                        print(f"      💡 Kemungkinan: Coin {binance_symbol} belum listing di periode {current_start} - {chunk_end}")
+                        print(f"      💡 Saran: Cek apakah coin sudah listing di Binance Futures")
+                    else:
+                        # Chunk berikutnya yang tidak ada data (kemungkinan gap data atau sudah mencapai listing date)
+                        print(f"      ⚠️  No data untuk chunk {chunk_count}")
+                        print(f"      💡 Kemungkinan: Gap data atau coin belum listing di periode ini")
+                    
+                    # Jika beberapa chunk berturut-turut tidak ada data, mungkin coin belum listing
+                    # Skip chunk ini dan lanjut ke chunk berikutnya
+                    # (jangan break, biarkan lanjut untuk cek chunk berikutnya)
+            
+            # Move to next chunk: mulai dari chunk_end (tidak perlu tambah interval karena Binance API sudah handle)
+            current_start = chunk_end
+            
+            # Rate limiting: delay between chunks
+            if current_start < end_time:
+                time.sleep(0.1)  # Small delay untuk rate limiting
+        
+        # Combine all chunks
+        if all_klines:
+            df = pd.concat(all_klines, ignore_index=True)
+            # Remove duplicates (jika ada overlap)
+            df = df.drop_duplicates(subset=['date'], keep='first')
+            df = df.sort_values('date').reset_index(drop=True)
+            print(f"   ✅ Pagination complete: {len(df)} total klines from {chunk_count} chunks")
+        else:
+            df = None
+    else:
+        # Single request cukup
+        df = get_futures_klines(
+            symbol=binance_symbol,
+            interval=interval,
+            start_time=start_time,
+            end_time=end_time,
+            limit=1500,  # Max limit
+            api_key=api_key,
+            api_secret=api_secret,
+            testnet=testnet
+        )
     
     if df is not None and not df.empty:
         print(f"✅ [FUTURES API] get_futures_data completed: {len(df)} records")
