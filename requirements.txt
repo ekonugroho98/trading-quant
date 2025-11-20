@@ -1,7 +1,7 @@
 # Core Data Processing
 pandas>=2.2.3  # Updated for Python 3.13 compatibility (2.1.4 incompatible with Python 3.13)
 numpy>=1.26.4  # Updated for Python 3.13 compatibility (has pre-built wheels, avoids source build)
-scipy>=1.13.0  # Updated for Python 3.13 compatibility (has pre-built wheels, avoids gfortran requirement)
+scipy>=1.15.0  # Updated for Python 3.13 compatibility (1.14.0 tries to build from source, 1.15.0+ has pre-built wheels)
 
 # Data Sources
 yfinance==0.2.32
