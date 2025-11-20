@@ -14,6 +14,34 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Cek apakah WARP masih aktif
+if command -v warp-cli &> /dev/null; then
+    WARP_STATUS=$(warp-cli status 2>/dev/null | grep -i "connected" || echo "")
+    if [ -n "$WARP_STATUS" ]; then
+        echo "⚠️  WARP masih aktif!"
+        echo "   Status: $WARP_STATUS"
+        echo ""
+        echo "💡 WARP perlu dimatikan dulu untuk menghindari konflik dengan VPN Singapore"
+        echo ""
+        read -p "Matikan WARP sekarang? (y/n): " disable_warp
+        
+        if [ "$disable_warp" = "y" ]; then
+            echo "   Disconnecting WARP..."
+            warp-cli disconnect
+            sleep 2
+            
+            echo "   Stopping WARP service..."
+            systemctl stop warp-svc 2>/dev/null || true
+            
+            echo "   ✅ WARP sudah dimatikan"
+            echo ""
+        else
+            echo "   ⚠️  WARP masih aktif - mungkin akan konflik dengan VPN Singapore"
+            echo ""
+        fi
+    fi
+fi
+
 echo "Pilih metode VPN ke Singapore:"
 echo "1. WireGuard (Recommended - cepat dan modern)"
 echo "2. OpenVPN"

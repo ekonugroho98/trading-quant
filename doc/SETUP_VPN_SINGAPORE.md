@@ -4,6 +4,26 @@
 
 Mengganti IP address server ke Singapore untuk mengatasi error HTTP 451 dari Binance API.
 
+## ⚠️ PENTING: Matikan WARP Dulu!
+
+**Sebelum setup VPN ke Singapore, WAJIB matikan WARP terlebih dahulu** untuk menghindari konflik:
+
+```bash
+# 1. Disconnect WARP
+warp-cli disconnect
+
+# 2. Stop WARP service (optional, untuk memastikan tidak auto-connect)
+sudo systemctl stop warp-svc
+
+# 3. Cek status (harusnya disconnected)
+warp-cli status
+
+# 4. Cek IP asli server (sebelum VPN Singapore)
+curl https://ipinfo.io/json
+```
+
+**Setelah VPN Singapore aktif, jangan aktifkan WARP lagi** karena akan konflik.
+
 ## ⚠️ Catatan tentang WARP
 
 **Cloudflare WARP tidak bisa pilih location secara manual**. WARP akan otomatis assign IP dari berbagai lokasi (biasanya US, EU). Untuk IP Singapore, perlu gunakan VPN/proxy lain.
