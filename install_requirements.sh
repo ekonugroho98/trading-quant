@@ -15,8 +15,18 @@ echo "2️⃣ Installing core data processing..."
 pip install "pandas>=2.2.3" "scipy>=1.15.0"
 
 # Step 3: Install arch (now numpy headers are available)
+# Note: arch needs numpy headers in build environment, so we need to ensure numpy is available
 echo "3️⃣ Installing arch..."
-pip install "arch==6.2.0"
+# Install arch with --no-build-isolation to use venv numpy, or install numpy in build env
+pip install "arch==6.2.0" --no-build-isolation || {
+    echo "⚠️  Build dengan --no-build-isolation gagal, coba dengan cara lain..."
+    # Alternative: install numpy dev package if available, or skip arch
+    echo "⚠️  Mencoba install arch dengan numpy yang sudah terinstall..."
+    pip install "arch==6.2.0" --no-cache-dir || {
+        echo "❌ Gagal install arch. Akan di-skip (kode sudah handle ImportError)"
+        echo "💡 Install arch nanti dengan: pip install arch==6.2.0 setelah memastikan numpy terinstall"
+    }
+}
 
 # Step 4: Install ML libraries
 echo "4️⃣ Installing ML libraries..."
