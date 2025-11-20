@@ -1,6 +1,6 @@
 # Core Data Processing
 pandas>=2.2.3  # Updated for Python 3.13 compatibility (2.1.4 incompatible with Python 3.13)
-numpy>=1.26.4  # Updated for Python 3.13 compatibility (has pre-built wheels, avoids source build)
+numpy>=2.1.0  # Updated for Python 3.13 compatibility (ml-dtypes requires numpy>=2.1.0 for Python 3.13)
 scipy>=1.15.0  # Updated for Python 3.13 compatibility (1.14.0 tries to build from source, 1.15.0+ has pre-built wheels)
 
 # Data Sources
@@ -25,7 +25,7 @@ statsmodels>=0.14.1  # Updated for Python 3.13 compatibility (0.14.0 has Cython 
 arch==6.2.0
 
 # Visualization
-matplotlib==3.8.2
+matplotlib>=3.9.0  # Updated for Python 3.13 and numpy 2.x compatibility (3.8.2 requires numpy<2, 3.9.0+ supports numpy 2.x)
 
 # Configuration
 python-dotenv==1.0.0
