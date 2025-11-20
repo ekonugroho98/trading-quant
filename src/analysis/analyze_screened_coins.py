@@ -28,7 +28,8 @@ try:
         TRADING_STYLE, DATA_SOURCE, get_days_back, get_interval,
         BINANCE_API_KEY, BINANCE_API_SECRET,
         ENABLE_DEEPSEEK_AI, DEEPSEEK_API_KEY, DEEPSEEK_MODEL,
-        ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+        ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
+        ANALYSIS_TIMEOUT, HISTORICAL_DATA_TIMEOUT, PREDICTION_TIMEOUT, AI_TIMEOUT
     )
     from src.screening.coin_screening import screen_coins
     from src.models.ml_prediction_helper import get_ml_prediction_from_file
@@ -425,7 +426,7 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
             [sys.executable, historical_data_script],
             capture_output=True,  # Capture untuk cek error
             text=True,
-            timeout=120,
+            timeout=HISTORICAL_DATA_TIMEOUT,
             cwd=project_root  # Set working directory ke project root
         )
         
@@ -457,7 +458,7 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
             [sys.executable, analysis_script],
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=ANALYSIS_TIMEOUT,
             cwd=project_root,  # Set working directory ke project root
             env={**os.environ, 'RUN_FROM_MASTER_SCRIPT': '1'}  # Set flag untuk tidak delete CSV
         )
@@ -502,7 +503,7 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
             [sys.executable, prediction_script],
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=PREDICTION_TIMEOUT,
             cwd=project_root,  # Set working directory ke project root
             env={**os.environ, 'RUN_FROM_MASTER_SCRIPT': '1'}
         )
@@ -1136,7 +1137,7 @@ def analyze_screened_coins(
                             [sys.executable, analysis_script],
                             capture_output=True,
                             text=True,
-                            timeout=180,  # 3 menit untuk AI saja
+                            timeout=AI_TIMEOUT,
                             cwd=project_root,
                             env=env_vars
                         )
@@ -1224,7 +1225,7 @@ def analyze_screened_coins(
                     [sys.executable, analysis_script],
                     capture_output=True,
                     text=True,
-                    timeout=180,
+                    timeout=AI_TIMEOUT,
                     cwd=project_root,
                     env=env_vars
                 )

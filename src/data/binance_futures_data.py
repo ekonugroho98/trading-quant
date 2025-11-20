@@ -12,7 +12,7 @@ Reference: https://developers.binance.com/docs/derivatives/usds-margined-futures
 
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List, Tuple
 import time
 import os
@@ -389,7 +389,7 @@ def _print_klines_request_info(url: str, symbol: str, interval: str, limit: int,
     if start_time:
         print(f"   Start time: {start_time}")
     if end_time:
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         if end_time > current_time:
             print(f"   ⚠️  WARNING: End time ({end_time}) di masa depan! Current time: {current_time}")
             print(f"   End time: {end_time} (INVALID - di masa depan)")
@@ -1332,194 +1332,21 @@ def get_futures_data(symbol: str,
     print(f"   Converted symbol: {symbol} -> {binance_symbol}")
     print(f"   🔍 [DEBUG] Symbol conversion: {symbol} -> {binance_symbol}")
     
-    # Calculate time range
-    current_time = datetime.now()
-    end_time = current_time  # Pastikan end_time = current_time (tidak pernah di masa depan)
-    start_time = end_time - timedelta(days=days_back)
-    
-    # Validasi: pastikan start_time tidak terlalu jauh ke belakang (coin mungkin belum listing)
-    # Tapi untuk Binance, kita biarkan saja karena pagination akan handle
-    
-    print(f"   ⏰ Current time: {current_time}")
-    print(f"   📅 Time range: {start_time} to {end_time}")
-    print(f"   📊 Days back: {days_back}")
-    print(f"   🔍 Calculated: end_time ({end_time}) - {days_back} days = start_time ({start_time})")
-    
-    # Validasi: cek apakah perhitungan benar
-    calculated_days = (end_time - start_time).days
-    if abs(calculated_days - days_back) > 1:  # Allow 1 day tolerance untuk timezone
-        print(f"   ⚠️  WARNING: Calculated days ({calculated_days}) tidak sesuai dengan days_back ({days_back})!")
-        print(f"      Perbedaan: {abs(calculated_days - days_back)} hari")
-    
     print(f"   🧪 Testnet: {testnet}")
+    print(f"   📊 Mengambil 1500 klines terbaru (tanpa time range)")
     
-    # Calculate estimated klines needed
-    # Estimate: berapa klines yang dibutuhkan untuk days_back
-    interval_minutes_map = {
-        '1m': 1, '3m': 3, '5m': 5, '15m': 15, '30m': 30,
-        '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720,
-        '1d': 1440, '3d': 4320, '1w': 10080, '1M': 43200
-    }
-    interval_minutes = interval_minutes_map.get(interval.lower(), 60)
-    estimated_klines = (days_back * 24 * 60) // interval_minutes
-    
-    print(f"   Estimated klines needed: ~{estimated_klines} (for {days_back} days with {interval} interval)")
-    
-    # Jika estimated klines > 1500, perlu pagination
-    if estimated_klines > 1500:
-        print(f"   📦 Data besar ({estimated_klines} klines), menggunakan pagination...")
-        all_klines = []
-        current_start = start_time
-        chunk_count = 0
-        
-        # Calculate chunk size (berapa hari per request untuk dapat ~1500 klines)
-        klines_per_day = (24 * 60) // interval_minutes
-        days_per_chunk = max(1, 1500 // klines_per_day - 1)  # -1 untuk safety margin
-        
-        # Pastikan end_time tidak di masa depan (update setiap loop untuk akurasi)
-        current_time = datetime.now()
-        if end_time > current_time:
-            print(f"   ⚠️  end_time ({end_time}) di masa depan, cap ke current_time ({current_time})")
-            end_time = current_time
-        
-        while current_start < end_time:
-            chunk_count += 1
-            
-            # Update current_time di setiap iterasi untuk akurasi
-            current_time = datetime.now()
-            
-            # PASTIKAN end_time juga di-update ke current_time di setiap iterasi (penting!)
-            if end_time > current_time:
-                end_time = current_time
-                print(f"   🔄 end_time di-update ke current_time: {end_time}")
-            
-            # Pastikan current_start tidak di masa depan
-            if current_start > current_time:
-                print(f"   📦 Chunk {chunk_count}: SKIP (current_start di masa depan: {current_start})")
-                break
-            
-            # Calculate chunk_end (tapi jangan melebihi current_time atau end_time)
-            # IMPORTANT: Cap ke minimum antara: (current_start + days_per_chunk), end_time, current_time
-            # Ini memastikan chunk_end TIDAK PERNAH di masa depan
-            proposed_chunk_end = current_start + timedelta(days=days_per_chunk)
-            
-            # PASTIKAN chunk_end TIDAK PERNAH melebihi current_time
-            # Cap ke current_time jika melebihi, atau ke min(proposed, end_time) jika tidak
-            if proposed_chunk_end > current_time:
-                chunk_end = current_time
-                print(f"   ⚠️  proposed_chunk_end ({proposed_chunk_end}) di masa depan, cap ke current_time ({current_time})")
-            else:
-                # Baru cap ke end_time jika tidak melebihi current_time
-                chunk_end = min(proposed_chunk_end, end_time)
-            
-            # FINAL VALIDATION: Pastikan chunk_end TIDAK PERNAH melebihi current_time
-            # Ini adalah safety check terakhir sebelum digunakan
-            if chunk_end > current_time:
-                print(f"   ❌ CRITICAL ERROR: chunk_end ({chunk_end}) masih di masa depan setelah semua validasi!")
-                print(f"      current_time: {current_time}")
-                print(f"      end_time: {end_time}")
-                print(f"      proposed_chunk_end: {proposed_chunk_end}")
-                print(f"      days_per_chunk: {days_per_chunk}")
-                chunk_end = current_time  # Force cap sebagai last resort
-                print(f"   ✅ Force cap chunk_end ke current_time: {chunk_end}")
-            
-            # Additional check: Jika ini chunk terakhir (mendekati end_time atau current_time), pastikan = current_time
-            # Cek apakah chunk berikutnya akan melewati end_time atau current_time
-            next_chunk_start = chunk_end
-            next_proposed_end = next_chunk_start + timedelta(days=days_per_chunk)
-            
-            # Jika chunk berikutnya akan melewati end_time atau current_time, ini adalah chunk terakhir
-            is_last_chunk = (next_proposed_end >= end_time) or (next_proposed_end >= current_time) or (chunk_end >= end_time)
-            
-            if is_last_chunk:
-                # Untuk chunk terakhir, PASTIKAN chunk_end = current_time (tidak boleh lebih kecil)
-                if chunk_end < current_time:
-                    print(f"   🔄 Chunk terakhir: update chunk_end dari {chunk_end} ke current_time ({current_time})")
-                    chunk_end = current_time
-                elif chunk_end > current_time:
-                    # Ini seharusnya tidak terjadi karena sudah di-cap di atas, tapi double check
-                    print(f"   ⚠️  Chunk terakhir: chunk_end ({chunk_end}) > current_time ({current_time}), force cap")
-                    chunk_end = current_time
-                else:
-                    print(f"   ✅ Chunk terakhir: chunk_end sudah = current_time ({current_time})")
-            
-            # Skip jika chunk_start >= chunk_end (tidak ada data)
-            if current_start >= chunk_end:
-                print(f"   📦 Chunk {chunk_count}: SKIP (start >= end atau sudah mencapai current_time)")
-                break
-            
-            # Debug: cek apakah chunk_end valid
-            if chunk_end > current_time:
-                print(f"   ❌ ERROR: chunk_end ({chunk_end}) masih di masa depan setelah validasi!")
-                print(f"      current_time: {current_time}")
-                print(f"      end_time: {end_time}")
-                print(f"      days_per_chunk: {days_per_chunk}")
-                break
-            
-            print(f"   📦 Chunk {chunk_count}: {current_start} to {chunk_end} (current_time: {current_time})")
-            
-            chunk_df = get_futures_klines(
-                symbol=binance_symbol,
-                interval=interval,
-                start_time=current_start,
-                end_time=chunk_end,
-                limit=1500,
-                api_key=api_key,
-                api_secret=api_secret,
-                testnet=testnet
-            )
-            
-            if chunk_df is not None and not chunk_df.empty:
-                all_klines.append(chunk_df)
-                print(f"      ✅ Got {len(chunk_df)} klines")
-            else:
-                # Cek apakah ini karena data tidak tersedia atau karena di masa depan
-                if chunk_end > current_time:
-                    print(f"      ⚠️  No data (chunk_end di masa depan: {chunk_end})")
-                else:
-                    # Coin mungkin belum listing di periode ini
-                    # Cek apakah ini chunk pertama yang tidak ada data (kemungkinan coin belum listing)
-                    if chunk_count == 1:
-                        print(f"      ⚠️  No data untuk chunk pertama")
-                        print(f"      💡 Kemungkinan: Coin {binance_symbol} belum listing di periode {current_start} - {chunk_end}")
-                        print(f"      💡 Saran: Cek apakah coin sudah listing di Binance Futures")
-                    else:
-                        # Chunk berikutnya yang tidak ada data (kemungkinan gap data atau sudah mencapai listing date)
-                        print(f"      ⚠️  No data untuk chunk {chunk_count}")
-                        print(f"      💡 Kemungkinan: Gap data atau coin belum listing di periode ini")
-                    
-                    # Jika beberapa chunk berturut-turut tidak ada data, mungkin coin belum listing
-                    # Skip chunk ini dan lanjut ke chunk berikutnya
-                    # (jangan break, biarkan lanjut untuk cek chunk berikutnya)
-            
-            # Move to next chunk: mulai dari chunk_end (tidak perlu tambah interval karena Binance API sudah handle)
-            current_start = chunk_end
-            
-            # Rate limiting: delay between chunks
-            if current_start < end_time:
-                time.sleep(0.1)  # Small delay untuk rate limiting
-        
-        # Combine all chunks
-        if all_klines:
-            df = pd.concat(all_klines, ignore_index=True)
-            # Remove duplicates (jika ada overlap)
-            df = df.drop_duplicates(subset=['date'], keep='first')
-            df = df.sort_values('date').reset_index(drop=True)
-            print(f"   ✅ Pagination complete: {len(df)} total klines from {chunk_count} chunks")
-        else:
-            df = None
-    else:
-        # Single request cukup
-        df = get_futures_klines(
-            symbol=binance_symbol,
-            interval=interval,
-            start_time=start_time,
-            end_time=end_time,
-            limit=1500,  # Max limit
-            api_key=api_key,
-            api_secret=api_secret,
-            testnet=testnet
-        )
+    # Sederhana: hanya ambil 1500 klines terbaru tanpa startTime/endTime
+    # Ini akan mengambil 1500 klines terbaru dari Binance API
+    df = get_futures_klines(
+        symbol=binance_symbol,
+        interval=interval,
+        start_time=None,  # Tidak gunakan startTime
+        end_time=None,    # Tidak gunakan endTime
+        limit=1500,        # Max limit: 1500 klines terbaru
+        api_key=api_key,
+        api_secret=api_secret,
+        testnet=testnet
+    )
     
     if df is not None and not df.empty:
         print(f"✅ [FUTURES API] get_futures_data completed: {len(df)} records")

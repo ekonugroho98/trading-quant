@@ -61,7 +61,7 @@ FILTER_YEAR = 2025  # Filter data hanya tahun tertentu (None = tidak filter)
 # KONFIGURASI DATA HISTORICAL
 # ============================================
 DATA_SOURCE = "binance"  # Pilihan: "yfinance", "binance", "coingecko", "indodax", "freecryptoapi"
-SYMBOL = "BSV-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
+SYMBOL = "1000000BOB-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
 
 # ============================================
 # KONFIGURASI BINANCE API TYPE
@@ -472,4 +472,24 @@ BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", None)  # Load dari .env
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", None)  # Load dari .env
 # Catatan: Credential disimpan di file .env (tidak di-commit ke repository)
 # Testnet: https://testnet.binance.vision (untuk testing tanpa risiko)
+
+# ============================================
+# KONFIGURASI MULTI-THREADING
+# ============================================
+# Konfigurasi untuk parallel processing analisis coin
+ANALYSIS_THREAD_POOL_SIZE = int(os.getenv("ANALYSIS_THREAD_POOL_SIZE", "1"))  # Default: 1 thread
+# Batch size untuk processing (berapa coin diproses bersamaan)
+ANALYSIS_BATCH_SIZE = int(os.getenv("ANALYSIS_BATCH_SIZE", "1"))  # Default: 1 coin per batch
+
+# ============================================
+# KONFIGURASI TIMEOUT
+# ============================================
+# Timeout untuk subprocess calls (dalam detik)
+ANALYSIS_TIMEOUT = int(os.getenv("ANALYSIS_TIMEOUT", "600"))  # Default: 10 menit (600 detik)
+# Timeout untuk get_historical_data.py
+HISTORICAL_DATA_TIMEOUT = int(os.getenv("HISTORICAL_DATA_TIMEOUT", "180"))  # Default: 3 menit (180 detik)
+# Timeout untuk prediksi_next_day.py
+PREDICTION_TIMEOUT = int(os.getenv("PREDICTION_TIMEOUT", "180"))  # Default: 3 menit (180 detik)
+# Timeout untuk AI DeepSeek call
+AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "300"))  # Default: 5 menit (300 detik)
 
