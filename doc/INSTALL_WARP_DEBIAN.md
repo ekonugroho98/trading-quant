@@ -50,8 +50,11 @@ sudo apt install -f
 ### 1. Register Device (Pertama Kali)
 
 ```bash
-# Register device dengan Cloudflare
-warp-cli register
+# Register device dengan Cloudflare (versi terbaru)
+warp-cli registration new
+
+# Atau jika command di atas tidak ada, coba:
+# warp-cli registration
 ```
 
 ### 2. Set Mode WARP
@@ -98,12 +101,13 @@ curl -I https://api.binance.com/api/v3/ping
 ### Auto-connect saat Boot
 
 ```bash
-# Enable auto-connect
-warp-cli enable-always-on
-
-# Atau tambahkan ke systemd service
+# Enable systemd service untuk auto-start
 sudo systemctl enable warp-svc
 sudo systemctl start warp-svc
+
+# Atau gunakan systemd untuk auto-connect
+# Buat service file (jika belum ada)
+sudo systemctl enable --now warp-svc
 ```
 
 ### Set DNS (Optional)
@@ -119,8 +123,11 @@ warp-cli set-dns 1.1.1.1
 # Disconnect
 warp-cli disconnect
 
-# Unregister device
-warp-cli delete
+# Unregister device (versi terbaru)
+warp-cli registration delete
+
+# Atau stop service
+sudo systemctl stop warp-svc
 ```
 
 ## 🧪 Test Setelah Install
@@ -161,6 +168,34 @@ except Exception as e:
 ```
 
 ## 📝 Troubleshooting
+
+### Error: "unrecognized subcommand 'register'"
+
+Jika muncul error ini, gunakan command yang benar:
+
+```bash
+# Cek command yang tersedia
+warp-cli --help
+
+# Untuk register, gunakan:
+warp-cli registration new
+
+# Atau coba:
+warp-cli registration
+```
+
+### Error: "unrecognized subcommand 'enable-always-on'"
+
+Command ini tidak ada di versi terbaru. Gunakan systemd service:
+
+```bash
+# Enable auto-start via systemd
+sudo systemctl enable warp-svc
+sudo systemctl start warp-svc
+
+# Cek status
+sudo systemctl status warp-svc
+```
 
 ### Error: "warp-cli: command not found"
 
@@ -212,7 +247,7 @@ curl https://api.ipify.org
 
 ```bash
 # Register device
-warp-cli register
+warp-cli registration new
 
 # Connect
 warp-cli connect
@@ -226,23 +261,27 @@ warp-cli status
 # Set mode
 warp-cli set-mode warp
 
-# Enable always-on
-warp-cli enable-always-on
+# Enable auto-start via systemd
+sudo systemctl enable warp-svc
+sudo systemctl start warp-svc
 
 # Check IP
 curl https://api.ipify.org
+
+# Cek semua command yang tersedia
+warp-cli --help
 ```
 
 ## ✅ Checklist
 
 - [ ] Install cloudflare-warp via apt atau .deb
-- [ ] Register device dengan `warp-cli register`
+- [ ] Register device dengan `warp-cli registration new`
 - [ ] Set mode ke `warp` dengan `warp-cli set-mode warp`
 - [ ] Connect dengan `warp-cli connect`
 - [ ] Test DNS: `nslookup api.binance.com`
 - [ ] Test API: `curl https://api.binance.com/api/v3/ping`
 - [ ] Test Python script untuk Binance API
-- [ ] Enable auto-connect (optional): `warp-cli enable-always-on`
+- [ ] Enable auto-start (optional): `sudo systemctl enable warp-svc`
 
 ## 🎯 Setelah WARP Terinstall
 
