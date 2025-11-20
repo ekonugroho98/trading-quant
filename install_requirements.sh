@@ -21,11 +21,18 @@ pip install "pandas>=2.2.3" "scipy>=1.15.0"
 # Step 4: Install arch (now numpy headers and build tools are available)
 # Note: arch needs numpy headers in build environment
 # Use --no-build-isolation to use numpy from venv instead of isolated build env
+# Try multiple versions due to PyPI metadata issues with 6.2.0
 echo "4️⃣ Installing arch..."
-pip install "arch==6.2.0" --no-build-isolation || {
-    echo "⚠️  Build dengan --no-build-isolation gagal, skip arch (kode sudah handle ImportError)"
-    echo "💡 Install arch nanti dengan: pip install arch==6.2.0 --no-build-isolation"
-}
+if pip install --no-cache-dir "arch==6.2.0" --no-build-isolation 2>/dev/null; then
+    echo "✅ arch 6.2.0 installed successfully"
+elif pip install --no-cache-dir "arch==6.3.0" --no-build-isolation 2>/dev/null; then
+    echo "✅ arch 6.3.0 installed successfully (fallback from 6.2.0)"
+elif pip install --no-cache-dir "arch>=6.2.0" --no-build-isolation 2>/dev/null; then
+    echo "✅ arch latest version installed successfully (fallback)"
+else
+    echo "⚠️  Build arch gagal, skip arch (kode sudah handle ImportError)"
+    echo "💡 Install arch manual dengan: pip install arch --no-build-isolation"
+fi
 
 # Step 5: Install ML libraries
 echo "5️⃣ Installing ML libraries..."
