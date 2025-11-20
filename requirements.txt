@@ -1,7 +1,7 @@
 # Core Data Processing
-pandas==2.1.4
-numpy==1.26.2
-scipy==1.11.4
+pandas>=2.2.3  # Updated for Python 3.13 compatibility (2.1.4 incompatible with Python 3.13)
+numpy>=1.26.2
+scipy>=1.11.4
 
 # Data Sources
 yfinance==0.2.32
