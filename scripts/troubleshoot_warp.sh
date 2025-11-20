@@ -14,7 +14,17 @@ echo ""
 
 # 2. Cek mode saat ini
 echo "2️⃣ Cek mode WARP saat ini:"
-warp-cli get-mode
+if warp-cli get-mode 2>/dev/null | grep -q .; then
+    warp-cli get-mode
+else
+    echo "   ⚠️  Command 'get-mode' tidak tersedia di versi ini"
+    echo "   💡 Cek command yang tersedia: warp-cli --help"
+    # Coba cek via settings
+    if warp-cli settings 2>/dev/null | grep -q .; then
+        echo "   Current settings:"
+        warp-cli settings 2>/dev/null | head -10
+    fi
+fi
 echo ""
 
 # 3. Cek IP address yang digunakan
@@ -29,17 +39,26 @@ echo ""
 # 4. Cek apakah mode adalah "warp" (full VPN)
 CURRENT_MODE=$(warp-cli get-mode 2>/dev/null | grep -i "mode" | awk '{print $NF}' || echo "unknown")
 
-if [ "$CURRENT_MODE" != "warp" ]; then
+if [ "$CURRENT_MODE" != "unknown" ] && [ "$CURRENT_MODE" != "warp" ]; then
     echo "⚠️  Mode saat ini: $CURRENT_MODE (bukan 'warp')"
     echo "   Mengubah ke mode 'warp' (full VPN)..."
-    warp-cli set-mode warp
-    echo "   ✅ Mode diubah ke 'warp'"
-    echo ""
-    echo "   🔄 Reconnecting..."
-    warp-cli disconnect
-    sleep 2
-    warp-cli connect
-    sleep 3
+    if warp-cli set-mode warp 2>/dev/null; then
+        echo "   ✅ Mode diubah ke 'warp'"
+        echo ""
+        echo "   🔄 Reconnecting..."
+        warp-cli disconnect
+        sleep 2
+        warp-cli connect
+        sleep 3
+        echo ""
+    else
+        echo "   ⚠️  Command 'set-mode' tidak tersedia"
+        echo "   💡 Versi WARP ini mungkin sudah full VPN mode"
+        echo ""
+    fi
+elif [ "$CURRENT_MODE" = "unknown" ]; then
+    echo "⚠️  Tidak bisa cek mode (command tidak tersedia)"
+    echo "   💡 Versi WARP ini mungkin sudah full VPN mode otomatis"
     echo ""
 else
     echo "✅ Mode sudah benar: $CURRENT_MODE"
@@ -65,28 +84,42 @@ BINANCE_RESPONSE=$(curl -s https://api.binance.com/api/v3/ping)
 echo "   Response: $BINANCE_RESPONSE"
 echo ""
 
-if echo "$BINANCE_RESPONSE" | grep -q "code.*0"; then
-    echo "✅ SUCCESS! Binance API dapat diakses"
-elif echo "$BINANCE_RESPONSE" | grep -qi "restricted"; then
-    echo "❌ Masih error: Restricted location"
+# Cek response - prioritas: restricted dulu, baru code 0
+if echo "$BINANCE_RESPONSE" | grep -qi "restricted"; then
+    echo "❌ ERROR: Masih restricted location meskipun IP sudah Cloudflare"
     echo ""
-    echo "💡 Solusi tambahan:"
-    echo "   1. Coba gunakan WARP+ dengan license key (gratis):"
-    echo "      - Daftar di: https://1.1.1.1/"
-    echo "      - Dapatkan license key"
+    echo "🔍 Analisis:"
+    echo "   - WARP sudah connected ✅"
+    echo "   - IP sudah Cloudflare (US) ✅"
+    echo "   - Tapi Binance masih detect sebagai restricted ❌"
+    echo ""
+    echo "💡 Solusi (coba secara berurutan):"
+    echo ""
+    echo "   1️⃣  Gunakan WARP+ dengan License Key (RECOMMENDED):"
+    echo "      - Daftar gratis di: https://1.1.1.1/"
+    echo "      - Download WARP app di mobile, dapatkan license key"
+    echo "      - Atau gunakan: https://github.com/ViRb3/wgcf (generate WARP+ key)"
     echo "      - warp-cli set-license YOUR_LICENSE_KEY"
-    echo "      - warp-cli set-mode warp+"
     echo "      - warp-cli disconnect && warp-cli connect"
     echo ""
-    echo "   2. Atau coba restart service:"
-    echo "      sudo systemctl restart warp-svc"
-    echo "      warp-cli disconnect && warp-cli connect"
+    echo "   2️⃣  Coba VPN/Proxy Alternatif:"
+    echo "      - Install VPN lain (OpenVPN, WireGuard)"
+    echo "      - Atau gunakan proxy server"
     echo ""
-    echo "   3. Cek apakah IP sudah berubah:"
-    echo "      curl https://api.ipify.org"
-    echo "      curl https://ipinfo.io/json"
+    echo "   3️⃣  Gunakan Binance Spot API (mungkin tidak di-block):"
+    echo "      - Ubah BINANCE_API_TYPE di config.py ke 'spot'"
+    echo "      - Spot API mungkin tidak seketat Futures API"
+    echo ""
+    echo "   4️⃣  Contact Binance Support:"
+    echo "      - Jika yakin IP sudah benar (Cloudflare US)"
+    echo "      - Mungkin perlu whitelist IP atau account"
+    echo ""
+elif echo "$BINANCE_RESPONSE" | grep -q '"code":\s*0' && ! echo "$BINANCE_RESPONSE" | grep -qi "restricted"; then
+    echo "✅ SUCCESS! Binance API dapat diakses"
+    echo "   Response: $BINANCE_RESPONSE"
 else
     echo "⚠️  Response tidak dikenali: $BINANCE_RESPONSE"
+    echo "   Cek manual: curl https://api.binance.com/api/v3/ping"
 fi
 
 echo ""
