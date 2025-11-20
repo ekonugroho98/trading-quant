@@ -49,9 +49,26 @@ HTTP 451: Service unavailable from a restricted location
 ## 📋 Negara/Jurisdiction yang Di-Block
 
 Binance memblokir akses dari:
-- **United States** (termasuk semua state)
-- **United Kingdom** (terbatas, beberapa fitur)
+- **United States** (termasuk semua state) ❌
+- **United Kingdom** (terbatas, beberapa fitur) ⚠️
 - Beberapa negara dengan regulasi ketat lainnya
+
+### Status India
+
+**India: ✅ DAPAT DIAKSES** (sejak 2024)
+
+Binance telah kembali beroperasi di India setelah:
+- Menyelesaikan registrasi dengan **FIU-IND** (Financial Intelligence Unit India)
+- Membayar denda $2.25 juta atas pelanggaran sebelumnya
+- Mematuhi peraturan anti-pencucian uang
+
+**Catatan penting untuk India:**
+- ✅ Binance dapat diakses dari India
+- ⚠️ Pajak 30% atas keuntungan trading crypto
+- ⚠️ TDS 1% untuk transaksi di atas ₹10,000
+- ⚠️ Wajib mematuhi peraturan pajak dan hukum setempat
+
+**Kesimpulan:** Server di India **TIDAK di-block** oleh Binance API, berbeda dengan US.
 
 ## ✅ Solusi
 
@@ -59,6 +76,7 @@ Binance memblokir akses dari:
 
 **Recommended locations:**
 - **Singapore** ✅ (Binance memiliki operasi di sini)
+- **India** ✅ (Dapat diakses sejak 2024, setelah registrasi FIU-IND)
 - **Malaysia** ✅
 - **Thailand** ✅
 - **Indonesia** ✅
@@ -70,6 +88,7 @@ Binance memblokir akses dari:
 
 **Best practice:**
 - VPN ke **Singapore** (paling recommended)
+- VPN ke **India** ✅ (juga dapat diakses)
 - VPN ke negara Asia Tenggara lainnya
 - **JANGAN** gunakan VPN ke US (masih akan di-block)
 
