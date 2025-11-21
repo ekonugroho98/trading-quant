@@ -17,6 +17,7 @@ import json
 import requests
 import subprocess
 import re
+import threading
 from typing import Optional, List, Dict
 from src.utils.config import ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SYMBOL as DEFAULT_SYMBOL
 
@@ -38,6 +39,9 @@ class TradingBot:
         self.active_users = set()  # Set untuk menyimpan chat_id user yang sudah /start
         self.user_trading_styles = {}  # Dictionary untuk menyimpan TRADING_STYLE per user
         self.valid_trading_styles = ["SCALPING", "DAY_TRADING", "INTRADAY_TRADING", "SWING_TRADING", "POSITION_TRADING"]
+        # State untuk analisis kontinyu (loop mode)
+        self.continuous_analysis = {}  # {chat_id: {'running': bool, 'thread': Thread, 'params': dict, 'interval': int}}
+        self.continuous_analysis_lock = threading.Lock()  # Lock untuk thread safety
     
     def get_updates(self) -> Optional[dict]:
         """
@@ -763,6 +767,16 @@ class TradingBot:
             self.handle_settings_command(chat_id)
             return
         
+        # Handle /analyze_cycle command untuk analisis siklus (tanpa interval, langsung ulang)
+        if text.startswith('/analyze_cycle') or text.startswith('/analyze_repeat'):
+            self.handle_analyze_cycle_command(chat_id, text)
+            return
+        
+        # Handle /analyze_loop command untuk analisis kontinyu (harus sebelum /analyze)
+        if text.startswith('/analyze_loop') or text.startswith('/analyze_watch') or text.startswith('/analyze_continuous'):
+            self.handle_analyze_loop_command(chat_id, text)
+            return
+        
         # Handle /screen command untuk coin screening
         if text.startswith('/screen') or text.startswith('/screening'):
             self.handle_screening_command(chat_id, text)
@@ -827,11 +841,18 @@ class TradingBot:
         print(f"🔍 [handle_message] Parsed symbol: '{text}' -> '{symbol}'")
         
         if symbol:
-            # Valid symbol, jalankan analisis
+            # Valid symbol, jalankan analisis di thread terpisah (non-blocking)
             print(f"📨 [handle_message] Valid symbol detected: {text} -> {symbol} from chat {chat_id}")
-            print(f"🚀 [handle_message] Starting analysis for {symbol}...")
-            result = self.run_analysis(symbol, chat_id)
-            print(f"{'✅' if result else '❌'} [handle_message] Analysis completed for {symbol}, result: {result}")
+            print(f"🚀 [handle_message] Starting analysis for {symbol} in background thread...")
+            
+            # Jalankan di thread terpisah agar tidak blocking dan bisa berjalan bersamaan dengan analyze_cycle
+            thread = threading.Thread(
+                target=self.run_analysis,
+                args=(symbol, chat_id),
+                daemon=True
+            )
+            thread.start()
+            print(f"✅ [handle_message] Analysis thread started for {symbol}")
         else:
             # Invalid format, kirim help message
             help_text = (
@@ -891,6 +912,19 @@ class TradingBot:
             "• <code>/analyze [days] [top_n] [max_coins] [direction]</code> - Analisis screened coins\n"
             "  Contoh: <code>/analyze</code> (90 hari, top 5, analisis 5 coins)\n"
             "          <code>/analyze 7 10 3</code> (7 hari, top 10, analisis 3 coins)\n"
+            "• <code>/analyze_loop start [days] [top_n] [max_coins] [direction] [interval]</code> - Analisis kontinyu (berdasarkan waktu)\n"
+            "  Contoh: <code>/analyze_loop start</code> (default: 90 hari, interval 60 menit)\n"
+            "          <code>/analyze_loop start 7 10 5 both 30</code> (interval 30 menit)\n"
+            "          <code>/analyze_loop stop</code> - Hentikan\n"
+            "          <code>/analyze_loop status</code> - Status\n"
+            "• <code>/analyze_cycle start [days] [top_n] [max_coins] [direction] [noscreen/all]</code> - Analisis siklus\n"
+            "  Contoh: <code>/analyze_cycle start</code> (screening top 5, analisis 5 coins)\n"
+            "          <code>/analyze_cycle start noscreen</code> (analisis SEMUA coin dari JSON)\n"
+            "          <code>/analyze_cycle start 7 10 5 both</code> (screening top 10, analisis 5 coins)\n"
+            "          <code>/analyze_cycle start noscreen 50</code> (analisis 50 coins pertama dari JSON)\n"
+            "          <code>/analyze_cycle stop</code> - Hentikan\n"
+            "          <code>/analyze_cycle status</code> - Status\n"
+            "  💡 Setelah semua coin selesai, langsung mulai lagi dari awal (tanpa delay)\n"
             "• <code>/settings</code> - Lihat pengaturan\n\n"
             "🚀 <b>Mulai dengan mengirim symbol coin atau gunakan /screen untuk mencari peluang!</b>"
         )
@@ -1019,6 +1053,19 @@ class TradingBot:
                 "          <code>/analyze 7</code> (7 hari, top 5, analisis 5 coins)\n"
                 "          <code>/analyze 7 10 3</code> (7 hari, top 10, analisis 3 coins)\n"
                 "          <code>/analyze 7 10 3 long</code> (long only)\n"
+                "• <code>/analyze_loop start [days] [top_n] [max_coins] [direction] [interval]</code> - Analisis kontinyu (berdasarkan waktu)\n"
+                "  Contoh: <code>/analyze_loop start</code> (default: 90 hari, interval 60 menit)\n"
+                "          <code>/analyze_loop start 7 10 5 both 30</code> (interval 30 menit)\n"
+                "          <code>/analyze_loop stop</code> - Hentikan\n"
+                "          <code>/analyze_loop status</code> - Status\n"
+                "• <code>/analyze_cycle start [days] [top_n] [max_coins] [direction] [noscreen/all]</code> - Analisis siklus\n"
+                "  Contoh: <code>/analyze_cycle start</code> (screening top 5, analisis 5 coins)\n"
+                "          <code>/analyze_cycle start noscreen</code> (analisis SEMUA coin dari JSON)\n"
+                "          <code>/analyze_cycle start 7 10 5 both</code> (screening top 10, analisis 5 coins)\n"
+                "          <code>/analyze_cycle start noscreen 50</code> (analisis 50 coins pertama dari JSON)\n"
+                "          <code>/analyze_cycle stop</code> - Hentikan\n"
+                "          <code>/analyze_cycle status</code> - Status\n"
+                "  💡 Setelah semua coin selesai, langsung mulai lagi dari awal (tanpa delay)\n"
                 "• <code>/settings</code> - Lihat pengaturan\n"
                 "• Kirim symbol coin untuk analisis\n\n"
                 "💡 <b>Catatan:</b> DAYS_BACK otomatis disesuaikan berdasarkan TRADING_STYLE"
@@ -1300,6 +1347,615 @@ class TradingBot:
             import traceback
             traceback.print_exc()
     
+    def handle_analyze_loop_command(self, chat_id: str, text: str):
+        """
+        Handle /analyze_loop command untuk analisis kontinyu (berulang sampai stop)
+        
+        Format:
+        - /analyze_loop start [days] [top_n] [max_coins] [direction] [interval_minutes]
+        - /analyze_loop stop
+        - /analyze_loop status
+        
+        Args:
+            chat_id: Chat ID dari user
+            text: Command text
+        """
+        try:
+            parts = text.split()
+            command = parts[0]  # /analyze_loop, /analyze_watch, atau /analyze_continuous
+            
+            if len(parts) > 1 and parts[1].lower() == 'stop':
+                # Stop analisis kontinyu
+                with self.continuous_analysis_lock:
+                    if chat_id in self.continuous_analysis:
+                        self.continuous_analysis[chat_id]['running'] = False
+                        thread = self.continuous_analysis[chat_id].get('thread')
+                        if thread and thread.is_alive():
+                            # Tunggu thread selesai (max 5 detik)
+                            thread.join(timeout=5)
+                        del self.continuous_analysis[chat_id]
+                        self.send_message(
+                            chat_id,
+                            "🛑 <b>Analisis Kontinyu Dihentikan</b>\n\n"
+                            "✅ Loop analisis telah dihentikan."
+                        )
+                        print(f"🛑 [analyze_loop] Stopped continuous analysis for chat_id={chat_id}")
+                    else:
+                        self.send_message(
+                            chat_id,
+                            "⚠️ <b>Tidak ada analisis kontinyu yang berjalan</b>\n\n"
+                            "💡 Gunakan <code>/analyze_loop start</code> untuk memulai."
+                        )
+                return
+            
+            if len(parts) > 1 and parts[1].lower() == 'status':
+                # Cek status analisis kontinyu
+                with self.continuous_analysis_lock:
+                    if chat_id in self.continuous_analysis:
+                        state = self.continuous_analysis[chat_id]
+                        params = state.get('params', {})
+                        interval = state.get('interval', 60)
+                        running = state.get('running', False)
+                        
+                        status_msg = (
+                            f"📊 <b>Status Analisis Kontinyu</b>\n\n"
+                            f"🔄 Status: {'🟢 Berjalan' if running else '🔴 Berhenti'}\n"
+                            f"⏱️  Interval: {interval} menit\n"
+                            f"📅 Days: {params.get('days', 90)}\n"
+                            f"📊 Top N: {params.get('top_n', 5)}\n"
+                            f"🔢 Max Coins: {params.get('max_coins', 'Semua')}\n"
+                            f"📈 Direction: {params.get('direction', 'both')}\n\n"
+                            f"💡 Kirim <code>/analyze_loop stop</code> untuk menghentikan."
+                        )
+                        self.send_message(chat_id, status_msg)
+                    else:
+                        self.send_message(
+                            chat_id,
+                            "⚠️ <b>Tidak ada analisis kontinyu yang berjalan</b>\n\n"
+                            "💡 Gunakan <code>/analyze_loop start</code> untuk memulai."
+                        )
+                return
+            
+            # Start analisis kontinyu
+            # Parse parameters
+            # Format: /analyze_loop start [days] [top_n] [max_coins] [direction] [interval_minutes]
+            days = 90
+            top_n = 5
+            max_coins = None
+            trade_direction = "both"
+            interval_minutes = 60  # Default: 60 menit (1 jam)
+            
+            # Cek apakah sudah ada analisis kontinyu yang berjalan
+            with self.continuous_analysis_lock:
+                if chat_id in self.continuous_analysis and self.continuous_analysis[chat_id].get('running', False):
+                    self.send_message(
+                        chat_id,
+                        "⚠️ <b>Analisis kontinyu sudah berjalan!</b>\n\n"
+                        "💡 Kirim <code>/analyze_loop stop</code> untuk menghentikan yang sedang berjalan,\n"
+                        "   atau <code>/analyze_loop status</code> untuk melihat status."
+                    )
+                    return
+            
+            # Parse parameters dari command
+            if len(parts) > 2:  # Ada parameter setelah "start"
+                try:
+                    if parts[2].isdigit():
+                        days = int(parts[2])
+                        if not (1 <= days <= 365):
+                            days = 90
+                except:
+                    pass
+            
+            if len(parts) > 3:
+                try:
+                    top_n = int(parts[3])
+                    if top_n < 1 or top_n > 200:
+                        top_n = 5
+                except:
+                    pass
+            
+            if len(parts) > 4:
+                try:
+                    max_coins = int(parts[4])
+                    if max_coins < 1:
+                        max_coins = None
+                    elif max_coins > 200:
+                        max_coins = 200
+                except:
+                    pass
+            
+            if len(parts) > 5:
+                direction_param = parts[5].lower()
+                if direction_param in ["long", "short", "both"]:
+                    trade_direction = direction_param
+            
+            if len(parts) > 6:
+                try:
+                    interval_minutes = int(parts[6])
+                    if interval_minutes < 5:  # Minimum 5 menit
+                        interval_minutes = 5
+                    elif interval_minutes > 1440:  # Maximum 24 jam
+                        interval_minutes = 1440
+                except:
+                    pass
+            
+            # Set default max_coins jika tidak di-specify
+            if max_coins is None:
+                max_coins = top_n
+            
+            # Simpan parameter
+            params = {
+                'days': days,
+                'top_n': top_n,
+                'max_coins': max_coins,
+                'direction': trade_direction,
+                'skip_screening': False  # Default: dengan screening
+            }
+            
+            # Cek apakah ada parameter "noscreen" atau "direct"
+            if any(p.lower() in ["noscreen", "direct", "skip"] for p in parts):
+                params['skip_screening'] = True
+            
+            # Start thread untuk analisis kontinyu
+            with self.continuous_analysis_lock:
+                self.continuous_analysis[chat_id] = {
+                    'running': True,
+                    'thread': None,
+                    'params': params,
+                    'interval': interval_minutes
+                }
+            
+            # Buat thread untuk menjalankan analisis kontinyu
+            thread = threading.Thread(
+                target=self._run_continuous_analysis,
+                args=(chat_id, params, interval_minutes),
+                daemon=True
+            )
+            thread.start()
+            
+            with self.continuous_analysis_lock:
+                self.continuous_analysis[chat_id]['thread'] = thread
+            
+            # Kirim konfirmasi
+            self.send_message(
+                chat_id,
+                f"🔄 <b>Analisis Kontinyu Dimulai!</b>\n\n"
+                f"⏱️  Interval: {interval_minutes} menit\n"
+                f"📅 Periode: {days} hari\n"
+                f"📊 Top N: {top_n}\n"
+                f"🔢 Max Coins: {max_coins if max_coins else 'Semua'}\n"
+                f"📈 Direction: {trade_direction}\n"
+                f"{'🚫 Skip Screening: Ya' if params['skip_screening'] else '✅ Screening: Aktif'}\n\n"
+                f"🔄 Analisis akan berjalan terus menerus setiap {interval_minutes} menit.\n"
+                f"💡 Kirim <code>/analyze_loop stop</code> untuk menghentikan.\n"
+                f"📊 Kirim <code>/analyze_loop status</code> untuk melihat status."
+            )
+            
+            print(f"🔄 [analyze_loop] Started continuous analysis for chat_id={chat_id}, interval={interval_minutes}min")
+            
+        except Exception as e:
+            error_msg = f"❌ Error saat memulai analisis kontinyu: {str(e)[:200]}"
+            self.send_message(chat_id, error_msg)
+            print(f"Error in handle_analyze_loop_command: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _run_continuous_analysis(self, chat_id: str, params: dict, interval_minutes: int):
+        """
+        Thread function untuk menjalankan analisis kontinyu
+        
+        Args:
+            chat_id: Chat ID dari user
+            params: Parameter analisis (days, top_n, max_coins, direction, skip_screening)
+            interval_minutes: Interval antar analisis (dalam menit)
+        """
+        try:
+            from src.analysis.analyze_screened_coins import analyze_screened_coins
+            
+            iteration = 0
+            
+            while True:
+                # Cek apakah masih running
+                with self.continuous_analysis_lock:
+                    if chat_id not in self.continuous_analysis:
+                        break
+                    if not self.continuous_analysis[chat_id].get('running', False):
+                        break
+                
+                iteration += 1
+                interval_seconds = interval_minutes * 60
+                
+                print(f"🔄 [analyze_loop] Starting iteration {iteration} for chat_id={chat_id}")
+                
+                # Kirim notifikasi mulai iterasi
+                self.send_message(
+                    chat_id,
+                    f"🔄 <b>Analisis Kontinyu - Iterasi #{iteration}</b>\n\n"
+                    f"⏱️  Interval: {interval_minutes} menit\n"
+                    f"📅 Memulai analisis..."
+                )
+                
+                # Jalankan analisis
+                try:
+                    trading_style = "DAY_TRADING"  # Default untuk analisis kontinyu
+                    
+                    results = analyze_screened_coins(
+                        coins=None,
+                        days=params['days'],
+                        top_n=params['top_n'],
+                        trade_direction=params['direction'],
+                        max_coins=params['max_coins'],
+                        send_to_telegram=True,
+                        trading_style=trading_style,
+                        skip_screening=params['skip_screening']
+                    )
+                    
+                    # Kirim summary iterasi
+                    if results:
+                        success_count = sum(1 for r in results if r.get('success', False))
+                        self.send_message(
+                            chat_id,
+                            f"✅ <b>Iterasi #{iteration} Selesai</b>\n\n"
+                            f"📊 Total: {len(results)} coins\n"
+                            f"✅ Berhasil: {success_count}\n"
+                            f"❌ Gagal: {len(results) - success_count}\n\n"
+                            f"⏱️  Analisis berikutnya dalam {interval_minutes} menit..."
+                        )
+                    else:
+                        self.send_message(
+                            chat_id,
+                            f"⚠️ <b>Iterasi #{iteration} - Tidak ada hasil</b>\n\n"
+                            f"⏱️  Analisis berikutnya dalam {interval_minutes} menit..."
+                        )
+                    
+                except Exception as e:
+                    print(f"❌ [analyze_loop] Error in iteration {iteration}: {e}")
+                    self.send_message(
+                        chat_id,
+                        f"❌ <b>Error pada Iterasi #{iteration}</b>\n\n"
+                        f"Error: {str(e)[:200]}\n\n"
+                        f"⏱️  Akan mencoba lagi dalam {interval_minutes} menit..."
+                    )
+                
+                # Tunggu sampai interval selesai atau stop
+                for _ in range(interval_seconds):
+                    time.sleep(1)
+                    # Cek setiap detik apakah masih running
+                    with self.continuous_analysis_lock:
+                        if chat_id not in self.continuous_analysis:
+                            return
+                        if not self.continuous_analysis[chat_id].get('running', False):
+                            print(f"🛑 [analyze_loop] Stopped by user for chat_id={chat_id}")
+                            return
+                
+        except Exception as e:
+            print(f"❌ [analyze_loop] Fatal error in continuous analysis thread: {e}")
+            import traceback
+            traceback.print_exc()
+            # Hapus dari state jika error fatal
+            with self.continuous_analysis_lock:
+                if chat_id in self.continuous_analysis:
+                    del self.continuous_analysis[chat_id]
+            self.send_message(
+                chat_id,
+                f"❌ <b>Error Fatal pada Analisis Kontinyu</b>\n\n"
+                f"Error: {str(e)[:200]}\n\n"
+                f"🛑 Analisis kontinyu telah dihentikan."
+            )
+    
+    def handle_analyze_cycle_command(self, chat_id: str, text: str):
+        """
+        Handle /analyze_cycle command untuk analisis siklus (setelah semua coin selesai, langsung ulang dari awal)
+        
+        Format:
+        - /analyze_cycle start [days] [top_n] [max_coins] [direction] [noscreen/all]
+        - /analyze_cycle stop
+        - /analyze_cycle status
+        
+        Contoh:
+        - /analyze_cycle start → Screening top 5, analisis 5 coins
+        - /analyze_cycle start noscreen → Analisis SEMUA coin dari JSON (tanpa screening)
+        - /analyze_cycle start 90 10 10 both noscreen → Analisis 10 coins pertama dari JSON
+        
+        Args:
+            chat_id: Chat ID dari user
+            text: Command text
+        """
+        try:
+            parts = text.split()
+            command = parts[0]  # /analyze_cycle atau /analyze_repeat
+            
+            if len(parts) > 1 and parts[1].lower() == 'stop':
+                # Stop analisis siklus
+                with self.continuous_analysis_lock:
+                    if chat_id in self.continuous_analysis:
+                        self.continuous_analysis[chat_id]['running'] = False
+                        thread = self.continuous_analysis[chat_id].get('thread')
+                        if thread and thread.is_alive():
+                            thread.join(timeout=5)
+                        del self.continuous_analysis[chat_id]
+                        self.send_message(
+                            chat_id,
+                            "🛑 <b>Analisis Siklus Dihentikan</b>\n\n"
+                            "✅ Siklus analisis telah dihentikan."
+                        )
+                        print(f"🛑 [analyze_cycle] Stopped cycle analysis for chat_id={chat_id}")
+                    else:
+                        self.send_message(
+                            chat_id,
+                            "⚠️ <b>Tidak ada analisis siklus yang berjalan</b>\n\n"
+                            "💡 Gunakan <code>/analyze_cycle start</code> untuk memulai."
+                        )
+                return
+            
+            if len(parts) > 1 and parts[1].lower() == 'status':
+                # Cek status analisis siklus
+                with self.continuous_analysis_lock:
+                    if chat_id in self.continuous_analysis:
+                        state = self.continuous_analysis[chat_id]
+                        params = state.get('params', {})
+                        running = state.get('running', False)
+                        cycle_count = state.get('cycle_count', 0)
+                        
+                        status_msg = (
+                            f"🔄 <b>Status Analisis Siklus</b>\n\n"
+                            f"🔄 Status: {'🟢 Berjalan' if running else '🔴 Berhenti'}\n"
+                            f"🔁 Siklus Selesai: {cycle_count}\n"
+                            f"📅 Days: {params.get('days', 90)}\n"
+                            f"📊 Top N: {params.get('top_n', 5)}\n"
+                            f"🔢 Max Coins: {params.get('max_coins', 'Semua')}\n"
+                            f"📈 Direction: {params.get('direction', 'both')}\n\n"
+                            f"💡 Mode: Setelah semua coin selesai, langsung mulai lagi dari awal\n"
+                            f"💡 Kirim <code>/analyze_cycle stop</code> untuk menghentikan."
+                        )
+                        self.send_message(chat_id, status_msg)
+                    else:
+                        self.send_message(
+                            chat_id,
+                            "⚠️ <b>Tidak ada analisis siklus yang berjalan</b>\n\n"
+                            "💡 Gunakan <code>/analyze_cycle start</code> untuk memulai."
+                        )
+                return
+            
+            # Start analisis siklus
+            # Parse parameters
+            # Format: /analyze_cycle start [days] [top_n] [max_coins] [direction]
+            days = 90
+            top_n = 5
+            max_coins = None
+            trade_direction = "both"
+            
+            # Cek apakah sudah ada analisis siklus yang berjalan
+            with self.continuous_analysis_lock:
+                if chat_id in self.continuous_analysis and self.continuous_analysis[chat_id].get('running', False):
+                    self.send_message(
+                        chat_id,
+                        "⚠️ <b>Analisis siklus sudah berjalan!</b>\n\n"
+                        "💡 Kirim <code>/analyze_cycle stop</code> untuk menghentikan yang sedang berjalan,\n"
+                        "   atau <code>/analyze_cycle status</code> untuk melihat status."
+                    )
+                    return
+            
+            # Parse parameters dari command
+            if len(parts) > 2:  # Ada parameter setelah "start"
+                try:
+                    if parts[2].isdigit():
+                        days = int(parts[2])
+                        if not (1 <= days <= 365):
+                            days = 90
+                except:
+                    pass
+            
+            if len(parts) > 3:
+                try:
+                    top_n = int(parts[3])
+                    if top_n < 1 or top_n > 200:
+                        top_n = 5
+                except:
+                    pass
+            
+            if len(parts) > 4:
+                try:
+                    max_coins = int(parts[4])
+                    if max_coins < 1:
+                        max_coins = None
+                    elif max_coins > 200:
+                        max_coins = 200
+                except:
+                    pass
+            
+            if len(parts) > 5:
+                direction_param = parts[5].lower()
+                if direction_param in ["long", "short", "both"]:
+                    trade_direction = direction_param
+            
+            # Cek apakah ada parameter "noscreen" atau "direct" atau "all"
+            skip_screening = any(p.lower() in ["noscreen", "direct", "skip", "all"] for p in parts)
+            
+            # Set default max_coins berdasarkan skip_screening
+            if skip_screening:
+                # Jika skip_screening, default max_coins = None (analisis semua)
+                if max_coins is None:
+                    max_coins = None  # Analisis semua coin dari JSON
+            else:
+                # Jika dengan screening, default max_coins = top_n
+                if max_coins is None:
+                    max_coins = top_n
+            
+            # Simpan parameter
+            params = {
+                'days': days,
+                'top_n': top_n,
+                'max_coins': max_coins,
+                'direction': trade_direction,
+                'skip_screening': skip_screening
+            }
+            
+            # Start thread untuk analisis siklus
+            with self.continuous_analysis_lock:
+                self.continuous_analysis[chat_id] = {
+                    'running': True,
+                    'thread': None,
+                    'params': params,
+                    'cycle_count': 0,
+                    'mode': 'cycle'  # Mode cycle (bukan interval)
+                }
+            
+            # Buat thread untuk menjalankan analisis siklus
+            thread = threading.Thread(
+                target=self._run_cycle_analysis,
+                args=(chat_id, params),
+                daemon=True
+            )
+            thread.start()
+            
+            with self.continuous_analysis_lock:
+                self.continuous_analysis[chat_id]['thread'] = thread
+            
+            # Kirim konfirmasi
+            if skip_screening:
+                coins_info = f"🔢 Max Coins: {max_coins if max_coins else 'SEMUA coin dari JSON'}"
+            else:
+                coins_info = f"📊 Top N: {top_n}\n🔢 Max Coins: {max_coins if max_coins else top_n}"
+            
+            self.send_message(
+                chat_id,
+                f"🔄 <b>Analisis Siklus Dimulai!</b>\n\n"
+                f"📅 Periode: {days} hari\n"
+                f"{coins_info}\n"
+                f"📈 Direction: {trade_direction}\n"
+                f"{'🚫 Skip Screening: Ya (Analisis semua coin dari JSON)' if skip_screening else '✅ Screening: Aktif (Top N coins)'}\n\n"
+                f"🔄 Mode: Setelah semua coin selesai dianalisis, langsung mulai lagi dari awal\n"
+                f"💡 Kirim <code>/analyze_cycle stop</code> untuk menghentikan.\n"
+                f"📊 Kirim <code>/analyze_cycle status</code> untuk melihat status."
+            )
+            
+            print(f"🔄 [analyze_cycle] Started cycle analysis for chat_id={chat_id}")
+            
+        except Exception as e:
+            error_msg = f"❌ Error saat memulai analisis siklus: {str(e)[:200]}"
+            self.send_message(chat_id, error_msg)
+            print(f"Error in handle_analyze_cycle_command: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _run_cycle_analysis(self, chat_id: str, params: dict):
+        """
+        Thread function untuk menjalankan analisis siklus (setelah semua coin selesai, langsung ulang)
+        
+        Args:
+            chat_id: Chat ID dari user
+            params: Parameter analisis (days, top_n, max_coins, direction, skip_screening)
+        """
+        try:
+            from src.analysis.analyze_screened_coins import analyze_screened_coins
+            
+            cycle_count = 0
+            
+            while True:
+                # Cek apakah masih running
+                with self.continuous_analysis_lock:
+                    if chat_id not in self.continuous_analysis:
+                        break
+                    if not self.continuous_analysis[chat_id].get('running', False):
+                        break
+                
+                cycle_count += 1
+                
+                # Update cycle count di state
+                with self.continuous_analysis_lock:
+                    if chat_id in self.continuous_analysis:
+                        self.continuous_analysis[chat_id]['cycle_count'] = cycle_count
+                
+                print(f"🔄 [analyze_cycle] Starting cycle #{cycle_count} for chat_id={chat_id}")
+                
+                # Kirim notifikasi mulai siklus
+                self.send_message(
+                    chat_id,
+                    f"🔄 <b>Analisis Siklus - Siklus #{cycle_count}</b>\n\n"
+                    f"📅 Memulai analisis semua coin..."
+                )
+                
+                # Jalankan analisis
+                try:
+                    trading_style = "DAY_TRADING"  # Default untuk analisis siklus
+                    
+                    results = analyze_screened_coins(
+                        coins=None,
+                        days=params['days'],
+                        top_n=params['top_n'],
+                        trade_direction=params['direction'],
+                        max_coins=params['max_coins'],
+                        send_to_telegram=True,
+                        trading_style=trading_style,
+                        skip_screening=params['skip_screening']
+                    )
+                    
+                    # Kirim summary siklus
+                    if results:
+                        success_count = sum(1 for r in results if r.get('success', False))
+                        self.send_message(
+                            chat_id,
+                            f"✅ <b>Siklus #{cycle_count} Selesai</b>\n\n"
+                            f"📊 Total: {len(results)} coins\n"
+                            f"✅ Berhasil: {success_count}\n"
+                            f"❌ Gagal: {len(results) - success_count}\n\n"
+                            f"🔄 Memulai siklus berikutnya..."
+                        )
+                    else:
+                        self.send_message(
+                            chat_id,
+                            f"⚠️ <b>Siklus #{cycle_count} - Tidak ada hasil</b>\n\n"
+                            f"🔄 Memulai siklus berikutnya..."
+                        )
+                    
+                    # TIDAK ADA DELAY - langsung mulai siklus berikutnya
+                    # Cek apakah masih running sebelum lanjut
+                    with self.continuous_analysis_lock:
+                        if chat_id not in self.continuous_analysis:
+                            break
+                        if not self.continuous_analysis[chat_id].get('running', False):
+                            print(f"🛑 [analyze_cycle] Stopped by user for chat_id={chat_id}")
+                            break
+                    
+                    # Lanjut ke siklus berikutnya (tanpa delay)
+                    continue
+                    
+                except Exception as e:
+                    print(f"❌ [analyze_cycle] Error in cycle {cycle_count}: {e}")
+                    self.send_message(
+                        chat_id,
+                        f"❌ <b>Error pada Siklus #{cycle_count}</b>\n\n"
+                        f"Error: {str(e)[:200]}\n\n"
+                        f"🔄 Akan mencoba siklus berikutnya..."
+                    )
+                    
+                    # Cek apakah masih running sebelum retry
+                    with self.continuous_analysis_lock:
+                        if chat_id not in self.continuous_analysis:
+                            break
+                        if not self.continuous_analysis[chat_id].get('running', False):
+                            print(f"🛑 [analyze_cycle] Stopped by user for chat_id={chat_id}")
+                            break
+                    
+                    # Lanjut ke siklus berikutnya meskipun ada error
+                    continue
+                
+        except Exception as e:
+            print(f"❌ [analyze_cycle] Fatal error in cycle analysis thread: {e}")
+            import traceback
+            traceback.print_exc()
+            # Hapus dari state jika error fatal
+            with self.continuous_analysis_lock:
+                if chat_id in self.continuous_analysis:
+                    del self.continuous_analysis[chat_id]
+            self.send_message(
+                chat_id,
+                f"❌ <b>Error Fatal pada Analisis Siklus</b>\n\n"
+                f"Error: {str(e)[:200]}\n\n"
+                f"🛑 Analisis siklus telah dihentikan."
+            )
+    
     def format_screening_results(self, results: list) -> str:
         """
         Format screening results untuk Telegram (fallback jika telegram_bot tidak tersedia)
@@ -1461,6 +2117,15 @@ class TradingBot:
             except KeyboardInterrupt:
                 print("\n🛑 Stopping bot...")
                 self.running = False
+                # Stop semua analisis kontinyu
+                with self.continuous_analysis_lock:
+                    for chat_id in list(self.continuous_analysis.keys()):
+                        self.continuous_analysis[chat_id]['running'] = False
+                        thread = self.continuous_analysis[chat_id].get('thread')
+                        if thread and thread.is_alive():
+                            thread.join(timeout=2)
+                    self.continuous_analysis.clear()
+                print("✅ All continuous analysis threads stopped")
                 break
             except Exception as e:
                 print(f"⚠️  Error in polling loop: {e}")

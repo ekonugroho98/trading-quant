@@ -685,7 +685,7 @@ def filter_analysis_results_by_metrics(results: List[Dict], print_summary: bool 
     KRITERIA KETAT (HARUS SEMUA MEMENUHI):
     
     ML Metrics (WAJIB):
-    - Accuracy >= 50% (minimal sama dengan random)
+    - Accuracy: TIDAK DIVALIDASI (berapapun tetap lolos)
     - Sharpe Ratio >= 0.5 (risk-adjusted return bagus)
     - Expected Value > 0% (positif expected return)
     
@@ -710,7 +710,7 @@ def filter_analysis_results_by_metrics(results: List[Dict], print_summary: bool 
     skipped_count = 0
     
     # KRITERIA KETAT - HARUS SEMUA MEMENUHI
-    min_accuracy = 50.0
+    # Accuracy TIDAK DIVALIDASI - berapapun tetap lolos
     min_sharpe_ml = 0.5
     min_expected_value = 0.0  # Harus > 0 (positif)
     
@@ -728,7 +728,7 @@ def filter_analysis_results_by_metrics(results: List[Dict], print_summary: bool 
         print("=" * 70)
         print("📋 Semua kriteria berikut HARUS dipenuhi:")
         print(f"   ML Metrics:")
-        print(f"   - Accuracy >= {min_accuracy}%")
+        print(f"   - Accuracy: TIDAK DIVALIDASI (berapapun tetap lolos)")
         print(f"   - Sharpe Ratio >= {min_sharpe_ml}")
         print(f"   - Expected Value > {min_expected_value}%")
         print(f"   Backtesting Metrics:")
@@ -761,30 +761,33 @@ def filter_analysis_results_by_metrics(results: List[Dict], print_summary: bool 
         sharpe_ml = ml_prediction.get('sharpe_ratio')
         expected_value = ml_prediction.get('expected_value')
         
-        # Validasi nilai
-        if accuracy is None or sharpe_ml is None or expected_value is None:
+        # Validasi nilai (accuracy tidak wajib, hanya sharpe dan expected_value)
+        if sharpe_ml is None or expected_value is None:
             skipped_count += 1
-            print(f"❌ {symbol}: ML metrics tidak lengkap - SKIP")
+            print(f"❌ {symbol}: ML metrics tidak lengkap (Sharpe/Expected Value) - SKIP")
             continue
         
         try:
-            accuracy = float(accuracy)
+            # Accuracy tidak perlu divalidasi, hanya untuk display
+            if accuracy is not None:
+                accuracy = float(accuracy)
             sharpe_ml = float(sharpe_ml)
             expected_value = float(expected_value)
         except (TypeError, ValueError):
             skipped_count += 1
-            print(f"❌ {symbol}: ML metrics tidak valid - SKIP")
+            print(f"❌ {symbol}: ML metrics tidak valid (Sharpe/Expected Value) - SKIP")
             continue
         
-        # Cek ML metrics (HARUS SEMUA MEMENUHI)
-        ml_accuracy_ok = accuracy >= min_accuracy
+        # Cek ML metrics (HARUS SEMUA MEMENUHI - kecuali accuracy yang tidak divalidasi)
+        # Accuracy TIDAK DIVALIDASI - berapapun tetap lolos
         ml_sharpe_ok = sharpe_ml >= min_sharpe_ml
         ml_expected_ok = expected_value > min_expected_value
         
-        if not (ml_accuracy_ok and ml_sharpe_ok and ml_expected_ok):
+        if not (ml_sharpe_ok and ml_expected_ok):
             skipped_count += 1
             print(f"❌ {symbol}: ML metrics TIDAK memenuhi kriteria ketat:")
-            print(f"      - Accuracy: {accuracy:.1f}% (min: {min_accuracy}%) {'✅' if ml_accuracy_ok else '❌'}")
+            accuracy_display = f"{accuracy:.1f}%" if accuracy is not None else "N/A"
+            print(f"      - Accuracy: {accuracy_display} (TIDAK DIVALIDASI - berapapun tetap lolos)")
             print(f"      - Sharpe: {sharpe_ml:.2f} (min: {min_sharpe_ml}) {'✅' if ml_sharpe_ok else '❌'}")
             print(f"      - Expected Value: {expected_value:.2f}% (min: >{min_expected_value}%) {'✅' if ml_expected_ok else '❌'}")
             print(f"   ⏭️  SKIP - tidak akan dikirim ke AI dan Telegram")
@@ -829,7 +832,8 @@ def filter_analysis_results_by_metrics(results: List[Dict], print_summary: bool 
         # SEMUA KRITERIA TERPENUHI
         # ============================================
         print(f"✅ {symbol}: SEMUA kriteria terpenuhi!")
-        print(f"   ML Metrics: Accuracy={accuracy:.1f}%, Sharpe={sharpe_ml:.2f}, EV={expected_value:.2f}%")
+        accuracy_display = f"{accuracy:.1f}%" if accuracy is not None else "N/A"
+        print(f"   ML Metrics: Accuracy={accuracy_display}, Sharpe={sharpe_ml:.2f}, EV={expected_value:.2f}%")
         print(f"   Backtesting: Sharpe={sharpe_backtest:.2f}, Sortino={sortino_backtest:.2f}, Return={return_after:.2f}%")
         if max_dd:
             print(f"   Max DD: {max_dd:.2f}%, Win Rate: {win_rate:.1f}%")
@@ -1263,7 +1267,7 @@ def analyze_screened_coins(
                 "⚠️ <b>Tidak ada coin yang memenuhi kriteria ketat</b>\n\n"
                 "📋 <b>Kriteria yang harus dipenuhi (SEMUA):</b>\n\n"
                 "<b>ML Metrics:</b>\n"
-                "   - Accuracy >= 50%\n"
+                "   - Accuracy: TIDAK DIVALIDASI (berapapun tetap lolos)\n"
                 "   - Sharpe Ratio >= 0.5\n"
                 "   - Expected Value > 0%\n\n"
                 "<b>Backtesting Metrics:</b>\n"

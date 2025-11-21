@@ -1505,10 +1505,26 @@ try:
     import glob
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(script_dir))
-    json_file = os.path.join(project_root, "ml_prediction_result.json")
-    json_file_current = "ml_prediction_result.json"
+    # Gunakan file JSON yang unique per symbol
+    symbol_normalized = SYMBOL.replace('-USD', '').replace('-', '').upper() if SYMBOL else 'UNKNOWN'
+    json_filename = f"ml_prediction_result_{symbol_normalized}.json"
+    json_file = os.path.join(project_root, json_filename)
+    json_file_current = json_filename
     
-    json_file_to_check = json_file if os.path.exists(json_file) else (json_file_current if os.path.exists(json_file_current) else None)
+    # Juga cek file default untuk backward compatibility
+    json_file_default = os.path.join(project_root, "ml_prediction_result.json")
+    json_file_current_default = "ml_prediction_result.json"
+    
+    # Cek file symbol-specific dulu, lalu default
+    json_file_to_check = None
+    if os.path.exists(json_file):
+        json_file_to_check = json_file
+    elif os.path.exists(json_file_current):
+        json_file_to_check = json_file_current
+    elif os.path.exists(json_file_default):
+        json_file_to_check = json_file_default
+    elif os.path.exists(json_file_current_default):
+        json_file_to_check = json_file_current_default
     
     if json_file_to_check and os.path.exists(json_file_to_check):
         try:
@@ -2353,16 +2369,35 @@ if RUN_PREDICTION:
         # Get project root
         script_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(os.path.dirname(script_dir))
-        json_file = os.path.join(project_root, "ml_prediction_result.json")
-        json_file_current = "ml_prediction_result.json"  # Fallback: current directory
         
-        print(f"🔍 [DEBUG] Looking for ml_prediction_result.json:")
+        # Gunakan file JSON yang unique per symbol untuk menghindari bentrok
+        symbol_normalized = SYMBOL.replace('-USD', '').replace('-', '').upper() if SYMBOL else 'UNKNOWN'
+        json_filename = f"ml_prediction_result_{symbol_normalized}.json"
+        json_file = os.path.join(project_root, json_filename)
+        json_file_current = json_filename  # Fallback: current directory
+        
+        # Juga cek file default untuk backward compatibility
+        json_file_default = os.path.join(project_root, "ml_prediction_result.json")
+        json_file_current_default = "ml_prediction_result.json"
+        
+        print(f"🔍 [DEBUG] Looking for {json_filename}:")
         print(f"   Project root path: {json_file}")
         print(f"   Current directory path: {json_file_current}")
         print(f"   Current working directory: {os.getcwd()}")
+        print(f"   Symbol: {symbol_normalized}")
         
-        # Cek di project root dulu, lalu current directory
-        json_file_to_check = json_file if os.path.exists(json_file) else (json_file_current if os.path.exists(json_file_current) else None)
+        # Cek di project root dulu, lalu current directory, lalu default
+        json_file_to_check = None
+        if os.path.exists(json_file):
+            json_file_to_check = json_file
+        elif os.path.exists(json_file_current):
+            json_file_to_check = json_file_current
+        elif os.path.exists(json_file_default):
+            json_file_to_check = json_file_default
+            print(f"   ⚠️  Using default file (backward compatibility): {json_file_default}")
+        elif os.path.exists(json_file_current_default):
+            json_file_to_check = json_file_current_default
+            print(f"   ⚠️  Using default file (backward compatibility): {json_file_current_default}")
         
         if json_file_to_check and os.path.exists(json_file_to_check):
             print(f"✅ File ml_prediction_result.json ditemukan di: {json_file_to_check}")
@@ -2376,14 +2411,16 @@ if RUN_PREDICTION:
                 import traceback
                 traceback.print_exc()
         else:
-            print(f"⚠️  File ml_prediction_result.json belum terbuat")
+            print(f"⚠️  File {json_filename} belum terbuat")
             print(f"   Checked paths:")
             print(f"   - {json_file} (exists: {os.path.exists(json_file)})")
             print(f"   - {json_file_current} (exists: {os.path.exists(json_file_current)})")
+            print(f"   - {json_file_default} (exists: {os.path.exists(json_file_default)})")
+            print(f"   - {json_file_current_default} (exists: {os.path.exists(json_file_current_default)})")
         
         if result.returncode != 0:
             print(f"\n⚠️  Prediksi mengalami error (returncode={result.returncode}), tapi analisis strategi sudah selesai")
-            print("   💡 File ml_prediction_result.json mungkin tidak dibuat karena error")
+            print(f"   💡 File {json_filename} mungkin tidak dibuat karena error")
         else:
             print("\n" + "=" * 60)
             print("✅ PREDIKSI SELESAI - Lihat output di atas untuk signal BELI/JUAL masa depan")
@@ -2422,12 +2459,11 @@ if RUN_PREDICTION:
                     Hanya kirim jika metrics bagus untuk hemat token
                     
                     Criteria (Fleksibel - konsisten dengan filter di analyze_screened_coins.py):
-                    - Minimal 2 dari 3 metrik harus memenuhi:
-                      - Accuracy >= 50%
+                    - Accuracy: TIDAK DIVALIDASI (berapapun tetap lolos)
+                    - Minimal 2 dari 2 metrik harus memenuhi (karena accuracy tidak dihitung):
                       - Sharpe Ratio >= 0.5
                       - Expected Value >= 0%
-                    - Atau semua 3 metrik memenuhi kriteria ketat:
-                      - Accuracy >= 50%
+                    - Atau semua 2 metrik memenuhi kriteria ketat:
                       - Sharpe Ratio >= 0.5
                       - Expected Value > 0%
                     
@@ -2457,38 +2493,41 @@ if RUN_PREDICTION:
                         return True
                     
                     # Filter criteria (fleksibel - konsisten dengan analyze_screened_coins.py)
-                    min_accuracy_relaxed = 50.0  # Threshold lebih rendah
+                    # Accuracy TIDAK DIVALIDASI - berapapun tetap lolos
                     min_sharpe_relaxed = 0.5     # Threshold lebih rendah
                     min_expected_value_relaxed = 0.0  # Boleh 0 atau positif
                     
                     # Kriteria ketat (jika semua memenuhi, pasti lolos)
-                    min_accuracy_strict = 50.0
+                    # Accuracy tidak dihitung dalam kriteria ketat
                     min_sharpe_strict = 0.5
                     min_expected_value_strict = 0.0
                     
-                    # Cek kriteria ketat (semua harus memenuhi)
+                    # Cek kriteria ketat (semua harus memenuhi - kecuali accuracy)
                     meets_strict = (
-                        accuracy >= min_accuracy_strict and
                         sharpe >= min_sharpe_strict and
                         expected_value > min_expected_value_strict
                     )
                     
-                    # Cek kriteria fleksibel (minimal 2 dari 3 harus memenuhi)
-                    meets_accuracy = accuracy >= min_accuracy_relaxed
+                    # Cek kriteria fleksibel (minimal 2 dari 2 harus memenuhi - karena accuracy tidak dihitung)
+                    # Artinya: keduanya harus memenuhi
                     meets_sharpe = sharpe >= min_sharpe_relaxed
                     meets_expected = expected_value >= min_expected_value_relaxed
                     
-                    score = sum([meets_accuracy, meets_sharpe, meets_expected])
+                    # Score hanya menghitung sharpe dan expected_value (2 dari 2)
+                    score = sum([meets_sharpe, meets_expected])
+                    # Kriteria: strict (keduanya > threshold) atau fleksibel (keduanya >= threshold)
                     meets_criteria = meets_strict or score >= 2
                     
                     if meets_criteria:
                         criteria_type = "STRICT" if meets_strict else "FLEXIBLE"
-                        print(f"   ✅ Metrics bagus [{criteria_type}]: Accuracy={accuracy:.1f}%, Sharpe={sharpe:.2f}, EV={expected_value:.2f}% (Score: {score}/3)")
+                        accuracy_display = f"{accuracy:.1f}%" if accuracy is not None else "N/A"
+                        print(f"   ✅ Metrics bagus [{criteria_type}]: Accuracy={accuracy_display} (TIDAK DIVALIDASI), Sharpe={sharpe:.2f}, EV={expected_value:.2f}% (Score: {score}/2)")
                         print("   ✅ Coin memenuhi kriteria, akan dikirim ke DeepSeek")
                         return True
                     else:
-                        print(f"   ❌ Metrics tidak memenuhi kriteria (Score: {score}/3):")
-                        print(f"      - Accuracy: {accuracy:.1f}% (min: {min_accuracy_relaxed}%) {'✅' if meets_accuracy else '❌'}")
+                        accuracy_display = f"{accuracy:.1f}%" if accuracy is not None else "N/A"
+                        print(f"   ❌ Metrics tidak memenuhi kriteria (Score: {score}/2):")
+                        print(f"      - Accuracy: {accuracy_display} (TIDAK DIVALIDASI - berapapun tetap lolos)")
                         print(f"      - Sharpe: {sharpe:.2f} (min: {min_sharpe_relaxed}) {'✅' if meets_sharpe else '❌'}")
                         print(f"      - Expected Value: {expected_value:.2f}% (min: {min_expected_value_relaxed}%) {'✅' if meets_expected else '❌'}")
                         print("   ⏭️  Skip DeepSeek untuk hemat token (coin ini tidak akan dapat AI recommendation)")
@@ -2985,7 +3024,14 @@ if RUN_PREDICTION:
                     # Hapus file temporary ML prediction jika ada
                     if ml_result:
                         try:
-                            os.remove('ml_prediction_result.json')
+                            # Hapus file JSON yang sesuai dengan symbol
+                            symbol_normalized = SYMBOL.replace('-USD', '').replace('-', '').upper() if SYMBOL else 'UNKNOWN'
+                            json_filename = f'ml_prediction_result_{symbol_normalized}.json'
+                            if os.path.exists(json_filename):
+                                os.remove(json_filename)
+                            # Juga hapus file default jika ada (backward compatibility)
+                            if os.path.exists('ml_prediction_result.json'):
+                                os.remove('ml_prediction_result.json')
                         except:
                             pass
                 else:

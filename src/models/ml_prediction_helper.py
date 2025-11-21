@@ -92,9 +92,13 @@ def run_ml_prediction_and_get_results() -> Optional[Dict]:
         return None
 
 
-def get_ml_prediction_from_file() -> Optional[Dict]:
+def get_ml_prediction_from_file(symbol: Optional[str] = None) -> Optional[Dict]:
     """
     Ambil hasil ML prediction dari file JSON jika ada
+    
+    Args:
+        symbol: Symbol untuk mencari file spesifik (format: BTC-USD atau BTCUSD)
+                Jika None, akan coba cari dari config atau gunakan file default
     
     Returns:
         Dictionary dengan hasil ML prediction atau None
@@ -104,19 +108,46 @@ def get_ml_prediction_from_file() -> Optional[Dict]:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(script_dir))
     
-    json_file = os.path.join(project_root, "ml_prediction_result.json")
+    # Normalize symbol untuk nama file
+    if symbol:
+        symbol_normalized = symbol.replace('-USD', '').replace('-', '').upper()
+        json_filename = f"ml_prediction_result_{symbol_normalized}.json"
+    else:
+        # Coba ambil dari config
+        try:
+            from src.utils.config import SYMBOL
+            if SYMBOL:
+                symbol_normalized = SYMBOL.replace('-USD', '').replace('-', '').upper()
+                json_filename = f"ml_prediction_result_{symbol_normalized}.json"
+            else:
+                json_filename = "ml_prediction_result.json"  # Fallback ke default
+        except:
+            json_filename = "ml_prediction_result.json"  # Fallback ke default
+    
+    json_file = os.path.join(project_root, json_filename)
     
     print(f"🔍 [ML_HELPER] Looking for JSON file at: {json_file}")
     print(f"   Project root: {project_root}")
     print(f"   Current directory: {os.getcwd()}")
+    print(f"   Symbol: {symbol_normalized if 'symbol_normalized' in locals() else 'default'}")
     
     # Juga cek di current directory sebagai fallback
-    json_file_current = "ml_prediction_result.json"
+    json_file_current = json_filename
+    
+    # Cek juga file default (untuk backward compatibility)
+    json_file_default = os.path.join(project_root, "ml_prediction_result.json")
+    json_file_current_default = "ml_prediction_result.json"
     
     if os.path.exists(json_file):
         json_file_to_use = json_file
     elif os.path.exists(json_file_current):
         json_file_to_use = json_file_current
+    elif os.path.exists(json_file_default):
+        json_file_to_use = json_file_default
+        print(f"   ⚠️  Using default file (backward compatibility): {json_file_default}")
+    elif os.path.exists(json_file_current_default):
+        json_file_to_use = json_file_current_default
+        print(f"   ⚠️  Using default file (backward compatibility): {json_file_current_default}")
     else:
         print(f"⚠️  [ML_HELPER] File tidak ditemukan di {json_file} atau {json_file_current}")
         return None

@@ -1591,10 +1591,21 @@ def main():
         }
         
         # Pastikan file disimpan di project root (bukan di src/)
-        json_file_path = os.path.join(project_root, 'ml_prediction_result.json')
-        print(f"🔍 [DEBUG] Saving ml_prediction_result.json to: {json_file_path}")
+        # Buat nama file unique berdasarkan symbol untuk menghindari bentrok saat multiple analisis
+        try:
+            from src.utils.config import SYMBOL
+            # Normalize symbol: BTC-USD -> BTCUSD, ETH-USD -> ETHUSD
+            symbol_normalized = SYMBOL.replace('-USD', '').replace('-', '').upper() if SYMBOL else 'UNKNOWN'
+            json_filename = f'ml_prediction_result_{symbol_normalized}.json'
+        except:
+            # Fallback jika SYMBOL tidak tersedia
+            json_filename = 'ml_prediction_result.json'
+        
+        json_file_path = os.path.join(project_root, json_filename)
+        print(f"🔍 [DEBUG] Saving {json_filename} to: {json_file_path}")
         print(f"   Current directory: {os.getcwd()}")
         print(f"   Project root: {project_root}")
+        print(f"   Symbol: {symbol_normalized if 'symbol_normalized' in locals() else 'UNKNOWN'}")
         
         with open(json_file_path, 'w') as f:
             json.dump(ml_result, f, indent=2)
