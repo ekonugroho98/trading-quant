@@ -1312,7 +1312,8 @@ class TradingBot:
                 max_coins=max_coins,
                 send_to_telegram=True,  # Otomatis kirim ke Telegram
                 trading_style=trading_style,  # DAY_TRADING untuk analisis screened coins
-                skip_screening=skip_screening  # Skip screening jika diminta
+                skip_screening=skip_screening,  # Skip screening jika diminta
+                batch_size=1  # Sequential processing untuk /analyze command
             )
             
             if not results:
@@ -1589,7 +1590,8 @@ class TradingBot:
                         max_coins=params['max_coins'],
                         send_to_telegram=True,
                         trading_style=trading_style,
-                        skip_screening=params['skip_screening']
+                        skip_screening=params['skip_screening'],
+                        batch_size=1  # Sequential processing untuk /analyze_loop command
                     )
                     
                     # Kirim summary iterasi
@@ -1914,7 +1916,8 @@ class TradingBot:
                         max_coins=params['max_coins'],
                         send_to_telegram=True,
                         trading_style=trading_style,
-                        skip_screening=params['skip_screening']
+                        skip_screening=params['skip_screening'],
+                        batch_size=10  # Multi-thread per 10 coins untuk /analyze_cycle
                     )
                     
                     # Kirim summary siklus

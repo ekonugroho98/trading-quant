@@ -61,7 +61,7 @@ FILTER_YEAR = 2025  # Filter data hanya tahun tertentu (None = tidak filter)
 # KONFIGURASI DATA HISTORICAL
 # ============================================
 DATA_SOURCE = "binance"  # Pilihan: "yfinance", "binance", "coingecko", "indodax", "freecryptoapi"
-SYMBOL = "1000000BOB-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
+SYMBOL = "1000000MOG-USD"  # Untuk yfinance: BTC-USD, ETH-USD, XRP-USD, DOGE-USD, SOL-USD, ADA-USD, ENA-USD, dll
 
 # ============================================
 # KONFIGURASI BINANCE API TYPE
@@ -480,6 +480,8 @@ BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", None)  # Load dari .env
 ANALYSIS_THREAD_POOL_SIZE = int(os.getenv("ANALYSIS_THREAD_POOL_SIZE", "1"))  # Default: 1 thread
 # Batch size untuk processing (berapa coin diproses bersamaan)
 ANALYSIS_BATCH_SIZE = int(os.getenv("ANALYSIS_BATCH_SIZE", "1"))  # Default: 1 coin per batch
+# Delay antara setiap coin dalam batch (dalam detik) - untuk menghindari rate limit
+ANALYSIS_BATCH_DELAY = float(os.getenv("ANALYSIS_BATCH_DELAY", "1.0"))  # Default: 4 detik
 
 # ============================================
 # KONFIGURASI TIMEOUT

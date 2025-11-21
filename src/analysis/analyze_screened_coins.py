@@ -20,6 +20,8 @@ import json
 import time
 import re
 import glob
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Optional
 
 # Import modules
@@ -29,7 +31,8 @@ try:
         BINANCE_API_KEY, BINANCE_API_SECRET,
         ENABLE_DEEPSEEK_AI, DEEPSEEK_API_KEY, DEEPSEEK_MODEL,
         ENABLE_TELEGRAM_BOT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
-        ANALYSIS_TIMEOUT, HISTORICAL_DATA_TIMEOUT, PREDICTION_TIMEOUT, AI_TIMEOUT
+        ANALYSIS_TIMEOUT, HISTORICAL_DATA_TIMEOUT, PREDICTION_TIMEOUT, AI_TIMEOUT,
+        ANALYSIS_BATCH_SIZE, ANALYSIS_THREAD_POOL_SIZE, ANALYSIS_BATCH_DELAY
     )
     from src.screening.coin_screening import screen_coins
     from src.models.ml_prediction_helper import get_ml_prediction_from_file
@@ -940,6 +943,127 @@ def _process_single_result(result: Dict, bot: TelegramBot) -> bool:
     return True
 
 
+def _process_single_coin(
+    coin_data: Dict,
+    index: int,
+    total: int,
+    trading_style: Optional[str],
+    bot: Optional[TelegramBot],
+    results_lock: threading.Lock,
+    passed_lock: threading.Lock,
+    failed_lock: threading.Lock
+) -> Dict:
+    """
+    Process single coin analysis (thread-safe)
+    
+    Args:
+        coin_data: Coin data dict dengan 'symbol' key
+        index: Index coin (1-based)
+        total: Total jumlah coins
+        trading_style: Trading style untuk analisis
+        bot: Telegram bot instance (thread-safe)
+        results_lock: Lock untuk thread-safe append ke results
+        passed_lock: Lock untuk thread-safe increment passed_count
+        failed_lock: Lock untuk thread-safe increment failed_count
+    
+    Returns:
+        Analysis result dict
+    """
+    symbol = coin_data['symbol']
+    result = None
+    
+    try:
+        print(f"\n{'='*70}")
+        print(f"[{index}/{total}] Menganalisis {symbol}...")
+        print(f"{'='*70}")
+        
+        # Analisis coin
+        result = run_analysis_for_coin(symbol, trading_style=trading_style)
+        
+        if not result:
+            result = {'symbol': symbol, 'success': False, 'error': 'No result returned'}
+        
+        # Filter langsung (cek apakah coin ini lolos kriteria ketat)
+        filtered_single = filter_analysis_results_by_metrics([result], print_summary=False)
+        
+        if filtered_single:
+            # Coin lolos filter ketat!
+            with passed_lock:
+                pass  # Increment akan dilakukan di caller
+            
+            result = filtered_single[0]  # Ambil hasil yang sudah terfilter
+            
+            print(f"\n✅ {symbol}: LOLOS FILTER KETAT!")
+            print(f"   Langsung memproses AI dan mengirim ke Telegram...")
+            
+            # Panggil AI DeepSeek untuk coin yang lolos filter
+            if ENABLE_DEEPSEEK_AI and DEEPSEEK_API_KEY:
+                if not result.get('deepseek_recommendation'):
+                    print(f"🤖 {symbol}: Memanggil AI DeepSeek...")
+                    try:
+                        # Convert symbol format (COINUSDT -> COIN-USD untuk SYMBOL)
+                        if symbol.endswith('USDT'):
+                            coin_name = symbol.replace('USDT', '')
+                            symbol_for_config = f"{coin_name}-USD"
+                        else:
+                            symbol_for_config = symbol
+                        
+                        # Jalankan analisis_quant.py lagi untuk bagian AI
+                        analysis_script = os.path.join(project_root, 'src', 'analysis', 'analisis_quant.py')
+                        env_vars = {
+                            **os.environ,
+                            'RUN_FROM_MASTER_SCRIPT': '1',
+                            'TRADING_SYMBOL': symbol,
+                            'SYMBOL': symbol_for_config
+                        }
+                        ai_result = subprocess.run(
+                            [sys.executable, analysis_script],
+                            capture_output=True,
+                            text=True,
+                            timeout=AI_TIMEOUT,
+                            cwd=project_root,
+                            env=env_vars
+                        )
+                        
+                        if ai_result.stdout:
+                            deepseek_rec = extract_deepseek_recommendation_from_output(ai_result.stdout)
+                            if deepseek_rec:
+                                result['deepseek_recommendation'] = deepseek_rec
+                                print(f"   ✅ AI recommendation berhasil didapat")
+                            else:
+                                print(f"   ⚠️  AI recommendation tidak ditemukan di output")
+                        else:
+                            print(f"   ⚠️  Tidak ada output dari analisis_quant.py")
+                            
+                    except Exception as e:
+                        print(f"   ❌ Error memanggil AI: {e}")
+            
+            # Kirim langsung ke Telegram (thread-safe)
+            if bot:
+                try:
+                    print(f"📱 {symbol}: Mengirim ke Telegram...")
+                    send_analysis_results_to_telegram([result], bot)
+                    result['_sent_to_telegram'] = True
+                    print(f"   ✅ {symbol} berhasil dikirim ke Telegram")
+                except Exception as e:
+                    print(f"   ❌ Error mengirim ke Telegram: {e}")
+        else:
+            # Coin tidak lolos filter
+            with failed_lock:
+                pass  # Increment akan dilakukan di caller
+            print(f"\n❌ {symbol}: TIDAK memenuhi kriteria ketat")
+            print(f"   ⏭️  Skip - tidak akan dikirim ke AI dan Telegram")
+    
+    except Exception as e:
+        print(f"❌ Error processing {symbol}: {e}")
+        import traceback
+        traceback.print_exc()
+        if not result:
+            result = {'symbol': symbol, 'success': False, 'error': str(e)}
+    
+    return result
+
+
 def send_analysis_results_to_telegram(results: List[Dict], bot: TelegramBot) -> bool:
     """
     Kirim hasil analisis ke Telegram dengan format yang disederhanakan
@@ -978,7 +1102,8 @@ def analyze_screened_coins(
     max_coins: int = 100,  # Limit jumlah coin yang dianalisis
     send_to_telegram: bool = True,
     trading_style: Optional[str] = "DAY_TRADING",  # Default: DAY_TRADING untuk analisis screened coins
-    skip_screening: bool = False  # NEW: Skip screening, langsung analisis semua coins
+    skip_screening: bool = False,  # NEW: Skip screening, langsung analisis semua coins
+    batch_size: Optional[int] = None  # NEW: Batch size untuk parallel processing (default: dari config atau 10)
 ) -> List[Dict]:
     """
     Screen coins dan analisis hasilnya (atau langsung analisis tanpa screening)
@@ -993,6 +1118,9 @@ def analyze_screened_coins(
         trading_style: Trading style untuk analisis (default: "DAY_TRADING")
                        Pilihan: "SCALPING", "DAY_TRADING", "INTRADAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
         skip_screening: Skip screening, langsung analisis semua coins (default: False)
+        batch_size: Batch size untuk parallel processing (default: dari config atau 10)
+                    Jika None, akan menggunakan ANALYSIS_BATCH_SIZE dari config
+                    Jika 1, akan menggunakan sequential processing (satu per satu)
     
     Returns:
         List of analysis results
@@ -1085,99 +1213,125 @@ def analyze_screened_coins(
     print("   Setiap coin yang lolos filter akan langsung diproses AI dan dikirim ke Telegram")
     print()
     
-    # Initialize Telegram bot sekali untuk semua coin
+    # Initialize Telegram bot sekali untuk semua coin (thread-safe)
     bot = None
     if send_to_telegram and ENABLE_TELEGRAM_BOT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+    
+    # Set batch size (default: 10 untuk /analyze_cycle, atau dari config)
+    if batch_size is None:
+        batch_size = ANALYSIS_BATCH_SIZE if ANALYSIS_BATCH_SIZE > 1 else 10
+    
+    # Jika batch_size = 1, gunakan sequential processing (satu per satu)
+    use_parallel = batch_size > 1
     
     analysis_results = []
     passed_count = 0
     failed_count = 0
     
-    for i, coin_data in enumerate(coins_to_analyze, 1):
-        symbol = coin_data['symbol']
-        print(f"\n{'='*70}")
-        print(f"[{i}/{len(coins_to_analyze)}] Menganalisis {symbol}...")
-        print(f"{'='*70}")
+    # Thread-safe locks
+    results_lock = threading.Lock()
+    passed_lock = threading.Lock()
+    failed_lock = threading.Lock()
+    
+    if use_parallel:
+        # PARALLEL PROCESSING MODE (batch processing)
+        print(f"🚀 Mode: PARALLEL Processing (Batch Size: {batch_size})")
+        print(f"   {batch_size} coins akan dianalisis bersamaan per batch")
+        print(f"   ⏱️  Delay: 4 detik antara setiap coin dalam batch (untuk menghindari rate limit)")
+        print()
         
-        # Analisis coin
-        result = run_analysis_for_coin(symbol, trading_style=trading_style)
-        analysis_results.append(result)
+        # Process coins in batches
+        total_coins = len(coins_to_analyze)
+        num_batches = (total_coins + batch_size - 1) // batch_size  # Ceiling division
         
-        # Filter langsung (cek apakah coin ini lolos kriteria ketat)
-        # Set print_summary=False untuk real-time filtering (tidak print summary setiap coin)
-        filtered_single = filter_analysis_results_by_metrics([result], print_summary=False)
-        
-        if filtered_single:
-            # Coin lolos filter ketat!
-            passed_count += 1
-            result = filtered_single[0]  # Ambil hasil yang sudah terfilter
+        for batch_num in range(num_batches):
+            start_idx = batch_num * batch_size
+            end_idx = min(start_idx + batch_size, total_coins)
+            batch = coins_to_analyze[start_idx:end_idx]
             
-            print(f"\n✅ {symbol}: LOLOS FILTER KETAT!")
-            print(f"   Langsung memproses AI dan mengirim ke Telegram...")
+            print(f"\n{'='*70}")
+            print(f"📦 BATCH {batch_num + 1}/{num_batches} ({len(batch)} coins)")
+            print(f"{'='*70}")
             
-            # Panggil AI DeepSeek untuk coin yang lolos filter
-            if ENABLE_DEEPSEEK_AI and DEEPSEEK_API_KEY:
-                if not result.get('deepseek_recommendation'):
-                    print(f"🤖 {symbol}: Memanggil AI DeepSeek...")
+            # Process batch dengan ThreadPoolExecutor dengan staggered start (delay per coin)
+            # Ini untuk menghindari rate limit dari Binance API
+            batch_delay_seconds = ANALYSIS_BATCH_DELAY  # Delay antara setiap coin dalam batch (dari config)
+            
+            with ThreadPoolExecutor(max_workers=batch_size) as executor:
+                futures = []
+                for i, coin_data in enumerate(batch, start=start_idx + 1):
+                    # Staggered start: setiap coin mulai dengan delay 4 detik dari coin sebelumnya
+                    if i > start_idx + 1:  # Skip delay untuk coin pertama dalam batch
+                        time.sleep(batch_delay_seconds)
+                    
+                    future = executor.submit(
+                        _process_single_coin,
+                        coin_data,
+                        i,
+                        total_coins,
+                        trading_style,
+                        bot,
+                        results_lock,
+                        passed_lock,
+                        failed_lock
+                    )
+                    futures.append(future)
+                
+                # Collect results as they complete
+                for future in as_completed(futures):
                     try:
-                        # Convert symbol format (COINUSDT -> COIN-USD untuk SYMBOL)
-                        if symbol.endswith('USDT'):
-                            coin_name = symbol.replace('USDT', '')
-                            symbol_for_config = f"{coin_name}-USD"
-                        else:
-                            symbol_for_config = symbol
-                        
-                        # Jalankan analisis_quant.py lagi untuk bagian AI
-                        # Set symbol via environment variable
-                        analysis_script = os.path.join(project_root, 'src', 'analysis', 'analisis_quant.py')
-                        env_vars = {
-                            **os.environ,
-                            'RUN_FROM_MASTER_SCRIPT': '1',
-                            'TRADING_SYMBOL': symbol,  # Set trading symbol
-                            'SYMBOL': symbol_for_config  # Set symbol untuk config
-                        }
-                        ai_result = subprocess.run(
-                            [sys.executable, analysis_script],
-                            capture_output=True,
-                            text=True,
-                            timeout=AI_TIMEOUT,
-                            cwd=project_root,
-                            env=env_vars
-                        )
-                        
-                        if ai_result.stdout:
-                            deepseek_rec = extract_deepseek_recommendation_from_output(ai_result.stdout)
-                            if deepseek_rec:
-                                result['deepseek_recommendation'] = deepseek_rec
-                                print(f"   ✅ AI recommendation berhasil didapat")
-                            else:
-                                print(f"   ⚠️  AI recommendation tidak ditemukan di output")
-                        else:
-                            print(f"   ⚠️  Tidak ada output dari analisis_quant.py")
+                        result = future.result()
+                        if result:
+                            with results_lock:
+                                analysis_results.append(result)
                             
+                            # Count passed/failed
+                            filtered_single = filter_analysis_results_by_metrics([result], print_summary=False)
+                            if filtered_single:
+                                with passed_lock:
+                                    passed_count += 1
+                            else:
+                                with failed_lock:
+                                    failed_count += 1
                     except Exception as e:
-                        print(f"   ❌ Error memanggil AI: {e}")
-                        # Continue tetap kirim ke Telegram meskipun AI gagal
+                        print(f"❌ Error in future: {e}")
+                        with failed_lock:
+                            failed_count += 1
             
-            # Kirim langsung ke Telegram
-            if bot:
-                try:
-                    print(f"📱 {symbol}: Mengirim ke Telegram...")
-                    send_analysis_results_to_telegram([result], bot)
-                    result['_sent_to_telegram'] = True  # Mark sebagai sudah dikirim
-                    print(f"   ✅ {symbol} berhasil dikirim ke Telegram")
-                except Exception as e:
-                    print(f"   ❌ Error mengirim ke Telegram: {e}")
-        else:
-            # Coin tidak lolos filter
-            failed_count += 1
-            print(f"\n❌ {symbol}: TIDAK memenuhi kriteria ketat")
-            print(f"   ⏭️  Skip - tidak akan dikirim ke AI dan Telegram")
+            # Small delay antara batches
+            if batch_num < num_batches - 1:
+                time.sleep(1)
+    else:
+        # SEQUENTIAL PROCESSING MODE (satu per satu)
+        print("🔄 Mode: SEQUENTIAL Processing (satu per satu)")
+        print()
         
-        # Small delay antara analisis
-        if i < len(coins_to_analyze):
-            time.sleep(2)
+        for i, coin_data in enumerate(coins_to_analyze, 1):
+            result = _process_single_coin(
+                coin_data,
+                i,
+                len(coins_to_analyze),
+                trading_style,
+                bot,
+                results_lock,
+                passed_lock,
+                failed_lock
+            )
+            
+            if result:
+                analysis_results.append(result)
+                
+                # Count passed/failed
+                filtered_single = filter_analysis_results_by_metrics([result], print_summary=False)
+                if filtered_single:
+                    passed_count += 1
+                else:
+                    failed_count += 1
+            
+            # Small delay antara analisis
+            if i < len(coins_to_analyze):
+                time.sleep(2)
     
     # Summary
     print(f"\n{'='*70}")
