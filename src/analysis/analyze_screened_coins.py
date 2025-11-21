@@ -1103,7 +1103,7 @@ def analyze_screened_coins(
     send_to_telegram: bool = True,
     trading_style: Optional[str] = "DAY_TRADING",  # Default: DAY_TRADING untuk analisis screened coins
     skip_screening: bool = False,  # NEW: Skip screening, langsung analisis semua coins
-    batch_size: Optional[int] = None  # NEW: Batch size untuk parallel processing (default: dari config atau 10)
+    batch_size: Optional[int] = None  # NEW: Batch size untuk parallel processing (default: dari config atau 3)
 ) -> List[Dict]:
     """
     Screen coins dan analisis hasilnya (atau langsung analisis tanpa screening)
@@ -1118,7 +1118,7 @@ def analyze_screened_coins(
         trading_style: Trading style untuk analisis (default: "DAY_TRADING")
                        Pilihan: "SCALPING", "DAY_TRADING", "INTRADAY_TRADING", "SWING_TRADING", "POSITION_TRADING"
         skip_screening: Skip screening, langsung analisis semua coins (default: False)
-        batch_size: Batch size untuk parallel processing (default: dari config atau 10)
+        batch_size: Batch size untuk parallel processing (default: dari config atau 3)
                     Jika None, akan menggunakan ANALYSIS_BATCH_SIZE dari config
                     Jika 1, akan menggunakan sequential processing (satu per satu)
     
@@ -1218,9 +1218,9 @@ def analyze_screened_coins(
     if send_to_telegram and ENABLE_TELEGRAM_BOT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         bot = TelegramBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
     
-    # Set batch size (default: 10 untuk /analyze_cycle, atau dari config)
+    # Set batch size (default: 3 untuk /analyze_cycle, atau dari config)
     if batch_size is None:
-        batch_size = ANALYSIS_BATCH_SIZE if ANALYSIS_BATCH_SIZE > 1 else 10
+        batch_size = ANALYSIS_BATCH_SIZE if ANALYSIS_BATCH_SIZE > 1 else 3
     
     # Jika batch_size = 1, gunakan sequential processing (satu per satu)
     use_parallel = batch_size > 1

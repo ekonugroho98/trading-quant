@@ -1917,7 +1917,7 @@ class TradingBot:
                         send_to_telegram=True,
                         trading_style=trading_style,
                         skip_screening=params['skip_screening'],
-                        batch_size=10  # Multi-thread per 10 coins untuk /analyze_cycle
+                        batch_size=3  # Multi-thread per 3 coins untuk /analyze_cycle
                     )
                     
                     # Kirim summary siklus
