@@ -917,13 +917,14 @@ class TradingBot:
             "          <code>/analyze_loop start 7 10 5 both 30</code> (interval 30 menit)\n"
             "          <code>/analyze_loop stop</code> - Hentikan\n"
             "          <code>/analyze_loop status</code> - Status\n"
-            "• <code>/analyze_cycle start [days] [top_n] [max_coins] [direction] [noscreen/all]</code> - Analisis siklus\n"
-            "  Contoh: <code>/analyze_cycle start</code> (screening top 5, analisis 5 coins)\n"
-            "          <code>/analyze_cycle start noscreen</code> (analisis SEMUA coin dari JSON)\n"
-            "          <code>/analyze_cycle start 7 10 5 both</code> (screening top 10, analisis 5 coins)\n"
-            "          <code>/analyze_cycle start noscreen 50</code> (analisis 50 coins pertama dari JSON)\n"
+            "• <code>/analyze_cycle start [max_coins]</code> - Analisis siklus (DEFAULT: skip screening)\n"
+            "  Contoh: <code>/analyze_cycle start</code> (langsung analisis SEMUA coin dari JSON)\n"
+            "          <code>/analyze_cycle start 50</code> (langsung analisis 50 coins pertama)\n"
+            "          <code>/analyze_cycle start screen</code> (dengan screening: 90 hari, top 5)\n"
+            "          <code>/analyze_cycle start screen 90 10 5 both</code> (dengan screening)\n"
             "          <code>/analyze_cycle stop</code> - Hentikan\n"
             "          <code>/analyze_cycle status</code> - Status\n"
+            "  💡 DEFAULT: Langsung analisis semua coin dari JSON (sama seperti /analyze skip)\n"
             "  💡 Setelah semua coin selesai, langsung mulai lagi dari awal (tanpa delay)\n"
             "• <code>/settings</code> - Lihat pengaturan\n\n"
             "🚀 <b>Mulai dengan mengirim symbol coin atau gunakan /screen untuk mencari peluang!</b>"
@@ -1058,13 +1059,14 @@ class TradingBot:
                 "          <code>/analyze_loop start 7 10 5 both 30</code> (interval 30 menit)\n"
                 "          <code>/analyze_loop stop</code> - Hentikan\n"
                 "          <code>/analyze_loop status</code> - Status\n"
-                "• <code>/analyze_cycle start [days] [top_n] [max_coins] [direction] [noscreen/all]</code> - Analisis siklus\n"
-                "  Contoh: <code>/analyze_cycle start</code> (screening top 5, analisis 5 coins)\n"
-                "          <code>/analyze_cycle start noscreen</code> (analisis SEMUA coin dari JSON)\n"
-                "          <code>/analyze_cycle start 7 10 5 both</code> (screening top 10, analisis 5 coins)\n"
-                "          <code>/analyze_cycle start noscreen 50</code> (analisis 50 coins pertama dari JSON)\n"
+                "• <code>/analyze_cycle start [max_coins]</code> - Analisis siklus (DEFAULT: skip screening)\n"
+                "  Contoh: <code>/analyze_cycle start</code> (langsung analisis SEMUA coin dari JSON)\n"
+                "          <code>/analyze_cycle start 50</code> (langsung analisis 50 coins pertama)\n"
+                "          <code>/analyze_cycle start screen</code> (dengan screening: 90 hari, top 5)\n"
+                "          <code>/analyze_cycle start screen 90 10 5 both</code> (dengan screening)\n"
                 "          <code>/analyze_cycle stop</code> - Hentikan\n"
                 "          <code>/analyze_cycle status</code> - Status\n"
+                "  💡 DEFAULT: Langsung analisis semua coin dari JSON (sama seperti /analyze skip)\n"
                 "  💡 Setelah semua coin selesai, langsung mulai lagi dari awal (tanpa delay)\n"
                 "• <code>/settings</code> - Lihat pengaturan\n"
                 "• Kirim symbol coin untuk analisis\n\n"
@@ -1648,14 +1650,16 @@ class TradingBot:
         Handle /analyze_cycle command untuk analisis siklus (setelah semua coin selesai, langsung ulang dari awal)
         
         Format:
-        - /analyze_cycle start [days] [top_n] [max_coins] [direction] [noscreen/all]
+        - /analyze_cycle start [max_coins] → Langsung analisis semua coin dari JSON (DEFAULT: skip screening)
+        - /analyze_cycle start screen [days] [top_n] [max_coins] [direction] → Dengan screening
         - /analyze_cycle stop
         - /analyze_cycle status
         
         Contoh:
-        - /analyze_cycle start → Screening top 5, analisis 5 coins
-        - /analyze_cycle start noscreen → Analisis SEMUA coin dari JSON (tanpa screening)
-        - /analyze_cycle start 90 10 10 both noscreen → Analisis 10 coins pertama dari JSON
+        - /analyze_cycle start → Langsung analisis SEMUA coin dari JSON (skip screening)
+        - /analyze_cycle start 50 → Langsung analisis 50 coins pertama dari JSON
+        - /analyze_cycle start screen → Dengan screening (90 hari, top 5, analisis 5 coins)
+        - /analyze_cycle start screen 90 10 5 both → Dengan screening (90 hari, top 10, analisis 5 coins)
         
         Args:
             chat_id: Chat ID dari user
@@ -1719,11 +1723,12 @@ class TradingBot:
             
             # Start analisis siklus
             # Parse parameters
-            # Format: /analyze_cycle start [days] [top_n] [max_coins] [direction]
-            days = 90
-            top_n = 5
+            # Format: /analyze_cycle start [max_coins] [skip/noscreen]
+            # DEFAULT: Skip screening (langsung analisis semua coin dari JSON)
+            days = 90  # Tidak digunakan jika skip_screening
+            top_n = 5  # Tidak digunakan jika skip_screening
             max_coins = None
-            trade_direction = "both"
+            trade_direction = "both"  # Tidak digunakan jika skip_screening
             
             # Cek apakah sudah ada analisis siklus yang berjalan
             with self.continuous_analysis_lock:
@@ -1736,43 +1741,64 @@ class TradingBot:
                     )
                     return
             
+            # DEFAULT: skip_screening = True (langsung analisis tanpa screening, sama seperti /analyze skip)
+            skip_screening = True
+            
             # Parse parameters dari command
+            # Format yang didukung:
+            # - /analyze_cycle start → skip screening, analisis semua coin dari JSON
+            # - /analyze_cycle start 50 → skip screening, analisis 50 coins pertama
+            # - /analyze_cycle start screen → dengan screening (90 hari, top 5, analisis 5)
+            # - /analyze_cycle start screen 90 10 5 both → dengan screening (custom params)
+            
             if len(parts) > 2:  # Ada parameter setelah "start"
-                try:
-                    if parts[2].isdigit():
-                        days = int(parts[2])
-                        if not (1 <= days <= 365):
-                            days = 90
-                except:
-                    pass
+                param2 = parts[2].lower()
+                
+                # Cek apakah parameter pertama adalah "screen" atau "screening"
+                if param2 == "screen" or param2 == "screening":
+                    skip_screening = False
+                    # Parse parameter untuk screening mode: screen [days] [top_n] [max_coins] [direction]
+                    if len(parts) > 3:
+                        try:
+                            days = int(parts[3])
+                            if not (1 <= days <= 365):
+                                days = 90
+                        except:
+                            pass
+                    if len(parts) > 4:
+                        try:
+                            top_n = int(parts[4])
+                            if top_n < 1 or top_n > 200:
+                                top_n = 5
+                        except:
+                            pass
+                    if len(parts) > 5:
+                        try:
+                            max_coins = int(parts[5])
+                            if max_coins < 1:
+                                max_coins = None
+                            elif max_coins > 200:
+                                max_coins = 200
+                        except:
+                            pass
+                    if len(parts) > 6:
+                        direction_param = parts[6].lower()
+                        if direction_param in ["long", "short", "both"]:
+                            trade_direction = direction_param
+                else:
+                    # Parameter pertama adalah max_coins (skip screening mode)
+                    # Format: start [max_coins]
+                    try:
+                        max_coins = int(parts[2])
+                        if max_coins < 1:
+                            max_coins = None
+                        elif max_coins > 1000:  # Untuk skip screening, allow lebih banyak
+                            max_coins = 1000
+                    except:
+                        # Bukan angka, mungkin parameter lain - tetap skip screening
+                        pass
             
-            if len(parts) > 3:
-                try:
-                    top_n = int(parts[3])
-                    if top_n < 1 or top_n > 200:
-                        top_n = 5
-                except:
-                    pass
-            
-            if len(parts) > 4:
-                try:
-                    max_coins = int(parts[4])
-                    if max_coins < 1:
-                        max_coins = None
-                    elif max_coins > 200:
-                        max_coins = 200
-                except:
-                    pass
-            
-            if len(parts) > 5:
-                direction_param = parts[5].lower()
-                if direction_param in ["long", "short", "both"]:
-                    trade_direction = direction_param
-            
-            # Cek apakah ada parameter "noscreen" atau "direct" atau "all"
-            skip_screening = any(p.lower() in ["noscreen", "direct", "skip", "all"] for p in parts)
-            
-            # Set default max_coins berdasarkan skip_screening
+            # Set default max_coins jika belum di-set
             if skip_screening:
                 # Jika skip_screening, default max_coins = None (analisis semua)
                 if max_coins is None:
@@ -1815,16 +1841,16 @@ class TradingBot:
             # Kirim konfirmasi
             if skip_screening:
                 coins_info = f"🔢 Max Coins: {max_coins if max_coins else 'SEMUA coin dari JSON'}"
+                mode_info = "🚫 Skip Screening: Ya (Langsung analisis semua coin dari JSON)"
             else:
                 coins_info = f"📊 Top N: {top_n}\n🔢 Max Coins: {max_coins if max_coins else top_n}"
+                mode_info = f"✅ Screening: Aktif\n📅 Periode: {days} hari\n📈 Direction: {trade_direction}"
             
             self.send_message(
                 chat_id,
                 f"🔄 <b>Analisis Siklus Dimulai!</b>\n\n"
-                f"📅 Periode: {days} hari\n"
-                f"{coins_info}\n"
-                f"📈 Direction: {trade_direction}\n"
-                f"{'🚫 Skip Screening: Ya (Analisis semua coin dari JSON)' if skip_screening else '✅ Screening: Aktif (Top N coins)'}\n\n"
+                f"{mode_info}\n"
+                f"{coins_info}\n\n"
                 f"🔄 Mode: Setelah semua coin selesai dianalisis, langsung mulai lagi dari awal\n"
                 f"💡 Kirim <code>/analyze_cycle stop</code> untuk menghentikan.\n"
                 f"📊 Kirim <code>/analyze_cycle status</code> untuk melihat status."
