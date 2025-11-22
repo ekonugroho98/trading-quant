@@ -514,10 +514,14 @@ def run_analysis_for_coin(symbol: str, trading_style: Optional[str] = None) -> O
         time.sleep(1)  # Tunggu file JSON ditulis
         
         # 5. Load ML prediction result
-        ml_prediction = get_ml_prediction_from_file()
+        # IMPORTANT: Pass symbol parameter untuk menghindari race condition saat parallel processing
+        # Jika tidak pass symbol, akan membaca dari config SYMBOL yang mungkin sudah diubah oleh coin lain
+        ml_prediction = get_ml_prediction_from_file(symbol=symbol)
         if ml_prediction:
             result['ml_prediction'] = ml_prediction
-            print(f"✅ ML prediction ditemukan")
+            print(f"✅ ML prediction ditemukan untuk {symbol}")
+        else:
+            print(f"⚠️  ML prediction tidak ditemukan untuk {symbol}")
         
         # 6. Get recent trades analysis (untuk market aggression & momentum)
         try:
